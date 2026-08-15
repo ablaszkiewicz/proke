@@ -1,0 +1,18 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: proke-mongo
+    restart: unless-stopped
+    ports:
+      # 47117 instead of 27017 so it never collides with another local Mongo.
+      - '47117:27017'
+    volumes:
+      - proke-mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  proke-mongo-data:

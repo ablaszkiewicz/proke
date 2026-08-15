@@ -1,0 +1,27 @@
+# Local dev stack for proke.
+#
+#   mprocs
+#
+# All three main procs autostart. Mongo runs in Docker on 47117, the backend on 48211, the
+# frontend on 49173. The backend retries its Mongo connection, so it is fine that it boots first.
+
+procs:
+  mongo:
+    shell: 'docker compose up mongo'
+    autostart: true
+    stop: SIGINT
+
+  backend:
+    shell: 'pnpm install && pnpm start:dev'
+    cwd: backend
+    autostart: true
+
+  frontend:
+    shell: 'pnpm install && pnpm dev'
+    cwd: frontend
+    autostart: true
+
+  backend-tests:
+    shell: 'pnpm test:e2e'
+    cwd: backend
+    autostart: false

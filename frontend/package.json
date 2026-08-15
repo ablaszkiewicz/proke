@@ -1,0 +1,42 @@
+{
+  "name": "proke-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"pnpm start:app\" \"pnpm start:kea\" -n APP,KEA -c blue,green",
+    "start:app": "vite",
+    "start:kea": "kea-typegen watch --write-paths --config ./tsconfig.app.json",
+    "typegen": "kea-typegen write --write-paths --config ./tsconfig.app.json",
+    "build": "pnpm typegen && tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/funnel-display": "^5.2.8",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@tailwindcss/vite": "^4.1.13",
+    "@tanstack/react-router": "^1.131.41",
+    "axios": "^1.12.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "kea": "^3.1.7",
+    "kea-loaders": "^3.1.1",
+    "kea-localstorage": "^3.1.0",
+    "kea-subscriptions": "^3.0.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4.1.13"
+  },
+  "devDependencies": {
+    "@tanstack/router-plugin": "^1.131.43",
+    "@types/node": "^24.3.3",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react-swc": "^4.0.0",
+    "concurrently": "^9.2.1",
+    "kea-typegen": "^3.5.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.2"
+  }
+}

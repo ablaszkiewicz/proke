@@ -1,0 +1,28 @@
+# compiled output
+/dist
+/node_modules
+/build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+
+# Tests
+/coverage
+
+# IDEs and editors
+/.idea
+/.vscode
+
+# dotenv environment variable files
+.env
+.env.local
+
+# temp directory
+.temp
+.tmp

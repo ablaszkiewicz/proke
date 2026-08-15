@@ -1,0 +1,10 @@
+# Secrets. GitHub App private keys download straight into the repo root, so this is a
+# whole-extension ban rather than one filename.
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
