@@ -52,10 +52,14 @@ export const ICON = {
     "M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z",
   mention:
     "M4.75 2.37a6.5 6.5 0 0 0 6.5 11.26.75.75 0 0 1 .75 1.298 8 8 0 1 1 4-6.93v.5a2.75 2.75 0 0 1-5.072 1.475A4 4 0 1 1 12 8v.5a1.25 1.25 0 0 0 2.5 0V8a6.5 6.5 0 0 0-9.75-5.63ZM10.5 8a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
+  commit:
+    "M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
+  tag: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
+  star: "M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Zm0 2.445L6.615 5.5a.75.75 0 0 1-.564.41l-3.097.45 2.24 2.184a.75.75 0 0 1 .216.664l-.528 3.084 2.769-1.456a.75.75 0 0 1 .698 0l2.77 1.456-.53-3.084a.75.75 0 0 1 .216-.664l2.24-2.183-3.096-.45a.75.75 0 0 1-.564-.41L8 2.694Z",
 };
 
 /** A stand-in for somebody else's avatar - a real one would mean a network request. */
-function Avatar({ className }: { className?: string }) {
+export function Avatar({ className }: { className?: string }) {
   return (
     <span
       className={`size-4 shrink-0 rounded-full bg-gradient-to-br from-neutral-400 to-neutral-600 ${className ?? ""}`}
@@ -71,16 +75,16 @@ function Mention({ handle }: { handle: string }) {
   );
 }
 
-function Who({ children }: { children: ReactNode }) {
+export function Who({ children }: { children: ReactNode }) {
   return <span className="text-foreground/80">{children}</span>;
 }
 
 /**
  * The frame every preview sits in: one header line, one body line, both clipped to a single
- * line. Six mock-ups of very different GitHub moments still come out the exact same height,
- * so swapping between them never moves anything around them.
+ * line. Mock-ups of very different GitHub moments still come out the exact same height, which
+ * the reel that stacks them depends on.
  */
-function Preview({
+export function Preview({
   icon,
   header,
   badge,

@@ -1,10 +1,7 @@
-import {
-  NOTIFICATION_TYPES,
-  Octicon,
-  type NotificationTypeDescriptor,
-} from "@/components/notifications/notificationTypes";
+import { NOTIFICATION_TYPES, Octicon } from "@/components/notifications/notificationTypes";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { PreviewReel } from "./PreviewReel";
 
 const CHECK =
   "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z";
@@ -12,12 +9,11 @@ const CHECK =
 /**
  * What a poke can be about. Nothing here is a control - every kind is on for every account
  * you turn on, and pretending otherwise with disabled checkboxes just looks broken. So it is a
- * list with a tick beside each, and a single preview underneath that follows the pointer.
+ * list with a tick beside each, and a window underneath onto the matching preview, which
+ * scrolls to whichever row the pointer is on - and plays itself in on arrival.
  */
 export function PokesPanel({ handle }: { handle: string }) {
-  const [active, setActive] = useState<NotificationTypeDescriptor>(
-    NOTIFICATION_TYPES[0]
-  );
+  const [activeIndex, setActiveIndex] = useState(0);
 
   return (
     <section className="flex flex-col rounded-xl border p-5">
@@ -27,16 +23,16 @@ export function PokesPanel({ handle }: { handle: string }) {
       </header>
 
       <ul className="-mx-2 space-y-0.5">
-        {NOTIFICATION_TYPES.map((descriptor) => {
-          const isActive = descriptor.type === active.type;
+        {NOTIFICATION_TYPES.map((descriptor, index) => {
+          const isActive = index === activeIndex;
 
           return (
             <li key={descriptor.type}>
               <button
                 type="button"
-                onMouseEnter={() => setActive(descriptor)}
-                onFocus={() => setActive(descriptor)}
-                onClick={() => setActive(descriptor)}
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onClick={() => setActiveIndex(index)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
                   isActive ? "bg-accent" : "hover:bg-accent/50"
@@ -62,16 +58,11 @@ export function PokesPanel({ handle }: { handle: string }) {
       </ul>
 
       <div className="mt-4">
-        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
           On GitHub
         </p>
-        {/* Every preview is the same two-line height, so a swap is a fade and nothing else. */}
-        <div
-          key={active.type}
-          className="animate-rise-in [--motion-duration:180ms]"
-        >
-          {active.preview(handle)}
-        </div>
+        {/* No margin: the window's top fade is the gap under the eyebrow. */}
+        <PreviewReel index={activeIndex} handle={handle} />
       </div>
 
       <p className="mt-auto pt-4 text-[10px] leading-relaxed text-muted-foreground/60">

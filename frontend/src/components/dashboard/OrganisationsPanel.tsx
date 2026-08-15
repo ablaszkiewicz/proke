@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { RollingNumber } from "@/components/ui/RollingNumber";
 import type { Connection } from "@/lib/api/connections.api";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +23,8 @@ const STAGGER_MS = 55;
  * rows divided by hairlines rather than boxed individually - the list is the object, not each row.
  *
  * Nothing here pops. Rows cascade in once, keyed by installation so a refetch after a toggle
- * leaves them where they are; the header count cross-fades; the add link is always in the
- * layout and merely becomes visible when there is somewhere for it to go.
+ * leaves them where they are; the header count rolls to its new value; the add link is always
+ * in the layout and merely becomes visible when there is somewhere for it to go.
  */
 export function OrganisationsPanel({
   connections,
@@ -39,19 +40,29 @@ export function OrganisationsPanel({
   const isInitialLoad = loading && connections.length === 0;
   const isEmpty = !loading && connections.length === 0;
 
-  const meta = isInitialLoad
-    ? "Loading…"
+  const mode = isInitialLoad
+    ? "loading"
     : connections.length > 0
-      ? `${on} of ${connections.length} on`
-      : "";
+      ? "counts"
+      : "empty";
 
   return (
     <section className="flex flex-col rounded-xl border p-5">
       <header className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-medium">Organisations</h2>
-        {/* Keyed on the text: a change fades the new value in rather than snapping it. */}
-        <span key={meta} className="animate-fade-in text-xs text-muted-foreground">
-          {meta}
+        {/*
+          Keyed on the mode, not on the text: arriving at a count fades in, but a count that
+          then changes has to roll. Re-keying on every value would flicker the whole line for
+          the sake of one digit.
+        */}
+        <span key={mode} className="animate-fade-in text-xs text-muted-foreground">
+          {mode === "loading" ? "Loading…" : null}
+          {mode === "counts" ? (
+            <>
+              <RollingNumber value={on} max={connections.length} /> of{" "}
+              {connections.length} on
+            </>
+          ) : null}
         </span>
       </header>
 
@@ -189,7 +200,12 @@ function ConnectionRow({
     >
       <span
         aria-hidden="true"
-        className={cn("size-1.5 shrink-0 rounded-full", DOT[connection.status])}
+        className={cn(
+          // Eased, because a turn on/off now lands the moment it is clicked and a colour
+          // snapping across the row would be the one hard edge left in it.
+          "size-1.5 shrink-0 rounded-full transition-colors duration-300",
+          DOT[connection.status]
+        )}
       />
 
       <div className="min-w-0 flex-1">

@@ -17,15 +17,17 @@ export function Dashboard() {
     loadConnections();
   }, [loadConnections]);
 
+  // Loaded once we have a profile, or once we have stopped trying - a failed fetch must still
+  // show Log out.
+  const userLoaded = userData !== null || !userDataLoading;
+
   return (
     <DashboardPage
       className="min-h-dvh"
       user={{
         login: userData?.githubLogin,
         avatarUrl: userData?.avatarUrl,
-        // Loaded once we have a profile, or once we have stopped trying - a failed fetch must
-        // still show Log out.
-        loaded: userData !== null || !userDataLoading,
+        loaded: userLoaded,
       }}
       onLogout={logout}
       connections={connections}
