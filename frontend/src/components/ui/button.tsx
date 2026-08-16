@@ -34,6 +34,10 @@ const buttonVariants = cva(
       variant: {
         default:
           "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
+        // White on red in both themes: the dark palette lightens --destructive for use as
+        // text, which is too light to put foreground on top of.
+        destructive:
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/40",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-neutral-800 dark:border-neutral-700 dark:hover:bg-neutral-700",
         secondary:

@@ -1,3 +1,4 @@
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { RollingNumber } from "@/components/ui/RollingNumber";
 import type { Connection } from "@/lib/api/connections.api";
@@ -171,24 +172,37 @@ function ConnectionRow({
   onUnsubscribe: (installationId: string) => void;
   onUninstall: (installationId: string) => void;
 }) {
+  const confirm = useConfirm();
   const isSubscribed = connection.status === "subscribed";
   const isSuspended = connection.status === "suspended";
 
-  const confirmUninstall = () => {
-    const scope =
-      connection.accountType === "Organization"
-        ? `everyone in ${connection.accountLogin}`
-        : "your account";
+  const confirmUninstall = async () => {
+    const isOrganisation = connection.accountType === "Organization";
 
     // Org-wide and irreversible from here - a reinstall is a fresh install, and every
     // opt-in goes with it. Worth one interruption.
-    if (
-      window.confirm(
-        `Remove proke from ${connection.accountLogin}?\n\n` +
-          `This uninstalls the GitHub App for ${scope}, not just you. ` +
-          `Everyone's notifications from this account stop.`
-      )
-    ) {
+    const confirmed = await confirm({
+      title: `Remove proke from ${connection.accountLogin}?`,
+      description: isOrganisation ? (
+        <>
+          This uninstalls the GitHub App for{" "}
+          <strong className="font-medium text-foreground">
+            everyone in {connection.accountLogin}
+          </strong>
+          , not just you. Everyone's notifications from this account stop, and
+          turning it back on means a fresh install.
+        </>
+      ) : (
+        <>
+          This uninstalls the GitHub App from your account. Your notifications
+          from it stop, and turning it back on means a fresh install.
+        </>
+      ),
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+
+    if (confirmed) {
       onUninstall(connection.installationId);
     }
   };

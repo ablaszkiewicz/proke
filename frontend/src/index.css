@@ -142,6 +142,166 @@
 }
 
 /*
+ * How a modal arrives and leaves. Same curve as everything else that moves here, and barely any
+ * travel - a dialog that has to interrupt you should appear where it is going to be, not fly in.
+ *
+ * The exit is what the animation is really for: Modal waits on these finishing before it lets
+ * the element out of the top layer, so a dismissal reads as one motion instead of a disappearance.
+ */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes modal-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@utility animate-fade-out {
+  animation: fade-out 200ms ease-in both;
+}
+
+/*
+ * The callback screens: sign-in, adding an organisation, connecting Slack.
+ *
+ * The message arrives a word at a time. More travel and a shorter run than `rise-in`, because
+ * this one is the only thing on the screen and should read as arriving rather than settling.
+ */
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-word-in {
+  animation: word-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/*
+ * The bar under it, over exactly the two seconds the screen is up for.
+ *
+ * Exponential rather than linear, and *accelerating* - roughly 6% at half a second, 25% at one,
+ * 55% at one and a half, and the last stretch in a rush. Measured, because the obvious choice
+ * is wrong here: an ease-*out* expo is at 97% by one second and then sits pinned at full for
+ * the rest of the wait, which is the bar claiming to be finished while the user is still
+ * waiting. Accelerating never makes that claim, and it hands its momentum straight to whatever
+ * comes next instead of stopping dead before it.
+ *
+ * `both` holds it at full afterwards.
+ *
+ * Kept under `prefers-reduced-motion` - it is the only thing on the screen reporting progress,
+ * and freezing it at zero would say the opposite of what is happening. Only the decorative
+ * motion around it goes.
+ */
+@keyframes progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@utility animate-progress-fill {
+  animation: progress-fill 2000ms cubic-bezier(0.11, 0, 0.5, 0) both;
+}
+
+/*
+ * For the case the two seconds are up and the request is not: the bar has nowhere left to go,
+ * and a full bar sitting still reads as stuck. The delay matches the fill, so this never runs
+ * while there is real progress to show.
+ */
+@keyframes progress-wait {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@utility animate-progress-wait {
+  animation: progress-wait 1600ms ease-in-out 2000ms infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/*
+ * Written as rules rather than as Tailwind utilities on the element, for two reasons.
+ *
+ * The entry and exit selectors have to be mutually exclusive. Keying entry off `[open]` and exit
+ * off `[data-state=closed]` leaves both matching during the close - equal specificity, decided
+ * only by which utility Tailwind happened to emit last, which is not a thing to depend on.
+ *
+ * And `::backdrop` cannot be reached by a stacked variant at all: `backdrop:open:animate-fade-in`
+ * compiles to nothing, so the scrim was appearing and vanishing instantly while the dialog
+ * animated. Only the element carries the class; the backdrop has to be styled through it.
+ */
+dialog[data-state="open"] {
+  animation: modal-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+dialog[data-state="closed"] {
+  animation: modal-out 140ms ease-in both;
+}
+
+dialog[data-state]::backdrop {
+  background-color: rgb(0 0 0 / 50%);
+  backdrop-filter: blur(2px);
+}
+
+dialog[data-state="open"]::backdrop {
+  animation: fade-in 220ms ease-out both;
+}
+
+dialog[data-state="closed"]::backdrop {
+  animation: fade-out 140ms ease-in both;
+}
+
+/* No animation left to wait on, so Modal drops the dialog on the next tick instead of after a
+ * delay - see the getAnimations() call there. */
+@media (prefers-reduced-motion: reduce) {
+  dialog[data-state],
+  dialog[data-state]::backdrop {
+    animation: none;
+  }
+}
+
+/*
  * The dots between the two marks on the landing page. Each one runs the same cycle on its own
  * delay, so what reads is not four blinking dots but one thing travelling from GitHub to Slack.
  *
