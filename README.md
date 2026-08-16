@@ -173,7 +173,7 @@ cd frontend && pnpm deploy
 
 ## Layout
 
-- `backend/` - NestJS API with `user` and `auth` (GitHub OAuth) modules. See
-  [backend/README.md](backend/README.md).
-- `frontend/` - Vite + React + TanStack Router + kea app. See
-  [frontend/README.md](frontend/README.md).
+- `backend/` - NestJS API. GitHub App login, webhook receiver, notification routing, Slack
+  delivery.
+- `frontend/` - Vite + React + TanStack Router + kea.
+- `caddy/` - reverse proxy config for the VPS.
