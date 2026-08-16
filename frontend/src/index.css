@@ -209,16 +209,11 @@
 }
 
 /*
- * The bar under it, over exactly the two seconds the screen is up for.
+ * The bar under it, over exactly as long as the screen is up for - keep this duration in step
+ * with CALLBACK_MINIMUM_MS in CallbackScreen.tsx.
  *
- * Exponential rather than linear, and *accelerating* - roughly 6% at half a second, 25% at one,
- * 55% at one and a half, and the last stretch in a rush. Measured, because the obvious choice
- * is wrong here: an ease-*out* expo is at 97% by one second and then sits pinned at full for
- * the rest of the wait, which is the bar claiming to be finished while the user is still
- * waiting. Accelerating never makes that claim, and it hands its momentum straight to whatever
- * comes next instead of stopping dead before it.
- *
- * `both` holds it at full afterwards.
+ * Exponential: it holds low, then runs away with itself into the finish, handing its momentum
+ * to whatever comes next rather than stopping dead before it. `both` holds it at full afterwards.
  *
  * Kept under `prefers-reduced-motion` - it is the only thing on the screen reporting progress,
  * and freezing it at zero would say the opposite of what is happening. Only the decorative
@@ -234,13 +229,13 @@
 }
 
 @utility animate-progress-fill {
-  animation: progress-fill 2000ms cubic-bezier(0.11, 0, 0.5, 0) both;
+  animation: progress-fill 750ms cubic-bezier(0.7, 0, 0.84, 0) both;
 }
 
 /*
- * For the case the two seconds are up and the request is not: the bar has nowhere left to go,
- * and a full bar sitting still reads as stuck. The delay matches the fill, so this never runs
- * while there is real progress to show.
+ * For the case the fill is done and the request is not: the bar has nowhere left to go, and a
+ * full bar sitting still reads as stuck. The delay matches the fill, so this never runs while
+ * there is real progress to show.
  */
 @keyframes progress-wait {
   0%,
@@ -253,7 +248,7 @@
 }
 
 @utility animate-progress-wait {
-  animation: progress-wait 1600ms ease-in-out 2000ms infinite;
+  animation: progress-wait 1600ms ease-in-out 750ms infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;

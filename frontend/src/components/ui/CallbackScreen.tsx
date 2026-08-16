@@ -5,10 +5,13 @@ import { useEffect, useState } from "react";
  * How long a callback screen stays up, and how long the bar takes to fill. One number, because
  * they are the same fact: the bar finishing *is* the screen being done.
  *
- * A round trip that resolves in 200ms would otherwise flash a sentence nobody can read and be
- * gone - which reads as a glitch, not as speed. Two seconds is long enough to see what happened.
+ * A round trip that resolves in 50ms would otherwise flash a sentence nobody can read and be
+ * gone - which reads as a glitch, not as speed. Long enough to register, short enough not to
+ * be a wait of its own.
+ *
+ * Kept in step with the progress-fill duration in index.css by hand; they have to match.
  */
-export const CALLBACK_MINIMUM_MS = 2000;
+export const CALLBACK_MINIMUM_MS = 750;
 
 /** Long enough for the exit fade to land before the next screen replaces this one. */
 const HANDOFF_MS = 220;
