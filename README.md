@@ -87,8 +87,10 @@ into the VPS to replace the running container. The three steps are composite act
 than kept as secrets - neither is confidential, and having them visible means the pull command on
 the VPS is greppable.
 
-The container listens on 48211 and is published on the same port, so whatever sits in front of it
-(Caddy, nginx, Cloudflare) proxies the public hostname there.
+The app listens on 48211 inside the container, published on the VPS's port 80, so the public
+hostname reaches it directly over HTTP. That leaves TLS to whatever fronts the box - Cloudflare's
+proxy, most likely - which matters because Slack refuses a plain-http redirect URI. Nothing else
+on that VPS can be holding 80, or the `docker run` fails with the port already allocated.
 
 Repository secrets it needs:
 

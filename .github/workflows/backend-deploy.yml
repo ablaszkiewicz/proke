@@ -82,8 +82,9 @@ jobs:
 
           image-name: ablaszkiewicz/proke-backend
           container-name: proke-backend
-          # Same uncommon port the app uses locally, so nothing else on the VPS claims it.
-          server-port: 48211
+          # The app keeps its own uncommon port inside the container; the VPS publishes it on 80,
+          # so http://<host> reaches it with nothing in between.
+          server-port: 80
           application-port: 48211
 
           mongo-url: ${{ secrets.MONGO_URL }}
