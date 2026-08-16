@@ -67,11 +67,16 @@ runs:
         KEY: ${{ inputs.ssh-private-key }}
         # Every value is quoted: secrets here include a PEM, a base64 key and URLs, any of
         # which would otherwise be split or globbed by the remote shell.
+        #
+        # The published port is bound to 127.0.0.1, so the only way in from outside is through
+        # Caddy on :443. Without that prefix Docker binds 0.0.0.0 and writes its own iptables
+        # rule, which most firewalls on the host never see - the app would be answering plain
+        # http on the public IP whatever ufw thinks.
         script: |
           docker pull ${{ inputs.image-name }}
           docker rm -f ${{ inputs.container-name }} || true
           docker run -d \
-          -p ${{ inputs.server-port }}:${{ inputs.application-port }} \
+          -p 127.0.0.1:${{ inputs.server-port }}:${{ inputs.application-port }} \
           --restart=always \
           --add-host=host.docker.internal:host-gateway \
           --name ${{ inputs.container-name }} \

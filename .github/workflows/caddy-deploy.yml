@@ -1,0 +1,68 @@
+name: Deploy Caddy reverse proxy
+
+# Deploys Caddy (reverse proxy + automatic HTTPS via Let's Encrypt) to the VPS over SSH.
+#
+# Caddy runs with --network host so it binds host :80/:443 - :80 for the ACME challenge, :443
+# for TLS termination - and reaches the backend on localhost:48211, which the backend container
+# publishes on loopback only. The Caddyfile is copied up from caddy/Caddyfile; issued certs live
+# in the proke-caddy-data volume so redeploys re-use them rather than re-requesting and running
+# into Let's Encrypt's rate limits.
+#
+# One-time prerequisites (not handled here):
+#   - DNS: an A record for backend.proke.dev at the VPS public IP, DNS-only (grey cloud). If
+#     Cloudflare proxies it, the ACME challenge never reaches this box.
+#   - Firewall: ports 80 and 443 open on the VPS.
+# No new secrets - reuses the SSH_* secrets the backend deploy already uses.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'caddy/**'
+      - '.github/workflows/caddy-deploy.yml'
+
+env:
+  CADDY_IMAGE: caddy:2-alpine
+  CONTAINER_NAME: proke-caddy
+  REMOTE_DIR: proke/caddy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy Caddyfile to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: caddy/Caddyfile
+          target: ${{ env.REMOTE_DIR }}
+          strip_components: 1
+
+      - name: Deploy Caddy over SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          USERNAME: ${{ secrets.SSH_USERNAME }}
+          PORT: ${{ secrets.SSH_PORT }}
+          KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: CADDY_IMAGE,CONTAINER_NAME,REMOTE_DIR
+          script: |
+            set -e
+            docker pull "$CADDY_IMAGE"
+            docker rm -f "$CONTAINER_NAME" || true
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart=always \
+              --network host \
+              -v "$HOME/${REMOTE_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro" \
+              -v proke-caddy-data:/data \
+              -v proke-caddy-config:/config \
+              "$CADDY_IMAGE"

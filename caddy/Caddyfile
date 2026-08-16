@@ -1,0 +1,18 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for the proke backend.
+#
+# Deployed to the VPS by .github/workflows/caddy-deploy.yml. Caddy runs with --network host,
+# so it binds host :80 and :443 - :80 is what Let's Encrypt hits for the ACME challenge, :443
+# is where TLS is terminated - and reaches the backend on localhost:48211, which the backend
+# container publishes on loopback only.
+#
+# backend.proke.dev must be DNS-only in Cloudflare (grey cloud). Proxied, the challenge lands
+# on Cloudflare's edge instead of this box and the certificate never issues.
+
+{
+	# ACME contact address for cert-expiry notices. Caddy works without it.
+	email kqmdjc8@gmail.com
+}
+
+backend.proke.dev {
+	reverse_proxy localhost:48211
+}

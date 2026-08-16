@@ -82,9 +82,9 @@ jobs:
 
           image-name: ablaszkiewicz/proke-backend
           container-name: proke-backend
-          # The app keeps its own uncommon port inside the container; the VPS publishes it on 80,
-          # so http://<host> reaches it with nothing in between.
-          server-port: 80
+          # Caddy holds :80 and :443 on this box and proxies to here. Same port either side,
+          # published on loopback only - see the deploy template.
+          server-port: 48211
           application-port: 48211
 
           mongo-url: ${{ secrets.MONGO_URL }}

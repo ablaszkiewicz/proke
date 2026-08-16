@@ -87,10 +87,26 @@ into the VPS to replace the running container. The three steps are composite act
 than kept as secrets - neither is confidential, and having them visible means the pull command on
 the VPS is greppable.
 
-The app listens on 48211 inside the container, published on the VPS's port 80, so the public
-hostname reaches it directly over HTTP. That leaves TLS to whatever fronts the box - Cloudflare's
-proxy, most likely - which matters because Slack refuses a plain-http redirect URI. Nothing else
-on that VPS can be holding 80, or the `docker run` fails with the port already allocated.
+The app listens on 48211, published on `127.0.0.1` only - nothing reaches it from outside except
+through Caddy.
+
+### Caddy
+
+[`caddy/Caddyfile`](caddy/Caddyfile) terminates TLS for `backend.proke.dev` and proxies to
+`localhost:48211`. [`.github/workflows/caddy-deploy.yml`](.github/workflows/caddy-deploy.yml)
+copies the file up and restarts the container on any change to `caddy/**`; it reuses the `SSH_*`
+secrets and needs no new ones. Caddy runs with `--network host` so it holds :80 and :443
+directly, and issued certs persist in the `proke-caddy-data` volume so redeploys don't re-request
+them and hit Let's Encrypt's rate limits.
+
+Two prerequisites it cannot do for itself:
+
+- **`backend.proke.dev` must be DNS-only in Cloudflare** - grey cloud, not orange. Proxied, the
+  ACME challenge lands on Cloudflare's edge, Caddy never sees it, and no certificate issues. The
+  cost of grey-clouding is that the origin IP is public and Cloudflare's DDoS protection does not
+  cover the API. `proke.dev` itself is unaffected: the frontend is a Worker.
+- **Ports 80 and 443 open on the VPS.** 80 is not optional even though everything redirects to
+  443 - it is where the challenge arrives, on first issue and again at every renewal.
 
 Repository secrets it needs:
 
