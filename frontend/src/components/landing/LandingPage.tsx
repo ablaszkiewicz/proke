@@ -29,7 +29,7 @@ export function LandingPage() {
       <main className="relative flex flex-1 flex-col items-center justify-center gap-7 px-6">
         <Wiring />
 
-        <header className="flex flex-col items-center gap-2 text-center">
+        <header className="flex flex-col items-center gap-5 text-center">
           <h1
             className="animate-rise-in text-6xl font-medium tracking-tight sm:text-7xl"
             style={{ animationDelay: "60ms" }}
@@ -40,7 +40,7 @@ export function LandingPage() {
             className="animate-rise-in text-balance text-sm text-muted-foreground sm:text-base"
             style={{ animationDelay: "140ms" }}
           >
-            GitHub notifications that actually reach you.
+            GitHub notifications that actually reach you (instantly).
           </p>
         </header>
 
@@ -58,10 +58,12 @@ export function LandingPage() {
             <GithubLoginButton />
           )}
 
-          <p className="text-center text-[10px] leading-relaxed text-muted-foreground/60">
-            Review requests, mentions, comments and merges — in Slack, as they
-            happen.
-          </p>
+          {/* Only under the sign-in button: there is nothing to agree to on the way back in. */}
+          {isLoggedIn ? null : (
+            <p className="text-center text-[10px] leading-relaxed text-muted-foreground/60">
+              By signing in, you agree to our Terms of Service.
+            </p>
+          )}
 
           {loginError ? (
             <p className="text-center text-xs text-destructive">{loginError}</p>
@@ -117,7 +119,7 @@ function Wiring() {
 function PokePreview() {
   return (
     <figure
-      className="animate-rise-in w-full max-w-sm rounded-xl border bg-card/40 p-3.5 text-left"
+      className="animate-rise-in w-fit max-w-full rounded-xl border bg-card/40 p-3.5 text-left"
       style={{ animationDelay: "220ms" }}
     >
       <div className="flex items-start gap-2.5">
@@ -132,9 +134,14 @@ function PokePreview() {
               App
             </span>
           </p>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          {/*
+            One line is the whole shape of a poke, so the card is sized to hold this sentence
+            rather than the sentence trimmed to fit the card. Below `sm` there is no width to
+            hold it in and it wraps, which beats clipping the end of it.
+          */}
+          <p className="text-xs leading-relaxed text-muted-foreground sm:whitespace-nowrap">
             <span className="text-foreground">@ada</span> requested your review
-            on <span className="text-blue-400">Fix flaky upload retries #482</span>
+            on <span className="text-blue-400">Fix flaky uploads #482</span>
           </p>
           <p className="text-[10px] text-muted-foreground/60">acme/api</p>
         </div>
