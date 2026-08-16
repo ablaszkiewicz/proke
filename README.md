@@ -175,5 +175,6 @@ cd frontend && pnpm deploy
 
 - `backend/` - NestJS API. GitHub App login, webhook receiver, notification routing, Slack
   delivery.
-- `frontend/` - Vite + React + TanStack Router + kea.
+- `frontend/` - Vite + React + TanStack Router + kea. `/` is the public landing page; the
+  signed-in app and every OAuth callback live under `/app`.
 - `caddy/` - reverse proxy config for the VPS.

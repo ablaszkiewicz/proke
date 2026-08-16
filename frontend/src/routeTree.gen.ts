@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DraftsRouteImport } from './routes/drafts'
+import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AppCallbacksSlackRouteImport } from './routes/app/callbacks/slack'
 import { Route as AppCallbacksGithubAppSetupRouteImport } from './routes/app/callbacks/github-app/setup'
 import { Route as AppCallbacksOauthGithubRouteImport } from './routes/app/callbacks/oauth/github'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const DraftsRoute = DraftsRouteImport.update({
   id: '/drafts',
   path: '/drafts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/app/',
+  path: '/app/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppCallbacksSlackRoute = AppCallbacksSlackRouteImport.update({
@@ -45,6 +51,7 @@ const AppCallbacksOauthGithubRoute = AppCallbacksOauthGithubRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/drafts': typeof DraftsRoute
+  '/app/': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
   '/app/callbacks/github-app/setup': typeof AppCallbacksGithubAppSetupRoute
   '/app/callbacks/oauth/github': typeof AppCallbacksOauthGithubRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/drafts': typeof DraftsRoute
+  '/app': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
   '/app/callbacks/github-app/setup': typeof AppCallbacksGithubAppSetupRoute
   '/app/callbacks/oauth/github': typeof AppCallbacksOauthGithubRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/drafts': typeof DraftsRoute
+  '/app/': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
   '/app/callbacks/github-app/setup': typeof AppCallbacksGithubAppSetupRoute
   '/app/callbacks/oauth/github': typeof AppCallbacksOauthGithubRoute
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/drafts'
+    | '/app/'
     | '/app/callbacks/slack'
     | '/app/callbacks/github-app/setup'
     | '/app/callbacks/oauth/github'
@@ -76,6 +86,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/drafts'
+    | '/app'
     | '/app/callbacks/slack'
     | '/app/callbacks/github-app/setup'
     | '/app/callbacks/oauth/github'
@@ -83,6 +94,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/drafts'
+    | '/app/'
     | '/app/callbacks/slack'
     | '/app/callbacks/github-app/setup'
     | '/app/callbacks/oauth/github'
@@ -91,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DraftsRoute: typeof DraftsRoute
+  AppIndexRoute: typeof AppIndexRoute
   AppCallbacksSlackRoute: typeof AppCallbacksSlackRoute
   AppCallbacksGithubAppSetupRoute: typeof AppCallbacksGithubAppSetupRoute
   AppCallbacksOauthGithubRoute: typeof AppCallbacksOauthGithubRoute
@@ -110,6 +123,13 @@ declare module '@tanstack/react-router' {
       path: '/drafts'
       fullPath: '/drafts'
       preLoaderRoute: typeof DraftsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/': {
+      id: '/app/'
+      path: '/app'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/callbacks/slack': {
@@ -139,6 +159,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DraftsRoute: DraftsRoute,
+  AppIndexRoute: AppIndexRoute,
   AppCallbacksSlackRoute: AppCallbacksSlackRoute,
   AppCallbacksGithubAppSetupRoute: AppCallbacksGithubAppSetupRoute,
   AppCallbacksOauthGithubRoute: AppCallbacksOauthGithubRoute,

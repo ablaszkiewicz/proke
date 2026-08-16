@@ -108,7 +108,17 @@ export class SlackService {
 
     await this.link(userId, result.teamId, result.teamName, result.slackUserId, result.userToken);
 
-    return this.readConnection(userId);
+    const connection = await this.readConnection(userId);
+
+    // A finished connection proves itself straight away. Without this the dashboard shows a
+    // green tick nobody has a reason to believe until the first real poke either turns up or
+    // silently does not - and identity-only authorizations, which are not finished, send
+    // nothing, because there is nowhere yet to send it.
+    if (connection.status === SlackConnectionStatus.Linked) {
+      await this.sendWelcomePoke(userId);
+    }
+
+    return connection;
   }
 
   /**
@@ -161,6 +171,24 @@ export class SlackService {
       }
 
       throw error;
+    }
+  }
+
+  /**
+   * Best effort, deliberately. This runs off the back of an authorization the user has already
+   * completed; failing that round trip because Slack would not take a message would send them
+   * back through the whole thing to fix something the connection is not actually missing.
+   */
+  private async sendWelcomePoke(userId: string): Promise<void> {
+    try {
+      const user = await this.userReadService.readByIdOrThrow(userId);
+      const outcome = await this.deliveryService.deliverWelcome(user);
+
+      if (outcome !== 'sent') {
+        this.logger.warn(`The first poke for user ${userId} did not land: ${outcome}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Could not send the first poke to user ${userId}: ${error}`);
     }
   }
 

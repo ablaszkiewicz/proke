@@ -47,6 +47,26 @@ describe('Slack connection', () => {
       .post('/api/oauth.v2.access')
       .reply(200, { ok: true, team: TEAM, ...body });
 
+  /**
+   * The DM the first poke goes down. Every connection that comes out linked sends one, so any
+   * test that gets that far has to have somewhere for it to land.
+   */
+  const mockDirectMessage = (): { posted: () => any } => {
+    let posted: any;
+
+    nock('https://slack.com')
+      .post('/api/conversations.open')
+      .reply(200, { ok: true, channel: { id: 'D0ADA' } });
+    nock('https://slack.com')
+      .post('/api/chat.postMessage', (body) => {
+        posted = body;
+        return true;
+      })
+      .reply(200, { ok: true });
+
+    return { posted: () => posted };
+  };
+
   const connect = (token: string, state: string, code = 'slack-code') =>
     request(server())
       .post('/slack/connection')
@@ -197,6 +217,7 @@ describe('Slack connection', () => {
         authed_user: { id: 'U0ADA', access_token: 'xoxp-user' },
       });
       mockIdentity('U0ADA', 'ada');
+      mockDirectMessage();
 
       // when
       const response = await connect(token, state);
@@ -234,6 +255,7 @@ describe('Slack connection', () => {
         authed_user: { id: 'U0ADA', access_token: 'xoxp-user' },
       });
       mockIdentity('U0ADA', 'ada');
+      mockDirectMessage();
 
       // when - somebody adds it again
       const response = await connect(token, state);
@@ -256,12 +278,83 @@ describe('Slack connection', () => {
       const state = await stateFor(token);
       mockExchange({ authed_user: { id: 'U0BEN', access_token: 'xoxp-ben' } });
       mockIdentity('U0BEN', 'ben');
+      mockDirectMessage();
 
       // when - identity only, which needs no admin
       const response = await connect(token, state);
 
       // then
       expect(response.body.status).toEqual(SlackConnectionStatus.Linked);
+    });
+  });
+
+  describe('the first poke', () => {
+    it('goes out the moment a connection is complete, without being asked for', async () => {
+      // given - a workspace that already has proke, so this authorization finishes the job
+      const { token, user } = await bootstrap.utils.authUtils.setupUser({
+        githubLogin: 'ablaszkiewicz',
+      });
+      await bootstrap.models.slackWorkspaceModel.create({
+        teamId: TEAM.id,
+        teamName: 'Acme',
+        botUserId: 'B0PROKE',
+        botToken: 'plaintext-legacy-token',
+      });
+      const state = await stateFor(token);
+      mockExchange({ authed_user: { id: 'U0ADA', access_token: 'xoxp-user' } });
+      mockIdentity('U0ADA', 'ada');
+      const dm = mockDirectMessage();
+
+      // when
+      const response = await connect(token, state);
+
+      // then - the tick on the dashboard has already been proven by the time it is shown
+      expect(response.body.status).toEqual(SlackConnectionStatus.Linked);
+      expect(dm.posted().channel).toEqual('D0ADA');
+      expect(JSON.stringify(dm.posted().blocks)).toContain('@ablaszkiewicz');
+
+      const link = await bootstrap.models.slackLinkModel.findOne({ userId: user.id });
+      expect(link?.dmChannelId).toEqual('D0ADA');
+    });
+
+    it('does not send one when the workspace still has to add proke', async () => {
+      // given - identity only: there is no bot token, so there is nothing to send with
+      const { token } = await bootstrap.utils.authUtils.setupUser();
+      const state = await stateFor(token);
+      mockExchange({ authed_user: { id: 'U0ADA', access_token: 'xoxp-user' } });
+      mockIdentity('U0ADA', 'ada');
+
+      // when - no DM is mocked, so an attempt to send one would fail this test
+      const response = await connect(token, state);
+
+      // then
+      expect(response.body.status).toEqual(SlackConnectionStatus.WorkspaceMissing);
+    });
+
+    it('keeps the connection when Slack refuses the message', async () => {
+      // given - the user has authorized; a workspace that will not take a DM is not their
+      // problem to solve, and losing the connection over it would be
+      const { token, user } = await bootstrap.utils.authUtils.setupUser();
+      await bootstrap.models.slackWorkspaceModel.create({
+        teamId: TEAM.id,
+        teamName: 'Acme',
+        botUserId: 'B0PROKE',
+        botToken: 'plaintext-legacy-token',
+      });
+      const state = await stateFor(token);
+      mockExchange({ authed_user: { id: 'U0ADA', access_token: 'xoxp-user' } });
+      mockIdentity('U0ADA', 'ada');
+      nock('https://slack.com')
+        .post('/api/conversations.open')
+        .reply(200, { ok: false, error: 'ratelimited' });
+
+      // when
+      const response = await connect(token, state);
+
+      // then
+      expect(response.status).toEqual(201);
+      expect(response.body.status).toEqual(SlackConnectionStatus.Linked);
+      expect(await bootstrap.models.slackLinkModel.countDocuments({ userId: user.id })).toEqual(1);
     });
   });
 

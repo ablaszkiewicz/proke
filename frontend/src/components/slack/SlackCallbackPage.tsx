@@ -39,7 +39,7 @@ export function SlackCallbackPage() {
   useEffect(() => {
     if (connectState === "done") {
       // replace, so Back does not drop them onto a spent callback URL.
-      navigate({ to: "/", replace: true });
+      navigate({ to: "/app", replace: true });
     }
   }, [connectState, navigate]);
 
@@ -49,7 +49,7 @@ export function SlackCallbackPage() {
         <div className="max-w-sm space-y-4 text-center">
           <h1 className="text-lg font-medium">Slack didn't connect</h1>
           <p className="text-sm text-muted-foreground">{actionError}</p>
-          <Button onClick={() => navigate({ to: "/", replace: true })}>
+          <Button onClick={() => navigate({ to: "/app", replace: true })}>
             Back to proke
           </Button>
         </div>

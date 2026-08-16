@@ -59,6 +59,15 @@ export class SlackNotificationDeliveryService {
     return this.send(user.id, buildTestMessage(user.githubLogin), { rethrow: true });
   }
 
+  /**
+   * The same message, sent the moment a connection becomes complete rather than when somebody
+   * asks for it. Nobody pressed anything here, so unlike the test button a refusal is an
+   * outcome to log and move past - the connection itself is stored and fine either way.
+   */
+  public async deliverWelcome(user: UserNormalized): Promise<SlackDeliveryOutcome> {
+    return this.send(user.id, buildTestMessage(user.githubLogin));
+  }
+
   private async send(
     userId: string,
     message: SlackMessage,

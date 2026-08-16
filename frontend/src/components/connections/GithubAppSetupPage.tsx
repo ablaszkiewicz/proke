@@ -28,7 +28,7 @@ export function GithubAppSetupPage() {
     }
 
     // replace, so Back does not drop them onto a spent callback URL.
-    navigate({ to: "/", replace: true });
+    navigate({ to: "/app", replace: true });
   }, [checked, setupAction, navigate]);
 
   if (setupAction !== "request") {
@@ -49,7 +49,7 @@ export function GithubAppSetupPage() {
           we can't show it as waiting.
         </p>
 
-        <Button onClick={() => navigate({ to: "/", replace: true })}>
+        <Button onClick={() => navigate({ to: "/app", replace: true })}>
           Back to proke
         </Button>
       </div>

@@ -43,9 +43,6 @@ export function SlackPanel({
   const where = connection.teamName || "your workspace";
   const handle = connection.slackHandle ? `@${connection.slackHandle}` : null;
   const who = handle ?? "you";
-  // On a button "Slack" reads better than "your workspace" - it is the place you are being sent,
-  // not a description of it.
-  const installTarget = connection.teamName || "Slack";
 
   return (
     <section className="group flex flex-col rounded-xl border p-5 md:col-span-2">
@@ -95,7 +92,7 @@ export function SlackPanel({
             <>
               <DisconnectButton onDisconnect={onDisconnect} />
               <Button asChild size="sm">
-                <a href={connection.installUrl || undefined}>Add proke to {installTarget}</a>
+                <a href={connection.installUrl || undefined}>Add to workspace</a>
               </Button>
             </>
           ) : null}

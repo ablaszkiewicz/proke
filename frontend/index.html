@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The app is dark-only - `class="dark"` above is what Tailwind reads, but the browser needs
+      telling separately. Without this, form controls and scrollbars render light, and the first
+      paint before CSS lands is a white flash.
+    -->
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/svg+xml" href="/proke-p.svg" />
     <title>proke</title>
     <meta name="description" content="GitHub notifications that actually reach you." />
     <meta name="darkreader-lock" />

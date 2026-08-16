@@ -1,5 +1,4 @@
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
-import { ProkeLogo } from "@/components/ui/ProkeLogo";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { OrganisationsPanel, type OrganisationsPanelProps } from "./OrganisationsPanel";
@@ -44,8 +43,7 @@ export function DashboardPage({
         className
       )}
     >
-      <header className="flex flex-col items-center gap-3">
-        <ProkeLogo size={44} />
+      <header className="flex flex-col items-center">
         <h1 className="text-3xl font-semibold tracking-tight">proke</h1>
       </header>
 

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="proke">
+  <!--
+    The mark: a white P on a black tile, drawn as paths rather than text so it renders
+    identically without Funnel Display installed. The tile matters at favicon sizes - a bare
+    glyph on a transparent ground disappears against a browser tab of the wrong colour, and it
+    is the app's own background colour, so the P reads the same in the tab as it does in the UI.
+
+    Fixed colours, no prefers-color-scheme: the app is dark-only, and browsers resolve that
+    query against the page's colour scheme rather than the OS, so a theme-aware favicon flipped
+    faces in the tab regardless of the system setting.
+  -->
+  <rect width="64" height="64" fill="#000" />
+
+  <!-- Stem plus bowl in one subpath, the counter in a second - evenodd punches it back out. -->
+  <path
+    fill="#fff"
+    fill-rule="evenodd"
+    d="M18 13 H34 A12 12 0 0 1 34 37 H26 V51 H18 Z
+       M26 21 H34 A4 4 0 0 1 34 29 H26 Z"
+  />
+</svg>

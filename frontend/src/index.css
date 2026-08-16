@@ -117,6 +117,32 @@
   }
 }
 
+/*
+ * The dots between the two marks on the landing page. Each one runs the same cycle on its own
+ * delay, so what reads is not four blinking dots but one thing travelling from GitHub to Slack.
+ */
+@keyframes signal {
+  0%,
+  70%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.8);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility animate-signal {
+  animation: signal 1.8s ease-in-out infinite both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
 /* The column inside a RollingNumber. Same curve as everything else that moves here. */
 @utility roll-digits {
   transition: transform var(--motion-duration, 480ms) cubic-bezier(0.2, 0.7, 0.2, 1);

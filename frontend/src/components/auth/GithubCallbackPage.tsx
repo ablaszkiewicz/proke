@@ -21,7 +21,8 @@ export function GithubCallbackPage() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      navigate({ to: "/", replace: true });
+      // Into the app, not back to the landing page - a session is the whole point of the trip.
+      navigate({ to: "/app", replace: true });
     }
   }, [isLoggedIn, navigate]);
 
