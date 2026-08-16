@@ -87,6 +87,19 @@ export function LandingPage() {
   );
 }
 
+/*
+ * The wiring opens the page rather than following it: GitHub is there from the first frame with
+ * the first poke already leaving it, and Slack scales in as the wave reaches that side. The
+ * words and the card come up underneath at the same time, so it is one arrival, not two.
+ */
+const GITHUB_MARK_MS = 0;
+const SLACK_MARK_MS = 500;
+const DOT_ENTER_MS = GITHUB_MARK_MS;
+const DOT_ENTER_STEP_MS = 140;
+/** After the last dot has landed, plus a breath. Before it, the loop would tread on the arrival. */
+const SIGNAL_START_MS = 1200;
+const SIGNAL_STEP_MS = 170;
+
 /**
  * The mark: what proke is, before a word of it is read. Two logos and the thing that moves
  * between them - the dots are the product, and the two marks are only there to say which way
@@ -94,20 +107,35 @@ export function LandingPage() {
  */
 function Wiring() {
   return (
-    <div className="animate-fade-in flex items-center gap-5" aria-hidden="true">
-      <GitHubIcon className="size-11 sm:size-12" />
+    <div className="flex items-center gap-5" aria-hidden="true">
+      <span
+        className="animate-scale-in inline-flex"
+        style={{ animationDelay: `${GITHUB_MARK_MS}ms` }}
+      >
+        <GitHubIcon className="size-11 sm:size-12" />
+      </span>
 
       <span className="flex items-center gap-2">
         {[0, 1, 2, 3].map((index) => (
           <span
             key={index}
             className="animate-signal size-1.5 rounded-full bg-foreground"
-            style={{ animationDelay: `${index * 170}ms` }}
+            // Entrance, then loop - the two animations the utility declares, in that order.
+            style={{
+              animationDelay: `${DOT_ENTER_MS + index * DOT_ENTER_STEP_MS}ms, ${
+                SIGNAL_START_MS + index * SIGNAL_STEP_MS
+              }ms`,
+            }}
           />
         ))}
       </span>
 
-      <SlackIcon className="size-11 sm:size-12" />
+      <span
+        className="animate-scale-in inline-flex"
+        style={{ animationDelay: `${SLACK_MARK_MS}ms` }}
+      >
+        <SlackIcon className="size-11 sm:size-12" />
+      </span>
     </div>
   );
 }
@@ -123,9 +151,17 @@ function PokePreview() {
       style={{ animationDelay: "220ms" }}
     >
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded bg-foreground text-[11px] font-semibold text-background">
-          p
-        </span>
+        {/*
+          The app icon itself, not an impression of one - it is the same file Slack is given and
+          renders beside a real poke, so the mock cannot drift from what people actually see.
+        */}
+        <img
+          src="/proke-p.svg"
+          alt=""
+          width={24}
+          height={24}
+          className="mt-0.5 size-6 shrink-0 rounded"
+        />
 
         <div className="min-w-0 space-y-0.5">
           <p className="flex items-center gap-1.5 text-xs font-medium">

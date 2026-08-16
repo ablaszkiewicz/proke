@@ -118,9 +118,52 @@
 }
 
 /*
+ * How the two marks on the landing page arrive: up to size and no further. Same curve as
+ * everything else that moves here, so the wiring reads as part of the page settling rather
+ * than as an effect played on top of it.
+ */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility animate-scale-in {
+  animation: scale-in 400ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/*
  * The dots between the two marks on the landing page. Each one runs the same cycle on its own
  * delay, so what reads is not four blinking dots but one thing travelling from GitHub to Slack.
+ *
+ * Two animations, because the first pass is also the arrival: `dot-in` brings a dot in bright
+ * and leaves it grey, so the wave that lights the row up is the same wave that puts it there.
+ * It rests at exactly `signal`'s 0%, which is why the handover is invisible.
  */
+@keyframes dot-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.18;
+    transform: scale(0.8);
+  }
+}
+
 @keyframes signal {
   0%,
   70%,
@@ -135,7 +178,16 @@
 }
 
 @utility animate-signal {
-  animation: signal 1.8s ease-in-out infinite both;
+  /*
+   * Order matters twice over. `signal` is second, so it wins the moment it starts; and it fills
+   * forwards rather than both, so it applies nothing during its delay - `backwards` would paint
+   * a grey dot from the first frame and there would be nothing left to arrive.
+   *
+   * Both delays are set per dot on the element: entrance first, loop second.
+   */
+  animation:
+    dot-in 520ms ease-out both,
+    signal 1.8s ease-in-out infinite forwards;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
