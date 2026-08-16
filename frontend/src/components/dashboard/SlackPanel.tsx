@@ -38,8 +38,14 @@ export function SlackPanel({
         ? "unconfigured"
         : connection.status;
 
-  const where = connection.teamName ?? "that workspace";
-  const who = connection.slackHandle ? `@${connection.slackHandle}` : "you";
+  // `||` rather than `??` throughout: an unknown workspace arrives as '' at least as often as
+  // it arrives absent, and `??` let it through as an empty gap mid-sentence.
+  const where = connection.teamName || "your workspace";
+  const handle = connection.slackHandle ? `@${connection.slackHandle}` : null;
+  const who = handle ?? "you";
+  // On a button "Slack" reads better than "your workspace" - it is the place you are being sent,
+  // not a description of it.
+  const installTarget = connection.teamName || "Slack";
 
   return (
     <section className="group flex flex-col rounded-xl border p-5 md:col-span-2">
@@ -62,8 +68,13 @@ export function SlackPanel({
             {mode === "loading" ? "Loading…" : null}
             {mode === "unconfigured" ? "Not set up on this server yet." : null}
             {mode === "unlinked" ? "Not connected, so pokes have nowhere to go." : null}
+            {/*
+              Two steps, and this is the second one - so it says so. Naming the state as
+              progress rather than as a contradiction ("you're here, but proke isn't") keeps
+              the reader from re-reading it to work out whether something failed.
+            */}
             {mode === "workspace_missing"
-              ? `You're ${who} in ${where}, but proke isn't in it yet.`
+              ? `${handle ? `Signed in as ${handle}` : "Signed in"}. One step left - add proke to ${where}.`
               : null}
             {mode === "linked" ? (
               <>
@@ -84,7 +95,7 @@ export function SlackPanel({
             <>
               <DisconnectButton onDisconnect={onDisconnect} />
               <Button asChild size="sm">
-                <a href={connection.installUrl || undefined}>Add proke to {where}</a>
+                <a href={connection.installUrl || undefined}>Add proke to {installTarget}</a>
               </Button>
             </>
           ) : null}

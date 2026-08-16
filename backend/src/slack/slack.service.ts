@@ -53,7 +53,10 @@ export class SlackService {
       return {
         status: SlackConnectionStatus.WorkspaceMissing,
         teamId: link.teamId,
-        teamName: link.teamName ?? workspace?.teamName,
+        // `||`, not `??`: the sign-in flow asks only for an identity scope and Slack's response
+        // to it frequently carries no team name, which we store as '' rather than absent. An
+        // empty string passing through here is what put "in ," in front of people.
+        teamName: link.teamName || workspace?.teamName,
         slackHandle: link.slackHandle,
         connectUrl,
         installUrl: configured ? this.oauthService.buildInstallUrl(state, link.teamId) : undefined,
