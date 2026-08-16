@@ -1,22 +1,29 @@
-import { NOTIFICATION_TYPES } from "@/components/notifications/notificationTypes";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
-import { INTRO_PREVIEWS } from "./introPreviews";
+import {
+  PokeCard,
+  POKE_INTRO_PREVIEWS,
+  POKE_PREVIEWS,
+} from "./pokePreviews";
 
-const INTRO_COUNT = INTRO_PREVIEWS.length;
-const TOTAL = INTRO_COUNT + NOTIFICATION_TYPES.length;
+const INTRO_COUNT = POKE_INTRO_PREVIEWS.length;
+/** One lap of the real list. Row `r` and row `r + CYCLE` are the same card, which is what lets
+ * a wrapping reel keep going forwards past the end and be silently put back afterwards. */
+const CYCLE = POKE_PREVIEWS.length;
+const ROWS = [...POKE_INTRO_PREVIEWS, ...POKE_PREVIEWS, ...POKE_PREVIEWS];
+const TOTAL = ROWS.length;
 
-/** Space between one stacked preview and the next. */
+/** Space between one stacked poke and the next. */
 const GAP_PX = 5;
 /** How much of the neighbours shows above and below the one in the window before fading out. */
 const PEEK_PX = 14;
 
 /**
  * Critically damped springs: leave quickly, land softly, never overshoot. Retargeting keeps the
- * velocity, so hovering three rows in quick succession reads as one scroll that carries on, not
- * three separate hops. The intro uses a softer one - a long unhurried glide down through the
- * noise - and because neither ever overshoots, once the reel is on the real list nothing can
- * carry it back up above row zero.
+ * velocity, so three rows in quick succession read as one scroll that carries on, not three
+ * separate hops. The intro uses a softer one - a long unhurried glide down through the run-up -
+ * and because neither ever overshoots, once the reel is on the real list nothing can carry it
+ * back up above row zero.
  */
 const STIFFNESS = 150;
 const INTRO_STIFFNESS = 50;
@@ -40,28 +47,39 @@ const prefersReducedMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Every preview stacked in a column behind a window one preview tall, with a run of filler
- * above the real ones. Position is a row index: 0 to 5 are the six kinds, negative is the
- * filler. The reel starts at the top of the filler and, as soon as the page is up, glides down
- * through it to row 0 - the intro. From then on choosing a row does not swap the picture, it
- * scrolls the column to it - up for rows above, down for rows below, through whatever lies
- * between - with the neighbours peeking in at the edges. Blur follows velocity, so it smears
- * when it is flying and is pin-sharp the moment it settles.
+ * Every poke stacked in a column behind a window one poke tall, with a run of others above the
+ * real ones. Position is a row index: 0 to 5 are the six kinds, negative is the run-up. The reel
+ * starts at the top of that run-up and, as soon as the page is up, flies down through it to row
+ * 0. From then on choosing a row does not swap the card, it scrolls the column to it - up for
+ * rows above, down for rows below, through whatever lies between - with the neighbours peeking
+ * in at the edges. Blur follows velocity, so it smears when it is flying and is pin-sharp the
+ * moment it settles.
  *
- * Position is a spring integrated on requestAnimationFrame and written straight to the DOM as
- * a custom property, so React never renders a frame of it. Reduced motion skips the intro and
- * jumps between rows.
+ * Who picks the row is the caller's business: the landing page runs a timer, the dashboard hands
+ * it whichever kind the pointer is on. Position is a spring integrated on requestAnimationFrame
+ * and written straight to the DOM as a custom property, so React never renders a frame of it.
+ * Reduced motion skips the intro and jumps between rows.
+ *
+ * `wrap` is for the timer case: rows only ever advance, so the last kind goes *on* to the first
+ * rather than winding five rows back up the list. It works because a second copy of the list is
+ * stacked underneath - the reel scrolls forwards into it and is rebased by one lap once it has
+ * settled, which is invisible because the card it lands on is the same card either way. A
+ * pointer-driven reel leaves it off: there, following the pointer back up the list is the honest
+ * move.
+ *
+ * Width comes from the parent - the card fills it - so a wide container gets the whole sentence
+ * and a narrow one ellipsises it.
  */
-export function PreviewReel({
+export function PokeReel({
   index,
-  handle,
+  wrap = false,
   className,
 }: {
   index: number;
-  handle: string;
+  wrap?: boolean;
   className?: string;
 }) {
-  const filterId = `reel-blur-${useId().replace(/[^\w-]/g, "")}`;
+  const filterId = `poke-reel-blur-${useId().replace(/[^\w-]/g, "")}`;
   const windowRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLDivElement>(null);
@@ -70,9 +88,9 @@ export function PreviewReel({
     x: prefersReducedMotion() ? index : -INTRO_COUNT,
     v: 0,
     target: index,
-    /** The row the reel was mounted on; leaving it is what counts as the user taking over. */
+    /** The row the reel was mounted on; leaving it is what counts as the caller taking over. */
     mountIndex: index,
-    /** Set once anything has moved the reel - the intro or the user - and never unset. */
+    /** Set once anything has moved the reel - the intro or the caller - and never unset. */
     started: false,
     frame: 0,
     last: 0,
@@ -95,6 +113,18 @@ export function PreviewReel({
     const blur = blurRef.current;
     if (!win || !viewport) return;
 
+    /**
+     * Back one lap, once the reel is at rest on the duplicate copy. Position and target move
+     * together and the card underneath is identical, so nothing about the frame changes - it
+     * just leaves room to keep going forwards on the next tick of the timer.
+     */
+    const rebase = () => {
+      if (wrap && m.x >= CYCLE) {
+        m.x -= CYCLE;
+        m.target -= CYCLE;
+      }
+    };
+
     const paint = () => {
       win.style.setProperty("--reel-index", m.x.toFixed(4));
       const amount = Math.min(MAX_BLUR_PX, Math.abs(m.v) * m.stepPx * BLUR_PER_PX_PER_S);
@@ -109,6 +139,7 @@ export function PreviewReel({
     if (prefersReducedMotion()) {
       m.x = m.target;
       m.v = 0;
+      rebase();
       paint();
       return;
     }
@@ -123,7 +154,7 @@ export function PreviewReel({
       while (dt > 0) {
         const h = Math.min(MAX_SLICE_S, dt);
         dt -= h;
-        // Soft while still up in the filler, snappy once on the real list.
+        // Soft while still up in the run-up, snappy once on the real list.
         const k = m.x < 0 ? INTRO_STIFFNESS : STIFFNESS;
         m.v += (-k * (m.x - m.target) - 2 * Math.sqrt(k) * m.v) * h;
         m.x += m.v * h;
@@ -134,30 +165,39 @@ export function PreviewReel({
       if (settled) {
         m.x = m.target;
         m.v = 0;
+        rebase();
       }
       paint();
       m.frame = settled ? 0 : requestAnimationFrame(tick);
     };
     m.frame = requestAnimationFrame(tick);
-  }, [filterId]);
+  }, [filterId, wrap]);
 
-  // The intro: the moment we are mounted, glide down onto whichever row is current. Not
-  // guarded on `started` on purpose - StrictMode's rehearsal unmount cancels the frame, and this
-  // running again is what picks the glide back up.
+  // The intro: the moment we are mounted, fly down onto whichever row is current. Not guarded on
+  // `started` on purpose - StrictMode's rehearsal unmount cancels the frame, and this running
+  // again is what picks the glide back up.
   useEffect(() => {
     motion.current.started = true;
     run();
   }, [run]);
 
-  // The user: any row but the one we mounted on gets the reel moving, intro or no intro.
+  // The caller: any row but the one we mounted on gets the reel moving, intro or no intro.
   useEffect(() => {
     const m = motion.current;
-    m.target = index;
+    // Wrapping: a row at or behind the current target is the next lap round, so aim past the
+    // end of the list rather than back up it. The loop is belt and braces - the rebase on settle
+    // means one lap is always enough.
+    let next = index;
+    while (wrap && next < m.target - 0.5) {
+      next += CYCLE;
+    }
+
+    m.target = next;
     if (m.started || index !== m.mountIndex) {
       m.started = true;
       run();
     }
-  }, [index, run]);
+  }, [index, wrap, run]);
 
   useEffect(() => {
     const m = motion.current;
@@ -180,9 +220,9 @@ export function PreviewReel({
         WebkitMaskRepeat: "no-repeat",
       }}
     >
-      {/* An invisible preview holds the window open to exactly one preview, plus the peeks. */}
+      {/* An invisible card holds the window open to exactly one poke, plus the peeks. */}
       <div ref={sizerRef} className="invisible">
-        {NOTIFICATION_TYPES[0].preview(handle)}
+        <PokeCard preview={POKE_PREVIEWS[0]} />
       </div>
 
       {/* Blurred as a whole while moving; the mask on the window keeps the fade itself crisp. */}
@@ -191,18 +231,13 @@ export function PreviewReel({
           className="absolute inset-x-0"
           style={{
             top: PEEK_PX,
-            // Slot k sits at row k - INTRO_COUNT; row 0 is the first real preview.
+            // Slot k sits at row k - INTRO_COUNT; row 0 is the first real poke.
             transform: `translateY(calc((var(--reel-index, 0) + ${INTRO_COUNT}) * -100% / ${TOTAL}))`,
           }}
         >
-          {INTRO_PREVIEWS.map((preview, i) => (
-            <div key={`intro-${i}`} style={{ paddingBottom: GAP_PX }}>
-              {preview()}
-            </div>
-          ))}
-          {NOTIFICATION_TYPES.map((descriptor) => (
-            <div key={descriptor.type} style={{ paddingBottom: GAP_PX }}>
-              {descriptor.preview(handle)}
+          {ROWS.map((preview, slot) => (
+            <div key={slot} style={{ paddingBottom: GAP_PX }}>
+              <PokeCard preview={preview} />
             </div>
           ))}
         </div>

@@ -1,10 +1,13 @@
 import { GithubLoginButton } from "@/components/auth/GithubLoginButton";
+import { PokeReel } from "@/components/notifications/PokeReel";
+import { POKE_PREVIEWS } from "@/components/notifications/pokePreviews";
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
 import { SlackIcon } from "@/components/ui/SlackIcon";
 import { authLogic } from "@/lib/logics/authLogic";
 import { Link } from "@tanstack/react-router";
 import { useValues } from "kea";
+import { useEffect, useState } from "react";
 
 const REPO_URL = "https://github.com/ablaszkiewicz/proke";
 
@@ -140,48 +143,32 @@ function Wiring() {
   );
 }
 
+/** How long one kind of poke holds the window before the reel moves to the next. */
+const POKE_CYCLE_MS = 3000;
+
 /**
- * What arrives, rendered as the Slack message it is rather than described. Fixed copy: it is a
- * picture of the product, not a live preview, and inventing a fake feed would suggest otherwise.
+ * What arrives, rendered as the Slack message it is rather than described - and all six kinds
+ * of it, one at a time. The same reel the dashboard uses; there it follows the pointer, here it
+ * walks the list on a timer.
+ *
+ * Always downwards, never back: `wrap` carries the last kind on to the first instead of winding
+ * the list back up, so the only direction anything ever moves here is the one a feed moves in.
  */
 function PokePreview() {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setStep((current) => current + 1), POKE_CYCLE_MS);
+
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <figure
-      className="animate-rise-in w-fit max-w-full rounded-xl border bg-card/40 p-3.5 text-left"
+    <div
+      className="animate-rise-in w-full max-w-md"
       style={{ animationDelay: "220ms" }}
     >
-      <div className="flex items-start gap-2.5">
-        {/*
-          The app icon itself, not an impression of one - it is the same file Slack is given and
-          renders beside a real poke, so the mock cannot drift from what people actually see.
-        */}
-        <img
-          src="/proke-p.svg"
-          alt=""
-          width={24}
-          height={24}
-          className="mt-0.5 size-6 shrink-0 rounded"
-        />
-
-        <div className="min-w-0 space-y-0.5">
-          <p className="flex items-center gap-1.5 text-xs font-medium">
-            proke
-            <span className="rounded bg-muted px-1 py-px text-[9px] font-normal uppercase tracking-wider text-muted-foreground">
-              App
-            </span>
-          </p>
-          {/*
-            One line is the whole shape of a poke, so the card is sized to hold this sentence
-            rather than the sentence trimmed to fit the card. Below `sm` there is no width to
-            hold it in and it wraps, which beats clipping the end of it.
-          */}
-          <p className="text-xs leading-relaxed text-muted-foreground sm:whitespace-nowrap">
-            <span className="text-foreground">@ada</span> requested your review
-            on <span className="text-blue-400">Fix flaky uploads #482</span>
-          </p>
-          <p className="text-[10px] text-muted-foreground/60">acme/api</p>
-        </div>
-      </div>
-    </figure>
+      <PokeReel index={step % POKE_PREVIEWS.length} wrap />
+    </div>
   );
 }

@@ -53,7 +53,7 @@ export function DashboardPage({
       */}
       <main className="grid w-full max-w-4xl gap-5 md:grid-cols-2">
         <OrganisationsPanel {...organisations} />
-        <PokesPanel handle={user.login ?? "you"} />
+        <PokesPanel />
         <SlackPanel {...slack} />
       </main>
 
