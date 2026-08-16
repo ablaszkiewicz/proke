@@ -28,6 +28,20 @@ export function MinimalDraft() {
       onSubscribe={noop}
       onUnsubscribe={noop}
       onUninstall={noop}
+      slack={{
+        connection: {
+          status: "linked",
+          teamName: "Acme",
+          slackHandle: MOCK_USER.login,
+          connectUrl: "#",
+          configured: true,
+        },
+        loading: false,
+        testState: "idle",
+        actionError: null,
+        onDisconnect: noop,
+        onTest: noop,
+      }}
     />
   );
 }

@@ -7,10 +7,15 @@ import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
 import { NotificationDeliveryService } from '../../src/notifications/delivery/notification-delivery.service';
+import { SlackNotificationDeliveryService } from '../../src/notifications/delivery/slack-notification-delivery.service';
+import { SlackLinkEntity } from '../../src/slack/links/core/entities/slack-link.entity';
+import { SlackModule } from '../../src/slack/slack.module';
+import { SlackWorkspaceEntity } from '../../src/slack/workspaces/core/entities/slack-workspace.entity';
 import { SubscriptionEntity } from '../../src/subscriptions/core/entities/subscription.entity';
 import { UserEntity } from '../../src/user/core/entities/user.entity';
 import { UserCoreModule } from '../../src/user/core/user-core.module';
 import { GithubWebhookModule } from '../../src/webhooks/github/github-webhook.module';
+import { SlackEventsModule } from '../../src/webhooks/slack/slack-events.module';
 import { AuthUtils } from './auth-utils';
 import { closeInMemoryMongoServer, rootMongooseTestModule } from './mongo-in-memory-server';
 
@@ -21,7 +26,9 @@ export async function createTestApp() {
       AuthCoreModule,
       UserCoreModule,
       ConnectionsModule,
+      SlackModule,
       GithubWebhookModule,
+      SlackEventsModule,
     ],
   }).compile();
 
@@ -41,11 +48,17 @@ export async function createTestApp() {
   const subscriptionModel: Model<SubscriptionEntity> = module.get(
     getModelToken(SubscriptionEntity.name),
   );
+  const slackWorkspaceModel: Model<SlackWorkspaceEntity> = module.get(
+    getModelToken(SlackWorkspaceEntity.name),
+  );
+  const slackLinkModel: Model<SlackLinkEntity> = module.get(getModelToken(SlackLinkEntity.name));
 
   const clearDatabase = async () => {
     await userModel.deleteMany({});
     await installationModel.deleteMany({});
     await subscriptionModel.deleteMany({});
+    await slackWorkspaceModel.deleteMany({});
+    await slackLinkModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -65,17 +78,20 @@ export async function createTestApp() {
       userModel,
       installationModel,
       subscriptionModel,
+      slackWorkspaceModel,
+      slackLinkModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),
+      slackNotificationDeliveryService: app.get(SlackNotificationDeliveryService),
     },
     utils: {
       authUtils: new AuthUtils(app),
     },
     methods: {
       clearDatabase,
-      beforeEach,
       afterAll,
+      beforeEach,
     },
   };
 }

@@ -32,8 +32,8 @@ Then create a GitHub OAuth app (Settings -> Developer settings -> OAuth Apps) wi
 | Homepage URL             | `http://localhost:49173`                         |
 | Authorization callback URL | `http://localhost:49173/app/callbacks/oauth/github` |
 
-Put the client ID in `frontend/.env` as `VITE_GITHUB_CLIENT_ID`, and the client ID + secret in
-`backend/.env` as `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`.
+Put the client ID in `frontend/.env` as `VITE_GH_APP_CLIENT_ID`, and the client ID + secret in
+`backend/.env` as `GH_APP_CLIENT_ID` / `GH_APP_CLIENT_SECRET`.
 
 ## Run
 

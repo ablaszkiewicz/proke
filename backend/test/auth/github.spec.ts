@@ -7,8 +7,8 @@ describe('Auth (github)', () => {
   let bootstrap: Awaited<ReturnType<typeof createTestApp>>;
 
   beforeAll(async () => {
-    process.env.GITHUB_APP_CLIENT_ID = 'Iv-test';
-    process.env.GITHUB_APP_CLIENT_SECRET = 'test-secret';
+    process.env.GH_APP_CLIENT_ID = 'Iv-test';
+    process.env.GH_APP_CLIENT_SECRET = 'test-secret';
     bootstrap = await createTestApp();
   });
 
@@ -172,8 +172,8 @@ describe('Auth (github)', () => {
 
   it('rejects a login when the app credentials are not configured', async () => {
     // given
-    const previous = process.env.GITHUB_APP_CLIENT_SECRET;
-    delete process.env.GITHUB_APP_CLIENT_SECRET;
+    const previous = process.env.GH_APP_CLIENT_SECRET;
+    delete process.env.GH_APP_CLIENT_SECRET;
 
     try {
       // when
@@ -183,9 +183,9 @@ describe('Auth (github)', () => {
 
       // then - says what is actually wrong, rather than relaying github's "Not Found"
       expect(loginResponse.status).toEqual(400);
-      expect(loginResponse.body.message).toContain('GITHUB_APP_CLIENT_SECRET');
+      expect(loginResponse.body.message).toContain('GH_APP_CLIENT_SECRET');
     } finally {
-      process.env.GITHUB_APP_CLIENT_SECRET = previous;
+      process.env.GH_APP_CLIENT_SECRET = previous;
     }
   });
 

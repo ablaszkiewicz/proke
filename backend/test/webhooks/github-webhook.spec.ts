@@ -12,7 +12,7 @@ describe('Webhooks (github)', () => {
   let deliverSpy: jest.SpyInstance;
 
   beforeAll(async () => {
-    process.env.GITHUB_APP_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    process.env.GH_APP_WEBHOOK_SECRET = WEBHOOK_SECRET;
     bootstrap = await createTestApp();
   });
 
@@ -393,6 +393,248 @@ describe('Webhooks (github)', () => {
       expect(await firstNotification()).toMatchObject({
         type: NotificationType.PullRequestMention,
         actorLogin: 'commenter',
+        // The text that named them travels with the poke - it is the reason for it.
+        excerpt: 'cc @ablaszkiewicz can you look?',
+      });
+    });
+
+    it('carries the comment text on a poke to the pull request author', async () => {
+      // given - the author is poked by id, not by being named
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('issue_comment', prCommentPayload({ body: 'This breaks on Windows.' }));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestComment,
+        excerpt: 'This breaks on Windows.',
+      });
+    });
+
+    it('drops an unfilled template rather than quoting its instructions', async () => {
+      // given - a description that is entirely HTML comments says nothing
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send(
+        'issue_comment',
+        prCommentPayload({
+          body: '<!-- Describe your change -->\n\n@ablaszkiewicz\n\n<!-- Checklist -->',
+          authorGithubId: 7000,
+        }),
+      );
+
+      // then
+      expect(await firstNotification()).toMatchObject({ excerpt: '@ablaszkiewicz' });
+    });
+
+    it('leaves the excerpt off an event with no words in it', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when - a review request carries no message
+      await send('pull_request', reviewRequestedPayload(4242));
+
+      // then
+      expect((await firstNotification()).excerpt).toBeUndefined();
+    });
+
+    it('carries the number and the review verdict off the payload', async () => {
+      // given - the type says a review happened; only the state says whether it was good news
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request_review', {
+        action: 'submitted',
+        installation: { id: Number(INSTALLATION_ID) },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'reviewer' },
+        review: { state: 'changes_requested', body: 'This leaks a listener.' },
+        pull_request: {
+          number: 128,
+          title: 'Wire up webhooks',
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/128',
+          user: { id: 4242, login: 'ablaszkiewicz' },
+        },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        number: 128,
+        reviewState: 'changes_requested',
+        excerpt: 'This leaks a listener.',
+      });
+    });
+
+    it('lower-cases a verdict GitHub shouts', async () => {
+      // given - the REST API returns these upper-cased; webhooks do not, but the renderer
+      // matches on an exact string and should not be at the mercy of which one we got
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request_review', {
+        action: 'submitted',
+        installation: { id: Number(INSTALLATION_ID) },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'reviewer' },
+        review: { state: 'APPROVED' },
+        pull_request: {
+          number: 9,
+          title: 'Wire up webhooks',
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+          user: { id: 4242, login: 'ablaszkiewicz' },
+        },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({ reviewState: 'approved' });
+    });
+
+    it('says nothing when a bot comments on your pull request', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when - the coverage report, every push, forever
+      await send('issue_comment', {
+        ...prCommentPayload({ body: 'Coverage decreased by 0.02%' }),
+        sender: { id: 41898282, login: 'github-actions[bot]', type: 'Bot' },
+      });
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('says nothing when a bot writes your handle', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when - a machine typing @you is not a colleague asking you something
+      await send('issue_comment', {
+        ...prCommentPayload({
+          body: '@ablaszkiewicz this dependency has a new major version',
+          authorGithubId: 7000,
+        }),
+        sender: { id: 49699333, login: 'dependabot[bot]', type: 'Bot' },
+      });
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('suppresses on type alone, without the [bot] suffix', async () => {
+      // given - the two markers disagree in some payloads; either is enough
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('issue_comment', {
+        ...prCommentPayload({ body: 'automated note' }),
+        sender: { id: 1234, login: 'some-integration', type: 'Bot' },
+      });
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('still pokes for a person whose name merely contains bot', async () => {
+      // given - matched as a suffix, so `robotnik` is a person
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('issue_comment', {
+        ...prCommentPayload({ body: 'take a look @ablaszkiewicz', authorGithubId: 7000 }),
+        sender: { id: 8080, login: 'robotnik', type: 'User' },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMention,
+        actorLogin: 'robotnik',
+      });
+    });
+
+    it('still tells you when a bot merges your pull request', async () => {
+      // given - a merge queue landing your work is not chatter
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request', {
+        action: 'closed',
+        installation: { id: Number(INSTALLATION_ID) },
+        repository: REPOSITORY,
+        sender: { id: 1234, login: 'mergify[bot]', type: 'Bot' },
+        pull_request: {
+          title: 'Bump the reel blur',
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/4',
+          merged: true,
+          user: { id: 4242, login: 'ablaszkiewicz' },
+        },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMerged,
+      });
+    });
+
+    it('still tells you when a bot asks for your review', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when - an assignment automation is handing you real work
+      await send('pull_request', {
+        ...reviewRequestedPayload(4242),
+        sender: { id: 1234, login: 'reviewer-lottery[bot]', type: 'Bot' },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewRequested,
       });
     });
 
@@ -777,10 +1019,7 @@ describe('Webhooks (github)', () => {
       });
 
       // when
-      await send(
-        'issue_comment',
-        prCommentPayload({ body: 'hey @author', authorGithubId: 4242 }),
-      );
+      await send('issue_comment', prCommentPayload({ body: 'hey @author', authorGithubId: 4242 }));
 
       // then - filtering has to happen before collapsing, or the muted type eats the poke
       expect(await firstNotification()).toMatchObject({
@@ -831,8 +1070,7 @@ describe('Webhooks (github)', () => {
 
       // then
       await waitForDocument(
-        async () =>
-          !(await bootstrap.models.installationModel.findOne({ installationId: '5150' })),
+        async () => !(await bootstrap.models.installationModel.findOne({ installationId: '5150' })),
       );
       expect(await bootstrap.models.installationModel.countDocuments()).toEqual(0);
     });

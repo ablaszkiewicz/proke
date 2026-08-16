@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { OrganisationsPanel, type OrganisationsPanelProps } from "./OrganisationsPanel";
 import { PokesPanel } from "./PokesPanel";
+import { SlackPanel, type SlackPanelProps } from "./SlackPanel";
 
 export interface DashboardUser {
   login?: string;
@@ -14,6 +15,7 @@ export interface DashboardUser {
 
 export interface DashboardPageProps extends OrganisationsPanelProps {
   user: DashboardUser;
+  slack: SlackPanelProps;
   onLogout: () => void;
   className?: string;
 }
@@ -28,6 +30,7 @@ export interface DashboardPageProps extends OrganisationsPanelProps {
  */
 export function DashboardPage({
   user,
+  slack,
   onLogout,
   className,
   ...organisations
@@ -46,9 +49,14 @@ export function DashboardPage({
         <h1 className="text-3xl font-semibold tracking-tight">proke</h1>
       </header>
 
+      {/*
+        Two columns of what proke knows, then the one line about where it all comes out. Slack
+        sits underneath both because it is downstream of both.
+      */}
       <main className="grid w-full max-w-4xl gap-5 md:grid-cols-2">
         <OrganisationsPanel {...organisations} />
         <PokesPanel handle={user.login ?? "you"} />
+        <SlackPanel {...slack} />
       </main>
 
       {/*

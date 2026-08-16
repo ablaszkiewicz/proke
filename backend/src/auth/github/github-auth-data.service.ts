@@ -21,8 +21,8 @@ export class GithubAuthDataService {
     // read like the values are wrong rather than absent.
     if (!clientId || !clientSecret) {
       throw new BadRequestException(
-        'GitHub App credentials are not configured. Set GITHUB_APP_CLIENT_ID and ' +
-          'GITHUB_APP_CLIENT_SECRET in backend/.env, then restart the backend.',
+        'GitHub App credentials are not configured. Set GH_APP_CLIENT_ID and ' +
+          'GH_APP_CLIENT_SECRET in backend/.env, then restart the backend.',
       );
     }
 

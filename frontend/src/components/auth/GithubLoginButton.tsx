@@ -5,7 +5,7 @@ import { useState } from "react";
 export function GithubLoginButton() {
   const [redirecting, setRedirecting] = useState(false);
 
-  const clientId = import.meta.env.VITE_GITHUB_APP_CLIENT_ID;
+  const clientId = import.meta.env.VITE_GH_APP_CLIENT_ID;
   const appUrl = import.meta.env.VITE_APP_URL;
 
   const handleGithubLogin = () => {
@@ -22,7 +22,7 @@ export function GithubLoginButton() {
   if (!clientId) {
     return (
       <p className="text-center text-xs text-destructive">
-        VITE_GITHUB_APP_CLIENT_ID is not set. Copy{" "}
+        VITE_GH_APP_CLIENT_ID is not set. Copy{" "}
         <code>frontend/.env.example</code> to <code>frontend/.env</code> and
         fill it in.
       </p>

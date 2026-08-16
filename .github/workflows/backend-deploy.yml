@@ -1,0 +1,112 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-deploy.yml'
+      - '.github/templates/build-and-push/**'
+      - '.github/templates/deploy-backend-container/**'
+      - '.github/templates/prune/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: ./backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: backend/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The e2e suite runs against a real mongod that mongodb-memory-server downloads on first
+      # use. Caching it keeps that download off the critical path of every run.
+      - name: Cache mongodb-memory-server binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('backend/pnpm-lock.yaml') }}
+          restore-keys: |
+            mongodb-binaries-${{ runner.os }}-
+
+      - name: Pre-download mongodb-memory-server binary
+        run: node -e "require('mongodb-memory-server').MongoMemoryServer.create().then(s => s.stop())"
+
+      - name: Run e2e tests
+        run: pnpm run test:e2e
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and push
+        uses: './.github/templates/build-and-push'
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          # Neither of these is a credential - the image is public and the account name is on
+          # every tag. Only the token is a secret.
+          dockerhub-username: ablaszkiewicz
+          image-name: ablaszkiewicz/proke-backend
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Deploy
+        uses: './.github/templates/deploy-backend-container'
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+          image-name: ablaszkiewicz/proke-backend
+          container-name: proke-backend
+          # Same uncommon port the app uses locally, so nothing else on the VPS claims it.
+          server-port: 48211
+          application-port: 48211
+
+          mongo-url: ${{ secrets.MONGO_URL }}
+          auth-jwt-secret: ${{ secrets.AUTH_JWT_SECRET }}
+          app-url: ${{ secrets.APP_URL }}
+
+          gh-app-id: ${{ secrets.GH_APP_ID }}
+          gh-app-slug: ${{ secrets.GH_APP_SLUG }}
+          gh-app-client-id: ${{ secrets.GH_APP_CLIENT_ID }}
+          gh-app-client-secret: ${{ secrets.GH_APP_CLIENT_SECRET }}
+          gh-app-private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          gh-app-webhook-secret: ${{ secrets.GH_APP_WEBHOOK_SECRET }}
+
+          slack-client-id: ${{ secrets.SLACK_CLIENT_ID }}
+          slack-client-secret: ${{ secrets.SLACK_CLIENT_SECRET }}
+          slack-signing-secret: ${{ secrets.SLACK_SIGNING_SECRET }}
+          slack-redirect-uri: ${{ secrets.SLACK_REDIRECT_URI }}
+          slack-token-encryption-key: ${{ secrets.SLACK_TOKEN_ENCRYPTION_KEY }}
+
+      - name: Prune
+        uses: './.github/templates/prune'
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}

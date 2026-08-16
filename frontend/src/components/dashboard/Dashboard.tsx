@@ -1,5 +1,6 @@
 import { authLogic } from "@/lib/logics/authLogic";
 import { connectionsLogic } from "@/lib/logics/connectionsLogic";
+import { slackLogic } from "@/lib/logics/slackLogic";
 import { useActions, useValues } from "kea";
 import { useEffect } from "react";
 import { DashboardPage } from "./DashboardPage";
@@ -12,10 +13,18 @@ export function Dashboard() {
     useValues(connectionsLogic);
   const { loadConnections, subscribe, unsubscribe, uninstall } =
     useActions(connectionsLogic);
+  const {
+    connection: slackConnection,
+    resultLoading: slackLoading,
+    testState,
+    actionError: slackError,
+  } = useValues(slackLogic);
+  const { loadConnection, disconnect, sendTestPoke } = useActions(slackLogic);
 
   useEffect(() => {
     loadConnections();
-  }, [loadConnections]);
+    loadConnection();
+  }, [loadConnections, loadConnection]);
 
   // Loaded once we have a profile, or once we have stopped trying - a failed fetch must still
   // show Log out.
@@ -38,6 +47,14 @@ export function Dashboard() {
       onSubscribe={subscribe}
       onUnsubscribe={unsubscribe}
       onUninstall={uninstall}
+      slack={{
+        connection: slackConnection,
+        loading: slackLoading,
+        testState,
+        actionError: slackError,
+        onDisconnect: disconnect,
+        onTest: sendTestPoke,
+      }}
     />
   );
 }

@@ -1,0 +1,93 @@
+name: Deploy
+
+inputs:
+  # SSH
+  host:
+    required: true
+  username:
+    required: true
+  port:
+    required: true
+  ssh-private-key:
+    required: true
+
+  # Docker
+  image-name:
+    required: true
+  container-name:
+    required: true
+  server-port:
+    required: true
+  application-port:
+    required: true
+
+  # App
+  mongo-url:
+    required: true
+  auth-jwt-secret:
+    required: true
+  app-url:
+    required: true
+
+  # GitHub App - login, webhooks and installation lookups all come from this one app.
+  gh-app-id:
+    required: true
+  gh-app-slug:
+    required: true
+  gh-app-client-id:
+    required: true
+  gh-app-client-secret:
+    required: true
+  gh-app-private-key:
+    required: true
+  gh-app-webhook-secret:
+    required: true
+
+  # Slack app
+  slack-client-id:
+    required: true
+  slack-client-secret:
+    required: true
+  slack-signing-secret:
+    required: true
+  slack-redirect-uri:
+    required: true
+  slack-token-encryption-key:
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update image inside VPS
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ inputs.host }}
+        USERNAME: ${{ inputs.username }}
+        PORT: ${{ inputs.port }}
+        KEY: ${{ inputs.ssh-private-key }}
+        # Every value is quoted: secrets here include a PEM, a base64 key and URLs, any of
+        # which would otherwise be split or globbed by the remote shell.
+        script: |
+          docker pull ${{ inputs.image-name }}
+          docker rm -f ${{ inputs.container-name }} || true
+          docker run -d \
+          -p ${{ inputs.server-port }}:${{ inputs.application-port }} \
+          --restart=always \
+          --add-host=host.docker.internal:host-gateway \
+          --name ${{ inputs.container-name }} \
+          -e PORT="${{ inputs.application-port }}" \
+          -e MONGO_URL="${{ inputs.mongo-url }}" \
+          -e AUTH_JWT_SECRET="${{ inputs.auth-jwt-secret }}" \
+          -e APP_URL="${{ inputs.app-url }}" \
+          -e GH_APP_ID="${{ inputs.gh-app-id }}" \
+          -e GH_APP_SLUG="${{ inputs.gh-app-slug }}" \
+          -e GH_APP_CLIENT_ID="${{ inputs.gh-app-client-id }}" \
+          -e GH_APP_CLIENT_SECRET="${{ inputs.gh-app-client-secret }}" \
+          -e GH_APP_PRIVATE_KEY="${{ inputs.gh-app-private-key }}" \
+          -e GH_APP_WEBHOOK_SECRET="${{ inputs.gh-app-webhook-secret }}" \
+          -e SLACK_CLIENT_ID="${{ inputs.slack-client-id }}" \
+          -e SLACK_CLIENT_SECRET="${{ inputs.slack-client-secret }}" \
+          -e SLACK_SIGNING_SECRET="${{ inputs.slack-signing-secret }}" \
+          -e SLACK_REDIRECT_URI="${{ inputs.slack-redirect-uri }}" \
+          -e SLACK_TOKEN_ENCRYPTION_KEY="${{ inputs.slack-token-encryption-key }}" \
+          ${{ inputs.image-name }}

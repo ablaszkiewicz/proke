@@ -16,13 +16,18 @@ src/
     write/         write service
   notifications/
     core/          normalized notification shape
-    delivery/      where a notification goes (stub until Slack lands)
+    delivery/      where a notification goes, and the Slack sender behind it
   webhooks/
     github/        signed webhook receiver, event routing, installation sync
+    slack/         signed events receiver (app_uninstalled, tokens_revoked)
   installations/   mirror of which accounts have the GitHub App installed
   subscriptions/   per-user opt-in to an installation, plus notification preferences
   connections/     GET /connections plus the subscribe/preferences/uninstall endpoints
-  shared/          env config, shared responses
+  slack/
+    app/           Slack Web API client, OAuth, signed state, signature verification
+    workspaces/    one row per workspace proke is installed in, with its bot token
+    links/         one row per user per workspace: who they are in it
+  shared/          env config, shared responses, token encryption
 test/              e2e tests (in-memory Mongo, GitHub API mocked with nock)
 ```
 
@@ -70,7 +75,12 @@ external services are needed.
 | DELETE | `/connections/:installationId/subscription` | bearer | Opt out                                  |
 | PUT    | `/connections/:installationId/preferences`  | bearer | Replace what that account notifies you about |
 | DELETE | `/connections/:installationId`              | bearer | Uninstall the app for everyone (owners)  |
+| GET    | `/slack/connection`                         | bearer | Where this user's pokes go, plus the next authorize URL |
+| POST   | `/slack/connection`                         | bearer | Spends a Slack OAuth code (both flows)   |
+| DELETE | `/slack/connection`                         | bearer | Unlinks this user from Slack             |
+| POST   | `/slack/connection/test`                    | bearer | Sends a test poke                        |
 | POST   | `/webhooks/github`                          | signed | GitHub App event receiver                |
+| POST   | `/webhooks/slack/events`                    | signed | Slack Events API receiver                |
 
 `POST /auth/github/login` creates the user when the GitHub id is new. Users are identified by GitHub's immutable numeric `id`, never by email - the
 email is stored for display and can change freely.
@@ -201,17 +211,104 @@ existed have none of them, and lean reads do not apply schema defaults, so `norm
 is the only thing standing between an old row and a user who quietly stops being poked. A stored
 empty array is left intact - that one is a real choice.
 
+## Slack
+
+Pokes come out in a Slack DM. That needs two separate things to be true, and they are separate
+collections because they are separate people's decisions:
+
+| | Who decides | What it stores |
+| --- | --- | --- |
+| `slack-workspaces` | whoever installs the app, often an admin | the workspace's bot token |
+| `slack-links` | the user | who they are *inside* that workspace |
+
+The pair is not a convenience. A Slack user id means nothing on its own - `U04AB` in one
+workspace and `U04AB` in another are unrelated people - and the token allowed to message either
+of them is scoped to that same workspace. Delivery needs both halves; either alone is useless.
+
+### Two authorize flows, in that order
+
+1. **Sign in with Slack** (`user_scope=identity.basic`) installs nothing, so any member can
+   complete it. It answers "who is this person, and where".
+2. **Add the bot** (`scope=chat:write,im:write`) is only offered once we know that workspace has
+   no proke in it. It usually needs permission to install apps, and Slack runs its own
+   request-an-admin flow when the user lacks it.
+
+Asking for both up front would send every member of an already-connected workspace through an
+approval they do not need. Only the first person in each workspace ever sees step 2; everyone
+after them is one click. Which flow happened is read off the OAuth response rather than tracked
+through the round trip - only an install comes back with a bot token.
+
+`state` is an HMAC of the user id, not a JWT: it travels in a URL and through Slack's logs, and
+an auth token that leaks from there could be replayed.
+
+### Setting the app up
+
+At <https://api.slack.com/apps> → **Create New App**:
+
+- **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `im:write`. User Token Scopes:
+  `identity.basic`.
+- **Redirect URLs**: `https://<tunnel>/slack/oauth/callback` - this backend, not the frontend.
+  Slack refuses plain http, `localhost` included, so the callback has to land somewhere public;
+  `GET /slack/oauth/callback` immediately 302s it to `APP_URL` carrying the code. That keeps the
+  browser on the origin that holds the session - landing it on a tunnel host instead would leave
+  the user looking logged out, since the JWT is in localStorage for `localhost:49173`. It also
+  means only one tunnel is needed, the one you already run for GitHub webhooks.
+- **Event Subscriptions** → Request URL `https://<tunnel>/webhooks/slack/events`, subscribing to
+  `app_uninstalled` and `tokens_revoked`. Slack verifies the URL with a signed challenge the
+  moment you save it, so the backend has to be running with `SLACK_SIGNING_SECRET` already set.
+- **Manage Distribution** → enable distribution, so workspaces other than your own can install it.
+
+Then fill in `SLACK_*` in `.env`. There is deliberately no bot token there: tokens are per
+workspace and arrive through OAuth.
+
+### Delivery, and what it writes back
+
+`conversations.open` then `chat.postMessage`. The DM channel id is cached on the link, so every
+later poke is one call instead of two, with a single reopen if the cached one goes stale.
+
+What Slack reports back is written to the database rather than only logged, or every event for
+every member rediscovers it forever:
+
+- `token_revoked`, `account_inactive`, `invalid_auth` → the workspace is marked revoked. The row
+  survives so the dashboard can offer a reinstall instead of quietly forgetting it.
+- `user_not_found`, `user_disabled`, `cannot_dm_bot` → that one link is dropped. The workspace is
+  fine; the pairing is not.
+- `429` → sat out once, honouring `Retry-After`.
+
+Having no Slack connection is an ordinary state, not a failure - people sign in, opt into an
+organisation, and connect Slack days later. Those pokes are logged and dropped: there is nowhere
+to hold them, and a poke about a three-day-old review request is worse than no poke.
+
+Bot tokens are encrypted at rest (AES-256-GCM, `SLACK_TOKEN_ENCRYPTION_KEY`). A value with no
+version prefix is read back as plaintext, so turning encryption on for an existing collection is
+a no-op rather than a migration.
+
 ## Local development
 
-Webhooks need a public URL. Use a plain HTTP tunnel:
+Webhooks and the Slack redirect need a public URL. `mprocs` runs one for you in its `tunnel`
+pane, which prints exactly what to paste where:
 
 ```bash
 brew install cloudflared
-cloudflared tunnel --url http://localhost:48211
+mprocs            # from the repo root
 ```
 
-Then set the GitHub App's webhook URL to `https://<generated>.trycloudflare.com/webhooks/github`.
-The quick-tunnel hostname changes on every restart, so it has to be re-pasted each session.
+One tunnel covers everything - GitHub's webhook URL, Slack's redirect and Slack's events URL all
+point at the backend, and the frontend stays on `localhost`. The pane also keeps
+`SLACK_REDIRECT_URI` in `backend/.env` in step with the live hostname (`--no-write` to opt out).
+
+By default that is a **quick tunnel**: a new `*.trycloudflare.com` on every restart, so the two
+fields in the GitHub and Slack settings pages have to be re-pasted each session. To make it
+permanent, using a domain in your Cloudflare account:
+
+```bash
+cloudflared login
+cloudflared tunnel create proke
+cloudflared tunnel route dns proke proke-api.yourdomain.com
+cp .env.tunnel.example .env.tunnel     # then fill in the name and hostname
+```
+
+After that the hostname never changes and the settings pages are a one-time job.
 
 Two things that do *not* work here:
 

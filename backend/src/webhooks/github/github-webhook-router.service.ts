@@ -29,6 +29,22 @@ interface EventContext {
 }
 
 /**
+ * The thing being talked about, and what was said about it.
+ *
+ * One object rather than a growing list of positional arguments, because every resolver reads
+ * the same handful of fields off whichever of `issue` or `pull_request` the event carries.
+ */
+interface PokeSubject {
+  title?: string;
+  htmlUrl?: string;
+  /** The #number. How people actually refer to a pull request or an issue. */
+  number?: number;
+  body?: string;
+  /** `approved`, `changes_requested`, `commented` - only ever set on a submitted review. */
+  reviewState?: string;
+}
+
+/**
  * Turns a webhook payload into at most one poke per person.
  *
  * Routing is by GitHub user id out of the payload, or by handle for @mentions - never via the
@@ -51,15 +67,13 @@ export class GithubWebhookRouterService {
   ) {}
 
   public async route(event: string, payload: any): Promise<void> {
-    const pokes = this.resolve(event, payload);
+    const pokes = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
 
     if (pokes.length === 0) {
       return;
     }
 
-    const installationId = payload?.installation?.id
-      ? String(payload.installation.id)
-      : undefined;
+    const installationId = payload?.installation?.id ? String(payload.installation.id) : undefined;
 
     // Every app-delivered event carries its installation. Without one we cannot tell which
     // opt-in would authorise the poke, so we do not send it.
@@ -103,6 +117,36 @@ export class GithubWebhookRouterService {
 
       await this.deliveryService.deliver(user, wanted[0]);
     }
+  }
+
+  /**
+   * Drops the kinds of poke a bot has no business sending.
+   *
+   * CI bots, coverage bots and dependency bots comment constantly, and a machine writing your
+   * @handle is not a colleague asking you something - it is the single largest source of noise
+   * in a GitHub notification inbox, and the reason people stop reading them.
+   *
+   * Deliberately narrow. A bot can still reach you when the event is about *your* work rather
+   * than its own chatter: a merge queue landing your pull request, or an automation asking you
+   * to review one, are real and still arrive. Only the talking is suppressed.
+   *
+   * Applied before preferences and before collapsing, so a bot comment that also mentions you
+   * cannot survive as the lower-priority half of the pair.
+   */
+  private suppressBotChatter(pokes: Poke[], sender: any): Poke[] {
+    if (!isBot(sender)) {
+      return pokes;
+    }
+
+    const kept = pokes.filter((poke) => !BOT_SUPPRESSED_TYPES.includes(poke.notification.type));
+
+    if (kept.length < pokes.length) {
+      this.logger.debug(
+        `Suppressed ${pokes.length - kept.length} poke(s) from bot ${sender?.login}`,
+      );
+    }
+
+    return kept;
   }
 
   /**
@@ -188,16 +232,17 @@ export class GithubWebhookRouterService {
       return [];
     }
 
+    const subject: PokeSubject = {
+      title: pullRequest.title,
+      htmlUrl: pullRequest.html_url,
+      number: pullRequest.number,
+    };
+
     if (payload.action === 'review_requested' && payload.requested_reviewer) {
       return [
         {
           recipient: { githubId: String(payload.requested_reviewer.id) },
-          notification: this.build(
-            NotificationType.ReviewRequested,
-            pullRequest.title,
-            pullRequest.html_url,
-            context,
-          ),
+          notification: this.build(NotificationType.ReviewRequested, subject, context),
         },
       ];
     }
@@ -207,12 +252,7 @@ export class GithubWebhookRouterService {
       return [
         {
           recipient: { githubId: String(pullRequest.user.id) },
-          notification: this.build(
-            NotificationType.PullRequestMerged,
-            pullRequest.title,
-            pullRequest.html_url,
-            context,
-          ),
+          notification: this.build(NotificationType.PullRequestMerged, subject, context),
         },
       ];
     }
@@ -221,10 +261,8 @@ export class GithubWebhookRouterService {
     // already named in it.
     if (payload.action === 'opened') {
       return this.mentionPokes(
-        pullRequest.body,
         NotificationType.PullRequestMention,
-        pullRequest.title,
-        pullRequest.html_url,
+        { ...subject, body: pullRequest.body },
         context,
       );
     }
@@ -239,30 +277,27 @@ export class GithubWebhookRouterService {
       return [];
     }
 
-    const htmlUrl = payload.review?.html_url ?? pullRequest.html_url;
+    const subject: PokeSubject = {
+      title: pullRequest.title,
+      htmlUrl: payload.review?.html_url ?? pullRequest.html_url,
+      number: pullRequest.number,
+      // Empty on a bare approval, which is right: there is nothing to quote.
+      body: payload.review?.body,
+      // Approving and demanding changes are opposite news and read as such; the type alone
+      // cannot say which happened.
+      reviewState: payload.review?.state,
+    };
+
     const pokes: Poke[] = [];
 
     if (pullRequest.user) {
       pokes.push({
         recipient: { githubId: String(pullRequest.user.id) },
-        notification: this.build(
-          NotificationType.ReviewSubmitted,
-          pullRequest.title,
-          htmlUrl,
-          context,
-        ),
+        notification: this.build(NotificationType.ReviewSubmitted, subject, context),
       });
     }
 
-    pokes.push(
-      ...this.mentionPokes(
-        payload.review?.body,
-        NotificationType.PullRequestMention,
-        pullRequest.title,
-        htmlUrl,
-        context,
-      ),
-    );
+    pokes.push(...this.mentionPokes(NotificationType.PullRequestMention, subject, context));
 
     return pokes;
   }
@@ -274,30 +309,23 @@ export class GithubWebhookRouterService {
       return [];
     }
 
-    const htmlUrl = payload.comment?.html_url ?? pullRequest.html_url;
+    const subject: PokeSubject = {
+      title: pullRequest.title,
+      htmlUrl: payload.comment?.html_url ?? pullRequest.html_url,
+      number: pullRequest.number,
+      body: payload.comment?.body,
+    };
+
     const pokes: Poke[] = [];
 
     if (pullRequest.user) {
       pokes.push({
         recipient: { githubId: String(pullRequest.user.id) },
-        notification: this.build(
-          NotificationType.PullRequestComment,
-          pullRequest.title,
-          htmlUrl,
-          context,
-        ),
+        notification: this.build(NotificationType.PullRequestComment, subject, context),
       });
     }
 
-    pokes.push(
-      ...this.mentionPokes(
-        payload.comment?.body,
-        NotificationType.PullRequestMention,
-        pullRequest.title,
-        htmlUrl,
-        context,
-      ),
-    );
+    pokes.push(...this.mentionPokes(NotificationType.PullRequestMention, subject, context));
 
     return pokes;
   }
@@ -312,28 +340,27 @@ export class GithubWebhookRouterService {
     // GitHub sends conversation comments on pull requests as `issue_comment`; the only thing
     // separating the two is this field.
     const isPullRequest = Boolean(issue.pull_request);
-    const htmlUrl = payload.comment?.html_url ?? issue.html_url;
+    const subject: PokeSubject = {
+      title: issue.title,
+      htmlUrl: payload.comment?.html_url ?? issue.html_url,
+      number: issue.number,
+      body: payload.comment?.body,
+    };
+
     const pokes: Poke[] = [];
 
     // A comment on an issue you opened is not a poke on its own - only a mention in it is.
     if (isPullRequest && issue.user) {
       pokes.push({
         recipient: { githubId: String(issue.user.id) },
-        notification: this.build(
-          NotificationType.PullRequestComment,
-          issue.title,
-          htmlUrl,
-          context,
-        ),
+        notification: this.build(NotificationType.PullRequestComment, subject, context),
       });
     }
 
     pokes.push(
       ...this.mentionPokes(
-        payload.comment?.body,
         isPullRequest ? NotificationType.PullRequestMention : NotificationType.IssueMention,
-        issue.title,
-        htmlUrl,
+        subject,
         context,
       ),
     );
@@ -349,39 +376,87 @@ export class GithubWebhookRouterService {
     }
 
     return this.mentionPokes(
-      issue.body,
       NotificationType.IssueMention,
-      issue.title,
-      issue.html_url,
+      {
+        title: issue.title,
+        htmlUrl: issue.html_url,
+        number: issue.number,
+        body: issue.body,
+      },
       context,
     );
   }
 
   private mentionPokes(
-    body: string | undefined,
     type: NotificationType,
-    title: string | undefined,
-    htmlUrl: string | undefined,
+    subject: PokeSubject,
     context: EventContext,
   ): Poke[] {
-    return extractMentionedLogins(body).map((githubLogin) => ({
+    // The text that mentions somebody is the whole reason they are being poked, so it travels
+    // with the poke rather than being thrown away after the @handles are pulled out of it.
+    return extractMentionedLogins(subject.body).map((githubLogin) => ({
       recipient: { githubLogin },
-      notification: this.build(type, title, htmlUrl, context),
+      notification: this.build(type, subject, context),
     }));
   }
 
   private build(
     type: NotificationType,
-    title: string | undefined,
-    htmlUrl: string | undefined,
+    subject: PokeSubject,
     context: EventContext,
   ): GithubNotificationNormalized {
     return {
       type,
-      title: title ?? '',
-      htmlUrl: htmlUrl ?? '',
+      title: subject.title ?? '',
+      htmlUrl: subject.htmlUrl ?? '',
+      number: subject.number,
       repositoryFullName: context.repositoryFullName,
       actorLogin: context.actorLogin,
+      excerpt: normalizeBody(subject.body),
+      reviewState: subject.reviewState?.toLowerCase(),
     };
   }
+}
+
+/**
+ * The talking. What a bot says is noise; what a bot *does* to your pull request is not, so
+ * review requests, submitted reviews and merges are missing from this list on purpose.
+ */
+const BOT_SUPPRESSED_TYPES: NotificationType[] = [
+  NotificationType.PullRequestComment,
+  NotificationType.PullRequestMention,
+  NotificationType.IssueMention,
+];
+
+/**
+ * Whether an actor is a machine.
+ *
+ * `type` is what GitHub actually promises, and the suffix is the belt to its braces - the two
+ * disagree in a few payloads, and a missed bot is a notification somebody did not want. Matched
+ * as a suffix rather than a substring so that a person called `robotnik` stays a person.
+ */
+function isBot(sender: any): boolean {
+  return sender?.type === 'Bot' || /\[bot\]$/i.test(sender?.login ?? '');
+}
+
+/**
+ * What somebody wrote, minus what they did not.
+ *
+ * Pull request and issue templates are mostly HTML comments, and a description that is nothing
+ * but an unfilled template should read as no message at all rather than as a wall of
+ * instructions the author never saw.
+ */
+function normalizeBody(body: string | undefined): string | undefined {
+  if (!body) {
+    return undefined;
+  }
+
+  const cleaned = body
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\r\n/g, '\n')
+    // Blank-line runs are load-bearing in markdown but not worth relaying.
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return cleaned.length > 0 ? cleaned : undefined;
 }

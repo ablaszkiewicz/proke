@@ -2,8 +2,12 @@
 #
 #   mprocs
 #
-# All three main procs autostart. Mongo runs in Docker on 47117, the backend on 48211, the
+# All four main procs autostart. Mongo runs in Docker on 47117, the backend on 48211, the
 # frontend on 49173. The backend retries its Mongo connection, so it is fine that it boots first.
+#
+# The `tunnel` pane puts the backend on a public https URL - GitHub webhooks, the Slack events
+# URL and the Slack redirect all point at it - and prints exactly what to paste where. The
+# frontend needs no tunnel: the backend hands OAuth callbacks back to it on localhost.
 
 procs:
   mongo:
@@ -20,6 +24,13 @@ procs:
     shell: 'pnpm install && pnpm dev'
     cwd: frontend
     autostart: true
+
+  # Syncs SLACK_REDIRECT_URI in backend/.env to whatever the tunnel is, which restarts the
+  # backend pane. Pass --no-write to only print it.
+  tunnel:
+    shell: 'node scripts/tunnels.mjs'
+    autostart: true
+    stop: SIGINT
 
   backend-tests:
     shell: 'pnpm test:e2e'

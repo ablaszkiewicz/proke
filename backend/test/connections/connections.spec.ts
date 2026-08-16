@@ -20,9 +20,9 @@ describe('Connections', () => {
       publicKeyEncoding: { type: 'spki', format: 'pem' },
     });
 
-    process.env.GITHUB_APP_SLUG = 'proke-dev';
-    process.env.GITHUB_APP_ID = '12345';
-    process.env.GITHUB_APP_PRIVATE_KEY = privateKey as string;
+    process.env.GH_APP_SLUG = 'proke-dev';
+    process.env.GH_APP_ID = '12345';
+    process.env.GH_APP_PRIVATE_KEY = privateKey as string;
 
     bootstrap = await createTestApp();
   });
