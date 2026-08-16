@@ -243,7 +243,9 @@ function ConnectionRow({
         </p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      {/* gap-1, the same breathing room Slack's panel leaves between Disconnect and its
+          primary action - Remove sits next to Turn off and should not read as one control. */}
+      <div className="flex shrink-0 items-center gap-1">
         {/*
           Destructive and rare: there on hover, invisible otherwise. Sits *before* the toggle so
           the toggle stays flush with the card edge and nothing shifts when it appears.

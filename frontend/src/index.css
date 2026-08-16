@@ -368,6 +368,18 @@ dialog[data-state="closed"]::backdrop {
     @apply bg-background text-foreground;
   }
 
+  /*
+   * Tailwind v4 dropped the browser's `cursor: pointer` on buttons, so anything clickable was
+   * showing an arrow. Put back here rather than on the Button component, because half the
+   * buttons in the app are plain <button> elements and the next one will be too.
+   *
+   * Excludes disabled, where an arrow is the correct answer.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
   /* Dark scrollbars */
   * {
     scrollbar-width: thin;
