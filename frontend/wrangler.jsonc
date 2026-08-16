@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "proke-frontend",
+  "compatibility_date": "2026-08-16",
+
+  // No "main": this is a Worker with nothing but static assets, so Cloudflare serves the build
+  // straight from its edge cache and never spins up an isolate. Add a "main" entry point later
+  // if the app ever needs server-side code in front of the assets.
+  "assets": {
+    "directory": "./dist",
+    // TanStack Router owns the routing, so every unmatched path has to return index.html rather
+    // than a 404 - "/app/settings" only exists once the bundle has booted.
+    "not_found_handling": "single-page-application"
+  }
+}

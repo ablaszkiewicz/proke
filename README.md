@@ -74,18 +74,21 @@ Then the GitHub and Slack settings pages are a one-time job. Run it standalone w
 
 ## Deploy
 
-Push to `main` with anything under `backend/` changed and
+Both halves ship on push to `main`, each ignoring changes to the other. The backend goes through
+GitHub Actions, because it has an e2e suite worth gating on; the frontend is built by Cloudflare
+itself.
+
+### Backend
+
 [`.github/workflows/backend-deploy.yml`](.github/workflows/backend-deploy.yml) runs the e2e suite,
 builds `backend/Dockerfile`, pushes it to Docker Hub as `ablaszkiewicz/proke-backend`, then SSHes
-into the VPS to replace the running container. The image name and Docker Hub account are written
-into the workflow rather than kept as secrets - neither is confidential, and having them visible
-means the pull command on the VPS is greppable. The three steps are composite actions in `.github/templates/`. There is a
-`workflow_dispatch` trigger too, for redeploying without a code change.
+into the VPS to replace the running container. The three steps are composite actions in
+`.github/templates/`. The image name and Docker Hub account are written into the workflow rather
+than kept as secrets - neither is confidential, and having them visible means the pull command on
+the VPS is greppable.
 
 The container listens on 48211 and is published on the same port, so whatever sits in front of it
-(Caddy, nginx, Cloudflare) proxies the public hostname there. The frontend is not in this pipeline
-- Vercel builds it from the same push, and `frontend/vercel.json` rewrites every path to
-`index.html` so TanStack Router handles the routing.
+(Caddy, nginx, Cloudflare) proxies the public hostname there.
 
 Repository secrets it needs:
 
@@ -110,6 +113,45 @@ secrets and refuses to save one using it. The app reads the same `GH_APP_*` name
 the container env and `backend/.env` all match and nothing has to be translated in between.
 Base64 is the safer of the two private-key encodings here - the config accepts either, but a
 literal PEM has to survive both the Actions expression and the remote shell intact.
+
+### Frontend
+
+Cloudflare Workers Builds, connected straight to this repo - there is no workflow for it. On push
+it runs the build itself and deploys `dist/` as static assets, per
+[`frontend/wrangler.jsonc`](frontend/wrangler.jsonc). There is no `main` entry point, so no isolate
+ever runs - Cloudflare serves the files from its edge and `not_found_handling` returns
+`index.html` for unmatched paths, which is what TanStack Router needs to own the routing.
+
+Workers rather than Pages: Cloudflare points new projects at Workers now, and Pages is in
+maintenance. A static asset deploy is the same either way, but this one can grow an API route or
+middleware later by adding a `main` to the config, without migrating anything.
+
+Setup is one pass through **Workers & Pages -> Create -> Connect to Git**, and these are the
+settings that matter for a repo with two apps in it:
+
+| Setting            | Value                                          |
+| ------------------ | ---------------------------------------------- |
+| Root directory     | `frontend`                                     |
+| Build command      | `pnpm build`                                   |
+| Deploy command     | `npx wrangler deploy`                          |
+| Build watch paths  | `frontend/*` - otherwise backend pushes rebuild it too |
+
+Plus three build-time environment variables, `VITE_APP_URL`, `VITE_API_URL` and
+`VITE_GH_APP_CLIENT_ID`. They belong in the build settings rather than as Worker secrets: Vite
+inlines them into the bundle, so they are readable by anyone who opens devtools regardless, and a
+runtime secret would never reach the build at all.
+
+The catch, versus a workflow: that configuration lives in Cloudflare's dashboard, not in this
+repo, so it is not reviewable or revertable here. In exchange there is no API token to rotate,
+and every branch and PR gets its own preview URL.
+
+The production deploy lands on `proke-frontend.<your-subdomain>.workers.dev`; point a custom
+domain at it from the Workers dashboard, or add `routes` to `wrangler.jsonc`. To deploy by hand,
+bypassing all of the above:
+
+```bash
+cd frontend && pnpm deploy
+```
 
 ## Layout
 
