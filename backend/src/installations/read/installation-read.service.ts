@@ -11,16 +11,31 @@ export class InstallationReadService {
     @InjectModel(InstallationEntity.name) private installationModel: Model<InstallationEntity>,
   ) {}
 
-  public async readByAccountLogins(logins: string[]): Promise<InstallationNormalized[]> {
-    if (logins.length === 0) {
-      return [];
+  /**
+   * The mirror's rows for a set of installations, keyed by installation id so a caller that
+   * already has the ids can enrich them in one query.
+   *
+   * GitHub is the only thing that can say *which* installations a given user may see, so the id
+   * list still comes from there. What the mirror answers is what proke knows about each of them,
+   * which is the same answer for every user looking at the same org.
+   */
+  public async readByInstallationIds(
+    installationIds: string[],
+  ): Promise<Map<string, InstallationNormalized>> {
+    if (installationIds.length === 0) {
+      return new Map();
     }
 
     const installations = await this.installationModel
-      .find({ accountLogin: { $in: logins } })
+      .find({ installationId: { $in: installationIds } })
       .lean<InstallationEntity[]>()
       .exec();
 
-    return installations.map((installation) => InstallationSerializer.normalize(installation));
+    return new Map(
+      installations.map((installation) => [
+        installation.installationId,
+        InstallationSerializer.normalize(installation),
+      ]),
+    );
   }
 }

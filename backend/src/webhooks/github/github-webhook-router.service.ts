@@ -191,6 +191,16 @@ export class GithubWebhookRouterService {
     return grouped;
   }
 
+  /**
+   * By id whenever the payload carries one, and only then by handle.
+   *
+   * The order is the point. A GitHub id is permanent and never reused; a handle is released the
+   * instant its owner renames, and somebody else can hold it minutes later. Every event that
+   * names a person structurally - a review request, a merge, the author of a pull request -
+   * carries the id, so the handle path is reached only for @mentions, which are parsed out of
+   * prose and have nothing else to go on. UserWriteService keeps that path honest by releasing
+   * a handle from any stale row the moment its new owner signs in.
+   */
   private async readRecipient(recipient: PokeRecipient): Promise<UserNormalized | null> {
     if (recipient.githubId) {
       return this.userReadService.readByGithubId(recipient.githubId);

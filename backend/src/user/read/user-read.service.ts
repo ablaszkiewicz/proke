@@ -1,13 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
 import { UserSerializer } from '../core/entities/user.serializer';
 
 @Injectable()
 export class UserReadService {
-  constructor(@InjectModel(UserEntity.name) private userModel: Model<UserEntity>) {}
+  constructor(
+    @InjectModel(UserEntity.name) private userModel: Model<UserEntity>,
+    private readonly tokenCipher: TokenCipherService,
+  ) {}
 
   public async readByIdOrThrow(id: string): Promise<UserNormalized> {
     const user = await this.userModel.findById(id).lean<UserEntity>().exec();
@@ -16,37 +20,34 @@ export class UserReadService {
       throw new NotFoundException(`User not found`);
     }
 
-    return UserSerializer.normalize(user);
+    return this.normalize(user);
   }
 
   public async readByGithubId(githubId: string): Promise<UserNormalized | null> {
     const user = await this.userModel.findOne({ githubId }).lean<UserEntity>().exec();
 
-    return user ? UserSerializer.normalize(user) : null;
+    return user ? this.normalize(user) : null;
   }
 
   /**
-   * Only for resolving @mentions, which arrive as a handle with no id attached. Matched
-   * case-insensitively because GitHub renders `@Ada` and `@ada` as the same person.
+   * Only for resolving @mentions, which arrive as a handle with no id attached. Every other
+   * route into a user goes by githubId, which GitHub never reuses.
+   *
+   * Matched on the stored lowercase copy rather than a case-insensitive regex over the original.
+   * The regex could not use the index - Mongo cannot serve a case-insensitive pattern from a
+   * btree - so every mention in every webhook was a full scan of the collection. An indexed
+   * equality also has no pattern to escape, which retires the ReDoS guard that came with it.
    */
   public async readByGithubLogin(githubLogin: string): Promise<UserNormalized | null> {
     const user = await this.userModel
-      .findOne({ githubLogin: new RegExp(`^${escapeRegExp(githubLogin)}$`, 'i') })
+      .findOne({ githubLoginLower: githubLogin.toLowerCase() })
       .lean<UserEntity>()
       .exec();
 
-    return user ? UserSerializer.normalize(user) : null;
+    return user ? this.normalize(user) : null;
   }
 
-  public async readByEmail(email: string): Promise<UserNormalized | null> {
-    const user = await this.userModel.findOne({ email }).lean<UserEntity>().exec();
-
-    return user ? UserSerializer.normalize(user) : null;
+  private normalize(user: UserEntity): UserNormalized {
+    return UserSerializer.normalize(user, (value) => this.tokenCipher.decrypt(value));
   }
-}
-
-// The handle comes out of webhook text somebody else wrote. It cannot reach a query as a live
-// pattern - `@a{10000}` would be a regex denial of service against every mention we process.
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

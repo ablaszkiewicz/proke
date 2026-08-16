@@ -1,0 +1,1298 @@
+<title>Proke Backend Audit</title>
+<style>
+  /* ---- Tokens: light is the base, both dark states redefine only these ---- */
+  :root {
+    --ground:    #F1F4F5;
+    --surface:   #FFFFFF;
+    --sunken:    #E8EDEF;
+    --ink:       #0F181C;
+    --ink-soft:  #35454C;
+    --muted:     #5E6E75;
+    --faint:     #8B9AA0;
+    --hairline:  #D6DEE1;
+    --hairline-strong: #BDC9CD;
+
+    --accent:      #0B6F79;
+    --accent-soft: #DCEFF1;
+    --accent-ink:  #06474E;
+
+    --sev-high:      #A32017;
+    --sev-high-bg:   #F8E4E2;
+    --sev-med:       #7E5300;
+    --sev-med-bg:    #F8EEDA;
+    --sev-low:       #4A5A61;
+    --sev-low-bg:    #E4EAEC;
+    --sev-clean:     #5E6E75;
+    --sev-clean-bg:  #E8EDEF;
+
+    --ok: #146B4A;
+    --ok-bg: #DCF0E6;
+
+    --shadow: 0 1px 2px rgba(15, 24, 28, .05);
+
+    --serif: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0B1215;
+      --surface:   #121C20;
+      --sunken:    #0F181B;
+      --ink:       #E4EDEF;
+      --ink-soft:  #BDCBCF;
+      --muted:     #8FA0A6;
+      --faint:     #6B7C82;
+      --hairline:  #223036;
+      --hairline-strong: #33454C;
+
+      --accent:      #3FB2BC;
+      --accent-soft: #0E3439;
+      --accent-ink:  #7FD3DA;
+
+      --sev-high:      #F0938A;
+      --sev-high-bg:   #3A1D1A;
+      --sev-med:       #DFAA4E;
+      --sev-med-bg:    #35290F;
+      --sev-low:       #A3B3B9;
+      --sev-low-bg:    #1D272B;
+      --sev-clean:     #8FA0A6;
+      --sev-clean-bg:  #1A2428;
+
+      --ok: #4FBE8B;
+      --ok-bg: #0F2E22;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:    #0B1215;
+    --surface:   #121C20;
+    --sunken:    #0F181B;
+    --ink:       #E4EDEF;
+    --ink-soft:  #BDCBCF;
+    --muted:     #8FA0A6;
+    --faint:     #6B7C82;
+    --hairline:  #223036;
+    --hairline-strong: #33454C;
+
+    --accent:      #3FB2BC;
+    --accent-soft: #0E3439;
+    --accent-ink:  #7FD3DA;
+
+    --sev-high:      #F0938A;
+    --sev-high-bg:   #3A1D1A;
+    --sev-med:       #DFAA4E;
+    --sev-med-bg:    #35290F;
+    --sev-low:       #A3B3B9;
+    --sev-low-bg:    #1D272B;
+    --sev-clean:     #8FA0A6;
+    --sev-clean-bg:  #1A2428;
+
+    --ok: #4FBE8B;
+    --ok-bg: #0F2E22;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+
+  /* ---- Base ---- */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  a { color: var(--accent); }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  code, .mono { font-family: var(--mono); }
+
+  code {
+    font-size: .855em;
+    background: var(--sunken);
+    border: 1px solid var(--hairline);
+    padding: .08em .34em;
+    border-radius: 3px;
+    color: var(--ink-soft);
+    word-break: break-word;
+  }
+
+  pre {
+    margin: 0;
+    background: var(--sunken);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+  /* ---- Masthead ---- */
+  header.masthead {
+    border-bottom: 1px solid var(--hairline-strong);
+    padding: 56px 0 30px;
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: baseline;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(34px, 6vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -.015em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 17px;
+    line-height: 1.62;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 62ch;
+  }
+  .standfirst + .standfirst { margin-top: 14px; }
+
+  /* ---- Tally board ---- */
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 0 0 14px;
+  }
+  .tally div {
+    background: var(--surface);
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tally b {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 27px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.02em;
+  }
+  .tally span {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .t-high b { color: var(--ok); }
+  .t-med  b { color: var(--faint); }
+  .t-low  b { color: var(--sev-low); }
+  .t-clean b { color: var(--sev-clean); }
+
+  @media (max-width: 620px) {
+    .tally { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .status {
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--ok);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin: 0 0 16px;
+  }
+  .status p { margin: 0; font-size: 15px; color: var(--ink-soft); max-width: 66ch; }
+  .status .action {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--hairline);
+    font-size: 14.5px;
+  }
+
+  .board-note {
+    font-size: 14px;
+    color: var(--muted);
+    margin: 0 0 44px;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+
+  /* ---- Sections ---- */
+  section { margin-bottom: 56px; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+  .sec-head h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 26px;
+    letter-spacing: -.01em;
+    margin: 0;
+    flex: 1;
+  }
+  .sec-head .count {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sec-intro {
+    font-size: 15px;
+    color: var(--muted);
+    margin: 16px 0 0;
+    max-width: 64ch;
+  }
+
+  /* ---- Findings ---- */
+  .finding {
+    border-bottom: 1px solid var(--hairline);
+    padding: 26px 0 24px;
+  }
+  .finding:last-child { border-bottom: 0; }
+
+  .f-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .fid {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--surface);
+    background: var(--ink);
+    padding: 3px 7px;
+    border-radius: 3px;
+    flex: none;
+  }
+
+  .f-head h3 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -.005em;
+    margin: 0;
+    flex: 1 1 260px;
+    line-height: 1.35;
+    color: var(--ink);
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    flex: none;
+    font-weight: 500;
+  }
+  .s-high  { color: var(--sev-high);  background: var(--sev-high-bg); }
+  .s-med   { color: var(--sev-med);   background: var(--sev-med-bg); }
+  .s-low   { color: var(--sev-low);   background: var(--sev-low-bg); }
+  .s-clean { color: var(--sev-clean); background: var(--sev-clean-bg); }
+  .s-fixed {
+    color: var(--ok);
+    background: var(--ok-bg);
+    font-weight: 600;
+  }
+  .s-deferred {
+    color: var(--faint);
+    background: var(--sunken);
+    border: 1px dashed var(--hairline-strong);
+  }
+  .s-verified {
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+  }
+
+  .path {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    margin: 0 0 12px;
+    word-break: break-word;
+    line-height: 1.55;
+  }
+
+  .finding p {
+    margin: 0 0 12px;
+    max-width: 66ch;
+    color: var(--ink-soft);
+    font-size: 15.5px;
+  }
+  .finding p:last-child { margin-bottom: 0; }
+  .finding pre { margin-bottom: 14px; }
+
+  .fix {
+    font-size: 15px;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--accent);
+    padding-left: 14px;
+    margin: 14px 0 0;
+    max-width: 64ch;
+  }
+  .fix b {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 3px;
+    font-weight: 600;
+  }
+
+  blockquote {
+    margin: 0 0 12px;
+    padding: 10px 0 10px 16px;
+    border-left: 2px solid var(--hairline-strong);
+    color: var(--muted);
+    font-style: italic;
+    font-size: 15px;
+    max-width: 64ch;
+  }
+
+  /* ---- Tables ---- */
+  .table-scroll { overflow-x: auto; margin: 0 0 8px; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 480px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--hairline-strong);
+    padding-bottom: 8px;
+  }
+  td code { font-size: 12.5px; }
+
+  /* ---- Plan ---- */
+  .phase {
+    margin-bottom: 34px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .phase-head {
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--hairline);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--sunken);
+  }
+  .phase-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .phase-head h3 {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    flex: 1 1 200px;
+    line-height: 1.3;
+  }
+  .phase-head p {
+    margin: 4px 0 0;
+    flex-basis: 100%;
+    font-size: 14px;
+    color: var(--muted);
+    max-width: 62ch;
+  }
+
+  ol.tasks { margin: 0; padding: 0; list-style: none; }
+  ol.tasks li {
+    display: grid;
+    grid-template-columns: 46px 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 15px;
+    color: var(--ink-soft);
+  }
+  ol.tasks li:last-child { border-bottom: 0; }
+  ol.tasks .n {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  ol.tasks .refs {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--sunken);
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  @media (max-width: 560px) {
+    ol.tasks li { grid-template-columns: 40px 1fr; }
+    ol.tasks .refs { grid-column: 2; justify-self: start; }
+  }
+
+  .closing {
+    border-top: 2px solid var(--ink);
+    padding-top: 22px;
+    margin-top: 44px;
+  }
+  .closing h3 {
+    font-family: var(--serif);
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0 0 10px;
+  }
+  .closing p { margin: 0 0 12px; color: var(--ink-soft); max-width: 64ch; font-size: 15.5px; }
+  .closing p:last-child { margin-bottom: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">
+      <span>proke / backend</span>
+      <span>pre-launch audit</span>
+      <span>~100 files · 4,420 loc</span>
+    </p>
+    <h1>What stands between good code and safe for strangers</h1>
+    <p class="standfirst">
+      A full read of <code>backend/</code>, plus the Dockerfile, CI workflows and Caddy config that
+      carry it to production. Thirty findings, numbered so the plan at the bottom can point at them.
+    </p>
+    <p class="standfirst">
+      This is a well-built codebase. Layering is consistent, webhook and OAuth signature verification
+      is correct, secrets are properly gitignored, and there is a real 2,900-line e2e suite. Nothing
+      here is a rewrite. Two findings were verified by running them rather than reasoning about
+      them — <span class="mono">C1</span> and <span class="mono">C4</span>.
+    </p>
+  </header>
+
+  <div class="tally">
+    <div class="t-high"><b>14</b><span>Fixed</span></div>
+    <div class="t-med"><b>16</b><span>Deferred</span></div>
+    <div class="t-low"><b>6</b><span>Comments fixed</span></div>
+    <div class="t-clean"><b>151</b><span>Tests green</span></div>
+  </div>
+  <div class="status">
+    <p><b>14 of 30 addressed.</b> The suite is 151 green, up from 123 — the new behaviour is
+    covered rather than assumed. Everything else is deferred by decision, not overlooked.</p>
+    <p class="action">Before the next deploy: add a <code>STATE_SIGNING_SECRET</code> repository
+    secret. The backend now refuses to start in production without it.</p>
+  </div>
+
+  <p class="board-note">
+    <span class="chip s-verified">Verified</span>
+    <span>marks a finding reproduced against the real code, not inferred from reading it.</span>
+  </p>
+
+  <!-- ===================== SECURITY ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>Security</h2>
+      <span class="count">S1 – S8</span>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S1</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>GitHub access tokens are stored in plaintext</h3>
+        <span class="chip s-high">Medium-High</span>
+      </div>
+      <p class="path">src/user/core/entities/user.entity.ts:35</p>
+      <p>
+        Slack bot tokens go through <code>TokenCipherService</code> (AES-256-GCM). GitHub user tokens
+        sit in the clear in the same database, and the entity comment concedes it:
+      </p>
+      <blockquote>Plaintext is acceptable at <code>read:org</code>; encrypt at rest before anything asks for <code>repo</code>.</blockquote>
+      <p>
+        Two problems. First it is an inconsistency — same database, same dump, same threat model, one
+        token encrypted and one not. Second, the condition that comment sets is unenforceable from
+        where it is written: the app's user permissions are widened on GitHub's settings page, not in
+        this file, so nobody editing scopes will ever see the line.
+      </p>
+      <p class="fix"><b>Fix</b>Run it through the existing cipher. <code>CryptoModule</code> is already built; the only touch points are <code>UserWriteService</code> on write and <code>UserSerializer.normalize</code> on read.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S2</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>Missing secrets fall back to published values</h3>
+        <span class="chip s-high">High</span>
+      </div>
+      <p class="path">src/shared/configs/env-configs.ts:60, :79</p>
+      <pre><code>jwtSecret: process.env.AUTH_JWT_SECRET ?? 'local-development-secret',
+tokenEncryptionKey: process.env.SLACK_TOKEN_ENCRYPTION_KEY ?? 'local-development-encryption-key',</code></pre>
+      <p>
+        If a deploy ever drops one of these, the app boots happily and signs tokens anyone reading
+        this repo can forge, or encrypts workspace bot tokens under a key that is in the source. It
+        fails <strong>open</strong> and it fails <strong>silently</strong> — <code>TokenCipherService</code>
+        logs one warning, the JWT path says nothing at all.
+      </p>
+      <p>This is the highest-consequence config issue in the repo, and it is cheap to close.</p>
+      <p class="fix"><b>Fix</b>A <code>validateEnv()</code> at bootstrap that throws when <code>NODE_ENV=production</code> and any required secret is absent or still the default. Keep the fallbacks for local dev; make them impossible in production.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S3</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>One secret doing two jobs</h3>
+        <span class="chip s-med">Low-Medium</span>
+      </div>
+      <p class="path">src/slack/app/slack-state.service.ts:51</p>
+      <p>
+        The OAuth <code>state</code> HMAC uses <code>getEnvConfig().auth.jwtSecret</code>. The doc
+        comment above it explains carefully why state must <em>not</em> be a JWT — and then signs it
+        with the JWT key. Rotating the JWT secret silently kills every in-flight Slack authorization,
+        and a weakness in either context becomes a weakness in both.
+      </p>
+      <p class="fix"><b>Fix</b>A separate <code>STATE_SIGNING_SECRET</code>, or derive one via HKDF from the JWT secret with a distinct info label.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S4</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>CORS allows every origin</h3>
+        <span class="chip s-med">Low-Medium</span>
+      </div>
+      <p class="path">src/main.ts:12 — app.enableCors({ origin: '*' })</p>
+      <p>
+        Tokens travel in <code>Authorization</code>, not cookies, so this is not CSRF-exploitable
+        today. It becomes so the moment anything cookie-based or browser-visible is added, and there
+        is no reason to carry the risk.
+      </p>
+      <p class="fix"><b>Fix</b>Allowlist <code>getEnvConfig().app.url</code>.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S5</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Swagger is public in production</h3>
+        <span class="chip s-low">Low</span>
+      </div>
+      <p class="path">src/main.ts:18</p>
+      <p>
+        <code>SwaggerModule.setup('docs', …)</code> registers on the Express instance, outside the
+        <code>APP_GUARD</code>. The full API surface with every schema is served to anyone who asks.
+        Not a vulnerability — free reconnaissance.
+      </p>
+      <p class="fix"><b>Fix</b>Gate on environment, or put basic auth in front of it.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S6</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>No rate limiting anywhere</h3>
+        <span class="chip s-med">Medium</span>
+      </div>
+      <p>No <code>@nestjs/throttler</code>, no per-route limits. Three endpoints where that bites:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Endpoint</th><th>Auth</th><th>Cost of one call</th></tr></thead>
+          <tbody>
+            <tr><td><code>POST /auth/github/login</code></td><td>none</td><td>a GitHub code exchange</td></tr>
+            <tr><td><code>POST /slack/connection/test</code></td><td>user</td><td>a real Slack DM — self-spam, and it burns workspace quota</td></tr>
+            <tr><td><code>GET /connections</code></td><td>user</td><td>a GitHub API call against <em>the user's own</em> 5000/hr quota</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fix"><b>Fix</b>Global throttler, with tighter limits on those three.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S7</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>A freed GitHub handle can misroute a poke</h3>
+        <span class="chip s-low">Low, but real</span>
+      </div>
+      <p class="path">src/user/core/entities/user.entity.ts:17 · src/user/read/user-read.service.ts:34</p>
+      <p>
+        <code>githubLogin</code> is indexed but <strong>not unique</strong>, and mention routing
+        matches it case-insensitively. GitHub releases a handle the moment its owner renames. So:
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>A (<code>@alice</code>) renames to <code>@bob</code>. proke still has <code>githubLogin: 'alice'</code> on A's row.</td></tr>
+            <tr><td>2</td><td>B claims <code>@alice</code> and signs in. Now two rows carry <code>alice</code>.</td></tr>
+            <tr><td>3</td><td>Someone <code>@alice</code>-mentions B in a private repo. <code>findOne</code> resolves with no ordering guarantee.</td></tr>
+            <tr><td>4</td><td>The poke — repo name, PR title, up to 320 characters of the comment — can land in A's Slack.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The window closes when A next logs in. It is narrow; it is not zero, and the payload is other
+        people's private repository content.
+      </p>
+      <p class="fix"><b>Fix</b>Prefer <code>githubId</code> wherever the payload carries one — it does for most events. For mention-only routing, store a normalized <code>githubLoginLower</code> with a unique sparse index, refresh it on login, and clear it from the stale row when another user claims the handle. Pairs with C6.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">S8</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>No account deletion</h3>
+        <span class="chip s-med">Medium · compliance</span>
+      </div>
+      <p>
+        <code>UserWriteService.delete</code> exists and nothing calls it. There is no endpoint.
+      </p>
+      <p>
+        For a product about to hold third-party GitHub and Slack tokens belonging to the public,
+        “delete my account and everything you have” is table stakes, and a GDPR erasure obligation
+        for any EU user.
+      </p>
+      <p class="fix"><b>Fix</b><code>DELETE /users/me</code> that removes the user, their subscriptions and their Slack links.</p>
+    </div>
+  </section>
+
+  <!-- ===================== CORRECTNESS ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>Correctness</h2>
+      <span class="count">C1 – C9</span>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C1</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>ValidationPipe drift silently inverts a boolean</h3>
+        <span class="chip s-high">High</span>
+        <span class="chip s-verified">Verified</span>
+      </div>
+      <p class="path">src/main.ts:21 &nbsp;vs&nbsp; test/utils/bootstrap.ts:37</p>
+      <p>
+        Production builds the pipe with <code>transformOptions: { enableImplicitConversion: true }</code>.
+        The test harness builds it <strong>without</strong>. Run against the real
+        <code>RepositoryPreferenceBody</code>:
+      </p>
+      <pre><code>input {"repositoryId":"1","enabled":"false"}
+  PROD pipe  -> {"repositoryId":"1","enabled":true}      // a muted repo silently un-mutes
+  TEST pipe  -> REJECTED: ["enabled must be a boolean value"]
+
+input {"repositoryId":"1","enabled":0}
+  PROD pipe  -> {"repositoryId":"1","enabled":false}     // accepted
+  TEST pipe  -> REJECTED: ["enabled must be a boolean value"]</code></pre>
+      <p>
+        Implicit conversion runs <code>Boolean("false")</code>, which is <code>true</code>. Any client
+        sending the string — a hand-rolled request, a form-encoded proxy, a future mobile client —
+        gets the <strong>opposite</strong> of what it asked for. And no e2e test can ever catch it,
+        because the suite validates under different rules than production does. That is the actual
+        defect: the harness is not testing the application that ships.
+      </p>
+      <p class="fix"><b>Fix</b>One shared <code>buildValidationPipe()</code> imported by both. Then choose the config on its merits — there are no numeric query or param DTOs here, so <code>enableImplicitConversion</code> buys almost nothing and costs this. Recommend dropping it and adding <code>whitelist: true</code>.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C2</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Webhooks are not idempotent</h3>
+        <span class="chip s-high">High</span>
+      </div>
+      <p class="path">src/webhooks/github/github-webhook.controller.ts</p>
+      <p>
+        <code>X-GitHub-Delivery</code> is never read. GitHub redelivers on any non-2xx, and
+        “Redeliver” is a button on the deliveries page. Every redelivery re-runs the router and sends
+        the Slack DM again.
+      </p>
+      <p>
+        The comment at line 46 calls a redelivery “cheap”. For a notification product, a duplicate
+        poke is precisely the failure the product exists to prevent.
+      </p>
+      <p class="fix"><b>Fix</b>A <code>processed_deliveries</code> collection keyed on the delivery id with a 24h TTL index, checked before <code>handle()</code>. The same move covers the Slack events endpoint, which Slack retries after three seconds.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C3</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Fire-and-forget loses work and ignores shutdown</h3>
+        <span class="chip s-high">High</span>
+      </div>
+      <p class="path">github-webhook.controller.ts:47 · slack-events.controller.ts:58 — both <code>void this.handle(…)</code></p>
+      <p>
+        Acknowledging before doing the work is right. Detaching into a floating promise is the
+        shortcut, and it costs three things:
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cost</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td>Lost pokes</td><td>A deploy or crash mid-flight drops the notification with no trace and no retry — GitHub already had its 202.</td></tr>
+            <tr><td>No concurrency bound</td><td>A busy org can put hundreds of handlers in flight, each able to sleep up to 30 seconds inside the Slack 429 retry (<code>slack-api.service.ts:98</code>).</td></tr>
+            <tr><td>Shutdown is not graceful</td><td><code>enableShutdownHooks()</code> knows nothing about these promises, so every deploy severs whatever was in flight.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fix"><b>Fix, staged</b>Near-term: a bounded in-process queue drained on <code>beforeApplicationShutdown</code>. Before real traffic: persist the delivery and process it from a worker (BullMQ/Redis, or Mongo-backed), which buys retries and dedup in the same change as C2.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C4</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>A GitHub 401 logs the user out of proke</h3>
+        <span class="chip s-med">Medium</span>
+        <span class="chip s-verified">Verified</span>
+      </div>
+      <p class="path">src/connections/github-user-installations-data.service.ts:26 → frontend/src/main.tsx:36</p>
+      <p>
+        GitHub answering 401 becomes a Nest <code>UnauthorizedException</code>, i.e. HTTP 401 on
+        <code>GET /connections</code>. The frontend treats any 401 as a dead session and calls
+        <code>logout()</code>. So a user who revokes the app's authorization on GitHub's side gets
+        thrown out of proke, where their session was fine.
+      </p>
+      <p>
+        <code>UserWriteService.clearGithubAccessToken</code> — written for exactly this — is never
+        called.
+      </p>
+      <p class="fix"><b>Fix</b>Stop reusing 401 for a third-party credential failure. Clear the stored token and return the connections payload with a <code>githubReauthRequired: true</code> flag the dashboard can act on.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C5</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>Installations are read one page deep</h3>
+        <span class="chip s-med">Medium</span>
+      </div>
+      <p class="path">src/connections/github-user-installations-data.service.ts:18</p>
+      <p>
+        <code>per_page=100</code>, and the <code>Link</code> header is never followed. Past 100
+        installations the connections list silently truncates — and because
+        <code>assertUserCanAccessInstallation</code> (<code>connections.service.ts:192</code>) uses the
+        same call, a legitimate subscribe to installation #101 is refused with “You do not have access
+        to that installation.”
+      </p>
+      <p class="fix"><b>Fix</b>Paginate. Or read from the local mirror instead — see D1.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C6</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>Mention lookup cannot use its index</h3>
+        <span class="chip s-med">Medium at scale</span>
+      </div>
+      <p class="path">src/user/read/user-read.service.ts:34</p>
+      <pre><code>findOne({ githubLogin: new RegExp(`^${escapeRegExp(githubLogin)}$`, 'i') })</code></pre>
+      <p>
+        MongoDB cannot serve a case-insensitive regex from a btree index. Every <code>@mention</code>
+        in every webhook is a full collection scan of <code>users</code>. The <code>escapeRegExp</code>
+        guard below it is correct and necessary — it is the approach being guarded that is the problem.
+      </p>
+      <p class="fix"><b>Fix</b>Store <code>githubLoginLower</code> and query it with <code>$eq</code>, or attach a case-insensitive collation to the index. Pairs with S7.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C7</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Uncaught exceptions leave the process running</h3>
+        <span class="chip s-med">Medium</span>
+      </div>
+      <p class="path">src/main.ts:31</p>
+      <pre><code>process.on('uncaughtException', (error) =&gt; { console.error(error); });</code></pre>
+      <p>
+        After an uncaught exception the process state is undefined by definition — that is what the
+        handler documents, not what it fixes. It is also the only <code>console</code> use in the
+        codebase; every other line goes through the Nest <code>Logger</code>.
+      </p>
+      <p class="fix"><b>Fix</b>Log through <code>Logger</code>, then exit non-zero and let <code>--restart=always</code> do its job. Keeping <code>unhandledRejection</code> as log-only is defensible; <code>uncaughtException</code> should terminate.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C8</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Raw errors and unguarded ObjectId casts become 500s</h3>
+        <span class="chip s-med">Low-Medium</span>
+      </div>
+      <p class="path">src/user/write/user-write.service.ts:62, :56, :72, :78, :82</p>
+      <p>
+        Line 62 throws a bare <code>Error</code> for a missing user. Four other lines call
+        <code>new Types.ObjectId(dto.id)</code>, which throws <code>BSONError</code> on a malformed
+        id. There is no global exception filter, so both surface as opaque 500s.
+      </p>
+      <p class="fix"><b>Fix</b><code>NotFoundException</code>, plus a global filter mapping Mongoose <code>CastError</code>/<code>BSONError</code> to 400.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">C9</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>SlackApiService return types are not true</h3>
+        <span class="chip s-low">Low</span>
+      </div>
+      <p class="path">src/slack/app/slack-api.service.ts:46, :59</p>
+      <p>
+        <code>readIdentity</code> declares <code>slackUserId: string</code> and returns
+        <code>data.user?.id</code>. <code>openDirectMessage</code> declares <code>Promise&lt;string&gt;</code>
+        and returns <code>data.channel?.id</code>. Both can be <code>undefined</code> under
+        <code>strictNullChecks</code>, and the second flows straight into
+        <code>postMessage(botToken, undefined, message)</code>.
+      </p>
+      <p class="fix"><b>Fix</b>Validate the response shape and throw <code>SlackApiError</code> when the field is missing.</p>
+    </div>
+  </section>
+
+  <!-- ===================== DEAD CODE ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>Dead code &amp; inconsistency</h2>
+      <span class="count">D1 – D7</span>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D1</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>The installations collection is write-only</h3>
+        <span class="chip s-clean">Cleanup · decide</span>
+      </div>
+      <p>
+        Webhooks upsert it, <code>ConnectionsService.uninstall</code> deletes from it, and
+        <strong>nothing reads it</strong>. <code>InstallationReadService</code>,
+        <code>InstallationReadModule</code> and <code>readByAccountLogins</code> are the only readers,
+        and that module is imported by nobody. <code>InstallationSerializer.normalize</code> is unused
+        too — only <code>fromGithubPayload</code> is live, and <code>connections.service.ts:50</code>
+        reads <code>suspendedAt</code> off the <strong>live API response</strong>, not the mirror.
+      </p>
+      <p>
+        The comment at <code>github-webhook-installations.service.ts:7</code> describes an
+        optimization that was never wired up:
+      </p>
+      <blockquote>Everything here is driven by webhooks, so the connections page never has to fan out one API call per org.</blockquote>
+      <p>
+        It does. Every page load. The code pays to maintain a mirror and then queries GitHub anyway.
+      </p>
+      <p class="fix"><b>Decide</b>Use it or delete it. Using it is the better product answer — it fixes C5 and most of S6's GitHub-quota exposure in one move, and the mirror already holds everything <code>readForUser</code> renders except which installations <em>this particular user</em> may see.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D2</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>Methods nothing calls</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        <code>UserReadService.readByEmail</code>, <code>UserWriteService.clearGithubAccessToken</code>
+        (see C4), <code>UserWriteService.updateLastActivityDate</code>,
+        <code>UserWriteService.delete</code> (see S8).
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D3</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>lastActivityDate is written once and never updated</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p class="path">src/user/write/user-write.service.ts:22</p>
+      <p>
+        Set at creation, never moved. It is permanently equal to <code>createdAt</code> and carries no
+        information. Update it in the guard, or drop the field.
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D4</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Fields stored and never read</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        <code>SlackWorkspaceEntity.botUserId</code>, <code>SlackWorkspaceEntity.installedByUserId</code>,
+        <code>InstallationEntity.accountId</code>.
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D5</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>PUT /connections/:id/preferences is unreachable from the product</h3>
+        <span class="chip s-clean">Cleanup · decide</span>
+      </div>
+      <p>
+        The endpoint, its DTO, its validation and <code>ConnectionsService.updatePreferences</code>
+        all exist, and <code>frontend/src/lib/api/connections.api.ts:87</code> has a client for it.
+        <strong>No component calls it.</strong>
+      </p>
+      <p>
+        The comments state the intent honestly (“the shape is already the full one”), so this is a
+        scope decision rather than a mistake — but it is public, authenticated, mutating surface
+        shipping with no real caller, and C1 lives inside it.
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D6</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>No linter</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        <code>prettier</code> is a dependency and <code>pnpm format</code> exists, but there is no
+        ESLint config anywhere in the backend, and CI runs neither lint nor format check.
+        <code>tsconfig.json</code> also softens two flags the rest of its strictness would suggest
+        keeping: <code>noImplicitAny: false</code> and <code>strictBindCallApply: false</code>.
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">D7</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>--forceExit in test:e2e</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        That flag exists to paper over handles the suite does not close. With
+        <code>closeInMemoryMongoServer</code> reduced to an empty function “so specs read the same as
+        before”, there is a small pile of deferred cleanup here.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== COMMENTS ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>Comments</h2>
+      <span class="count">15% density</span>
+    </div>
+    <p class="sec-intro">
+      The house style is “explain the why, not the what” — the right style, and most of these comments
+      earn their place. Volume is not the problem. Six comments are now <em>false</em>, which is worse
+      than no comment, because each one will be trusted.
+    </p>
+
+    <div class="finding">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Location</th><th>Claim</th><th>Reality</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>github-webhook-installations.service.ts:7</code></td>
+              <td>the mirror saves the connections page an API call per org</td>
+              <td>it is never read — D1</td>
+            </tr>
+            <tr>
+              <td><code>user-write.service.ts:68</code></td>
+              <td>“a revoked token gets retried every poll, forever”</td>
+              <td>there is no polling; the app is webhook-driven, and the method is uncalled</td>
+            </tr>
+            <tr>
+              <td><code>user.entity.ts:31</code></td>
+              <td>“The OAuth App token”</td>
+              <td>it is a GitHub App user-to-server token — <code>env-configs.ts:20</code> says there is no OAuth App any more</td>
+            </tr>
+            <tr>
+              <td><code>test/utils/mongo-in-memory-server.ts:5</code></td>
+              <td>“even when Jest runs them in parallel”</td>
+              <td>the suite runs <code>--runInBand</code></td>
+            </tr>
+            <tr>
+              <td><code>slack-workspace.entity.ts:23</code></td>
+              <td><code>botUserId</code> “kept so delivery can recognise proke's own messages”</td>
+              <td>delivery never reads it</td>
+            </tr>
+            <tr>
+              <td><code>github-webhook.controller.ts:46</code></td>
+              <td>“A redelivery is cheap”</td>
+              <td>it is a duplicate DM — C2</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fix"><b>Also, if trimming</b>The entity file headers are genuinely over-long: <code>subscription.entity.ts</code> (34% comment), <code>slack-workspace.entity.ts</code> (33%), <code>slack-link.entity.ts</code> (32%) each open with a multi-paragraph essay where two lines would do. The class and field names already carry most of it.</p>
+    </div>
+  </section>
+
+  <!-- ===================== INFRA ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>Infrastructure &amp; delivery</h2>
+      <span class="count">I1 – I6</span>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I1</span>
+        <span class="chip s-fixed">Fixed</span>
+        <h3>CI actions pinned to a moving branch</h3>
+        <span class="chip s-med">Medium · supply chain</span>
+      </div>
+      <p>
+        <code>appleboy/ssh-action@master</code> and <code>appleboy/scp-action@master</code>, in both
+        workflows. Those actions receive the SSH private key to the production VPS. A compromised or
+        simply changed <code>master</code> runs with that key on the next deploy.
+      </p>
+      <p class="fix"><b>Fix</b>Pin to a commit SHA.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I2</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Secrets on the docker run command line</h3>
+        <span class="chip s-med">Medium</span>
+      </div>
+      <p class="path">.github/templates/deploy-backend-container/action.yml:83</p>
+      <p>
+        All sixteen secrets are passed as <code>-e NAME="value"</code>. On the VPS they are visible in
+        <code>ps</code> output to any local user and land in the shell's history.
+      </p>
+      <p class="fix"><b>Fix</b>Write an env file with <code>600</code> permissions and use <code>--env-file</code>.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I3</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Container runs as root</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p><code>backend/Dockerfile</code> never drops privileges. Add <code>USER node</code> to the production stage.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I4</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>Nothing verifies the deploy came up</h3>
+        <span class="chip s-med">Medium</span>
+      </div>
+      <p>
+        No <code>HEALTHCHECK</code> in the image, no health endpoint in the app, no post-deploy probe
+        in the workflow, and Caddy proxies blind. A container that crash-loops on a missing env var
+        still reports a green deploy — which is exactly how S2 would reach production unnoticed.
+      </p>
+      <p class="fix"><b>Fix</b><code>GET /health</code> (<code>@nestjs/terminus</code>, with a Mongo check), a container <code>HEALTHCHECK</code>, and a step that polls it after <code>docker run</code> before declaring success.</p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I5</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>CI gates on tests only</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        No typecheck, no build, no lint. A type error outside e2e coverage is first discovered during
+        the Docker build, mid-deploy. Add <code>pnpm build</code> and <code>pnpm lint</code> to the
+        <code>test</code> job.
+      </p>
+    </div>
+
+    <div class="finding">
+      <div class="f-head">
+        <span class="fid">I6</span>
+        <span class="chip s-deferred">Deferred</span>
+        <h3>No observability</h3>
+        <span class="chip s-clean">Cleanup</span>
+      </div>
+      <p>
+        No structured logging, no error tracking, no metrics. Every diagnosis is <code>docker logs</code>
+        on the VPS. For a launch, at minimum a Sentry DSN and JSON logs.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== PLAN ===================== -->
+  <section>
+    <div class="sec-head">
+      <h2>The plan</h2>
+      <span class="count">4 phases</span>
+    </div>
+    <p class="sec-intro">
+      Phases are ordered because the dependencies are real, not because four buckets looked tidy.
+      Phase 0 gates the launch; 3.1 should be settled before Phase 2 begins.
+    </p>
+
+    <div class="phase" style="margin-top: 26px;">
+      <div class="phase-head">
+        <span class="phase-num">Phase 0</span>
+        <h3>Before this goes to strangers</h3>
+        <p>Everything here either fails open, corrupts data, or drops user-visible work.</p>
+      </div>
+      <ol class="tasks">
+        <li><span class="n">0.1</span><span><code>validateEnv()</code> at bootstrap: throw in production on any missing or default secret</span><span class="refs">S2</span></li>
+        <li><span class="n">0.2</span><span>Share one <code>buildValidationPipe()</code> between <code>main.ts</code> and <code>bootstrap.ts</code>; drop implicit conversion, add <code>whitelist</code></span><span class="refs">C1</span></li>
+        <li><span class="n">0.3</span><span>Webhook idempotency on <code>X-GitHub-Delivery</code> with a TTL collection</span><span class="refs">C2</span></li>
+        <li><span class="n">0.4</span><span>Bounded queue + drain on <code>beforeApplicationShutdown</code> for detached handlers</span><span class="refs">C3</span></li>
+        <li><span class="n">0.5</span><span><code>uncaughtException</code> logs through <code>Logger</code> and exits non-zero</span><span class="refs">C7</span></li>
+        <li><span class="n">0.6</span><span><code>GET /health</code> + container <code>HEALTHCHECK</code> + post-deploy probe</span><span class="refs">I4</span></li>
+        <li><span class="n">0.7</span><span>Pin <code>appleboy/*</code> actions to SHAs</span><span class="refs">I1</span></li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">Phase 1</span>
+        <h3>Security hardening</h3>
+        <p>All independent of each other — parallelizable.</p>
+      </div>
+      <ol class="tasks">
+        <li><span class="n">1.1</span><span>Encrypt <code>githubAccessToken</code> at rest through the existing cipher</span><span class="refs">S1</span></li>
+        <li><span class="n">1.2</span><span>Global throttler; tight limits on login, test-poke, connections</span><span class="refs">S6</span></li>
+        <li><span class="n">1.3</span><span>CORS to <code>APP_URL</code>; Swagger behind an env gate</span><span class="refs">S4 · S5</span></li>
+        <li><span class="n">1.4</span><span>Separate the state-signing secret from the JWT secret</span><span class="refs">S3</span></li>
+        <li><span class="n">1.5</span><span><code>DELETE /users/me</code> with full cascade</span><span class="refs">S8</span></li>
+        <li><span class="n">1.6</span><span>Secrets via <code>--env-file</code>; <code>USER node</code> in the image</span><span class="refs">I2 · I3</span></li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">Phase 2</span>
+        <h3>Correctness</h3>
+        <p>Settle 3.1 first — it decides whether 2.3 is “add pagination” or “delete a collection”.</p>
+      </div>
+      <ol class="tasks">
+        <li><span class="n">2.1</span><span>Stop returning 401 for a GitHub token failure; clear the token, flag re-auth</span><span class="refs">C4</span></li>
+        <li><span class="n">2.2</span><span><code>githubLoginLower</code> + unique sparse index; prefer <code>githubId</code> in routing</span><span class="refs">S7 · C6</span></li>
+        <li><span class="n">2.3</span><span>Paginate <code>/user/installations</code>, <em>or</em> land D1 and read the mirror</span><span class="refs">C5 · D1</span></li>
+        <li><span class="n">2.4</span><span>Global exception filter; <code>NotFoundException</code>; guard ObjectId casts</span><span class="refs">C8</span></li>
+        <li><span class="n">2.5</span><span>Validate Slack API response shapes instead of asserting them</span><span class="refs">C9</span></li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">Phase 3</span>
+        <h3>Cleanup</h3>
+        <p>Two of these are decisions, not tasks — 3.1 and 3.6.</p>
+      </div>
+      <ol class="tasks">
+        <li><span class="n">3.1</span><span>Decide D1: wire the mirror in, or delete the read side and the collection</span><span class="refs">D1</span></li>
+        <li><span class="n">3.2</span><span>Delete uncalled methods; fix or drop <code>lastActivityDate</code>; drop unread fields</span><span class="refs">D2 · D3 · D4</span></li>
+        <li><span class="n">3.3</span><span>Correct the six false comments; trim the three entity headers</span><span class="refs">Comments</span></li>
+        <li><span class="n">3.4</span><span>ESLint + <code>pnpm build</code> + <code>pnpm lint</code> in CI; consider <code>noImplicitAny: true</code></span><span class="refs">D6 · I5</span></li>
+        <li><span class="n">3.5</span><span>Remove <code>--forceExit</code> and close what is actually open</span><span class="refs">D7</span></li>
+        <li><span class="n">3.6</span><span>Decide D5: build the preferences UI, or take the endpoint out until it is real</span><span class="refs">D5</span></li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">Phase 4</span>
+        <h3>Operability</h3>
+        <p>Structured JSON logging, Sentry, request-id correlation, and a durable job queue replacing the Phase 0.4 in-process one.</p>
+      </div>
+      <ol class="tasks">
+        <li><span class="n">4.1</span><span>JSON logging, Sentry DSN, request-id correlation</span><span class="refs">I6</span></li>
+        <li><span class="n">4.2</span><span>Durable job queue replacing the in-process one</span><span class="refs">C3</span></li>
+      </ol>
+    </div>
+
+    <div class="closing">
+      <h3>Suggested order</h3>
+      <p>
+        <strong>0.1, 0.2 and 0.5</strong> are an afternoon and remove the worst of it.
+        <strong>0.3 + 0.4</strong> are the real work in Phase 0 and are best done together, since both
+        want the delivery persisted.
+      </p>
+      <p>
+        Everything in Phase 1 is independent and parallelizable. <strong>3.1</strong> should be settled
+        before Phase 2 starts — it changes whether 2.3 is “add pagination” or “delete a collection”.
+      </p>
+    </div>
+  </section>
+
+</div>

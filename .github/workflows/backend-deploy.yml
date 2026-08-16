@@ -89,6 +89,7 @@ jobs:
 
           mongo-url: ${{ secrets.MONGO_URL }}
           auth-jwt-secret: ${{ secrets.AUTH_JWT_SECRET }}
+          state-signing-secret: ${{ secrets.STATE_SIGNING_SECRET }}
           app-url: ${{ secrets.APP_URL }}
 
           gh-app-id: ${{ secrets.GH_APP_ID }}

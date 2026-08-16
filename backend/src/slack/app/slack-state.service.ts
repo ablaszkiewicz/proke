@@ -11,6 +11,10 @@ const MAX_AGE_MS = 10 * 60 * 1000;
  * a JWT: state travels in a URL, through Slack's logs and a browser's history, and the auth
  * token format must never be something that can leak from there and then be replayed as a
  * bearer token.
+ *
+ * Signed with its own secret for the same reason. Sharing the JWT key would have meant one
+ * rotation silently voiding every Slack authorization in flight, and any weakness in either
+ * context reaching the other.
  */
 @Injectable()
 export class SlackStateService {
@@ -48,6 +52,8 @@ export class SlackStateService {
   }
 
   private digest(payload: string): string {
-    return createHmac('sha256', getEnvConfig().auth.jwtSecret).update(payload).digest('hex');
+    return createHmac('sha256', getEnvConfig().auth.stateSigningSecret)
+      .update(payload)
+      .digest('hex');
   }
 }

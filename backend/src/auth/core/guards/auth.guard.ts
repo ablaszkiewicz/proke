@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { UserWriteService } from '../../../user/write/user-write.service';
 import { CustomJwtService } from '../../custom-jwt/custom-jwt.service';
 import { IS_PUBLIC_KEY } from '../decorators/is-public';
 
@@ -7,6 +8,7 @@ import { IS_PUBLIC_KEY } from '../decorators/is-public';
 export class AuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: CustomJwtService,
+    private readonly userWriteService: UserWriteService,
     private reflector: Reflector,
   ) {}
 
@@ -35,6 +37,11 @@ export class AuthGuard implements CanActivate {
     }
 
     request['user'] = payload;
+
+    // The only place that sees every authenticated request, so it is the only place that can
+    // say when somebody was last here. Self-throttling to once an hour inside the service, so
+    // this is one indexed lookup that usually matches nothing rather than a write per request.
+    await this.userWriteService.recordActivity(payload.id);
 
     return true;
   }

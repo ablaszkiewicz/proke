@@ -9,8 +9,9 @@ const IV_BYTES = 12;
 const VERSION = 'v1';
 
 /**
- * Encrypts the third-party tokens we have to keep. Authenticated (GCM), so a tampered row
- * fails to decrypt rather than yielding a token that is subtly wrong.
+ * Encrypts the third-party tokens we have to keep - Slack bot tokens and GitHub user tokens.
+ * Authenticated (GCM), so a tampered row fails to decrypt rather than yielding a token that is
+ * subtly wrong.
  *
  * Deliberately tolerant on the way in: a value with no version prefix is returned untouched,
  * which is what makes turning this on for an existing collection a no-op rather than a
@@ -63,8 +64,9 @@ export class TokenCipherService {
     if (configured.startsWith('local-development') && !this.warned) {
       this.warned = true;
       this.logger.warn(
-        'SLACK_TOKEN_ENCRYPTION_KEY is unset - bot tokens are encrypted with a key that is ' +
-          'in the source. Set it before storing anyone else’s workspace token.',
+        'SLACK_TOKEN_ENCRYPTION_KEY is unset - Slack bot tokens and GitHub user tokens are ' +
+          'being encrypted with a key that is in the source. Set it before storing anyone ' +
+          'else’s credentials. Production refuses to start without it; see assertProductionEnv.',
       );
     }
 

@@ -78,6 +78,15 @@ export class ConnectionsResponse {
   @ApiProperty({ type: [ConnectionResponse] })
   connections: ConnectionResponse[];
 
+  @ApiPropertyOptional({
+    description:
+      'True when proke holds no usable GitHub authorization for this user - never granted, or ' +
+      'revoked since. The connection list is empty because it could not be read, not because ' +
+      'there is nothing in it, and the fix is to sign in with GitHub again. Deliberately not a ' +
+      '401: the proke session is fine, and answering 401 signs the user out of a working account.',
+  })
+  githubReauthRequired?: boolean;
+
   @ApiProperty({
     description:
       'Where to send a user who wants to add an account we cannot see yet. A GitHub App ' +

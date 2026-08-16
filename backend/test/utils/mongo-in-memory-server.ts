@@ -2,8 +2,11 @@ import { MongooseModule, MongooseModuleOptions } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 
 /**
- * Connects to the run-wide server started in globalSetup, on a database of its own so specs
- * cannot see each other's documents even when Jest runs them in parallel.
+ * Connects to the run-wide server started in globalSetup, on a database of its own.
+ *
+ * The suite runs with --runInBand, so specs do not currently overlap; the per-spec database is
+ * what means they would not have to. It also keeps a spec that leaves documents behind from
+ * being a spec that breaks the next one.
  */
 export const rootMongooseTestModule = (options: MongooseModuleOptions = {}) => {
   const uri = process.env.MONGO_TEST_URI;

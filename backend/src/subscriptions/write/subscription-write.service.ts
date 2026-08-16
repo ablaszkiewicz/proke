@@ -71,4 +71,9 @@ export class SubscriptionWriteService {
   public async deleteByInstallation(installationId: string): Promise<void> {
     await this.subscriptionModel.deleteMany({ installationId });
   }
+
+  /** Every opt-in this user ever made. Part of deleting the account. */
+  public async deleteForUser(userId: string): Promise<void> {
+    await this.subscriptionModel.deleteMany({ userId });
+  }
 }

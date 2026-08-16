@@ -4,8 +4,12 @@ import { InstallationWriteService } from '../../installations/write/installation
 import { SubscriptionWriteService } from '../../subscriptions/write/subscription-write.service';
 
 /**
- * Keeps the local installation mirror in step with GitHub. Everything here is driven by
- * webhooks, so the connections page never has to fan out one API call per org.
+ * Keeps the local installation mirror in step with GitHub.
+ *
+ * The connections page still asks GitHub which installations a given user may see - only GitHub
+ * knows that - but it reads what proke knows about each one from here, so every member of an org
+ * sees the same state and sees it as soon as the webhook lands rather than whenever someone's
+ * token last managed a round trip.
  */
 @Injectable()
 export class GithubWebhookInstallationsService {
@@ -33,7 +37,9 @@ export class GithubWebhookInstallationsService {
       return;
     }
 
-    await this.installationWriteService.upsert(InstallationSerializer.fromGithubPayload(installation));
+    await this.installationWriteService.upsert(
+      InstallationSerializer.fromGithubPayload(installation),
+    );
     this.logger.log(
       `Installation ${payload.action} for ${installation.account?.login} ` +
         `(${installation.repository_selection})`,

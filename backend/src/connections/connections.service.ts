@@ -1,26 +1,36 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { GithubAppInstallationsService } from '../github-app/github-app-installations.service';
 import { InstallationNormalized } from '../installations/core/entities/installation.interface';
+import { InstallationReadService } from '../installations/read/installation-read.service';
 import { InstallationWriteService } from '../installations/write/installation-write.service';
 import { getEnvConfig } from '../shared/configs/env-configs';
 import { GithubOrgMembershipDataService } from './github-org-membership-data.service';
 import { NotificationPreferencesNormalized } from '../subscriptions/core/entities/subscription.interface';
 import { SubscriptionReadService } from '../subscriptions/read/subscription-read.service';
 import { SubscriptionWriteService } from '../subscriptions/write/subscription-write.service';
+import { UserNormalized } from '../user/core/entities/user.interface';
 import { UserReadService } from '../user/read/user-read.service';
+import { UserWriteService } from '../user/write/user-write.service';
 import { ConnectionStatus, ConnectionsResponse } from './dto/connection.response';
 import { UpdateNotificationPreferencesBody } from './dto/update-notification-preferences.body';
-import { GithubUserInstallationsDataService } from './github-user-installations-data.service';
+import {
+  GithubTokenRejectedError,
+  GithubUserInstallationsDataService,
+} from './github-user-installations-data.service';
 
 @Injectable()
 export class ConnectionsService {
+  private readonly logger = new Logger(ConnectionsService.name);
+
   constructor(
     private readonly userReadService: UserReadService,
+    private readonly userWriteService: UserWriteService,
     private readonly installationsDataService: GithubUserInstallationsDataService,
     private readonly subscriptionReadService: SubscriptionReadService,
     private readonly subscriptionWriteService: SubscriptionWriteService,
     private readonly orgMembershipDataService: GithubOrgMembershipDataService,
     private readonly appInstallationsService: GithubAppInstallationsService,
+    private readonly installationReadService: InstallationReadService,
     private readonly installationWriteService: InstallationWriteService,
   ) {}
 
@@ -28,20 +38,48 @@ export class ConnectionsService {
     const user = await this.userReadService.readByIdOrThrow(userId);
 
     if (!user.githubAccessToken) {
-      return { connections: [], installUrl: buildInstallUrl() };
+      return { connections: [], installUrl: buildInstallUrl(), githubReauthRequired: true };
     }
 
-    const installations = await this.installationsDataService.listForUser(user.githubAccessToken);
-    const subscriptions = new Map(
-      (await this.subscriptionReadService.readForUser(userId)).map((subscription) => [
-        subscription.installationId,
-        subscription.preferences,
-      ]),
+    let installations: InstallationNormalized[];
+
+    try {
+      installations = await this.installationsDataService.listForUser(user.githubAccessToken);
+    } catch (error) {
+      if (!(error instanceof GithubTokenRejectedError)) {
+        throw error;
+      }
+
+      // A dead GitHub token is not a dead proke session, and answering 401 here is what made the
+      // dashboard sign the user out. Drop the token so it is not presented again on every load,
+      // and hand back an empty page that says what actually needs fixing.
+      this.logger.warn(`GitHub rejected the stored token for user ${userId}; clearing it`);
+      await this.userWriteService.clearGithubAccessToken(userId);
+
+      return { connections: [], installUrl: buildInstallUrl(), githubReauthRequired: true };
+    }
+
+    const [subscriptions, mirrored] = await Promise.all([
+      this.subscriptionReadService.readForUser(userId),
+      this.installationReadService.readByInstallationIds(
+        installations.map((installation) => installation.installationId),
+      ),
+    ]);
+
+    const preferencesByInstallation = new Map(
+      subscriptions.map((subscription) => [subscription.installationId, subscription.preferences]),
     );
 
+    await this.backfillMirror(installations, mirrored);
+
     return {
-      connections: installations.map((installation) => {
-        const preferences = subscriptions.get(installation.installationId);
+      connections: installations.map((live) => {
+        // GitHub said which installations this user may see; the mirror says what proke knows
+        // about each one. The mirror wins where it has a row, so every member of an org reads
+        // the same state, kept current by the installation webhooks. The live payload is the
+        // fallback for anything installed before those webhooks were wired up.
+        const installation = mirrored.get(live.installationId) ?? live;
+        const preferences = preferencesByInstallation.get(installation.installationId);
 
         return {
           installationId: installation.installationId,
@@ -59,6 +97,28 @@ export class ConnectionsService {
       }),
       installUrl: buildInstallUrl(),
     };
+  }
+
+  /**
+   * Writes mirror rows for installations that have none.
+   *
+   * The mirror is fed by webhooks, so it only knows about installations created since the app's
+   * webhook was configured. Backfilling on read makes it self-healing rather than permanently
+   * blind to anything older, and costs nothing once every installation is present.
+   */
+  private async backfillMirror(
+    live: InstallationNormalized[],
+    mirrored: Map<string, InstallationNormalized>,
+  ): Promise<void> {
+    const missing = live.filter((installation) => !mirrored.has(installation.installationId));
+
+    if (missing.length === 0) {
+      return;
+    }
+
+    await Promise.all(
+      missing.map((installation) => this.installationWriteService.upsert(installation)),
+    );
   }
 
   public async subscribe(userId: string, installationId: string): Promise<void> {
@@ -98,7 +158,9 @@ export class ConnectionsService {
     );
 
     if (!updated) {
-      throw new NotFoundException('Turn this account on before choosing what it notifies you about');
+      throw new NotFoundException(
+        'Turn this account on before choosing what it notifies you about',
+      );
     }
 
     return preferences;
@@ -120,15 +182,15 @@ export class ConnectionsService {
       throw new ForbiddenException('No GitHub token on file for this user');
     }
 
-    const installation = (
-      await this.installationsDataService.listForUser(user.githubAccessToken)
-    ).find((i) => i.installationId === installationId);
+    const installation = (await this.listForUserOrExplain(userId, user.githubAccessToken)).find(
+      (i) => i.installationId === installationId,
+    );
 
     if (!installation) {
       throw new ForbiddenException('You do not have access to that installation');
     }
 
-    await this.assertUserMayUninstall(user.githubAccessToken, user.githubLogin, installation);
+    await this.assertUserMayUninstall(user, installation);
 
     await this.appInstallationsService.uninstall(installationId);
 
@@ -145,13 +207,25 @@ export class ConnectionsService {
    * disgruntled member takes the whole org's notifications down.
    */
   private async assertUserMayUninstall(
-    accessToken: string,
-    githubLogin: string | undefined,
+    user: UserNormalized,
     installation: InstallationNormalized,
   ): Promise<void> {
     if (installation.accountType !== 'Organization') {
-      // A personal installation belongs to exactly one person.
-      if (!githubLogin || installation.accountLogin.toLowerCase() !== githubLogin.toLowerCase()) {
+      // A personal installation belongs to exactly one person, and this asks by account id
+      // rather than by handle. Handles move: GitHub frees one the moment its owner renames, so
+      // a comparison of two strings that both change is the wrong question to ask about
+      // ownership. The login check stays as a fallback for payloads carrying no account id.
+      const ownsById =
+        Boolean(installation.accountId) &&
+        Boolean(user.githubId) &&
+        installation.accountId === user.githubId;
+
+      const ownsByLogin =
+        !installation.accountId &&
+        Boolean(user.githubLogin) &&
+        installation.accountLogin.toLowerCase() === user.githubLogin!.toLowerCase();
+
+      if (!ownsById && !ownsByLogin) {
         throw new ForbiddenException('That installation is not on your account');
       }
 
@@ -159,7 +233,7 @@ export class ConnectionsService {
     }
 
     const role = await this.orgMembershipDataService.readRole(
-      accessToken,
+      user.githubAccessToken!,
       installation.accountLogin,
     );
 
@@ -187,10 +261,38 @@ export class ConnectionsService {
       throw new ForbiddenException('No GitHub token on file for this user');
     }
 
-    const installations = await this.installationsDataService.listForUser(user.githubAccessToken);
+    const installations = await this.listForUserOrExplain(userId, user.githubAccessToken);
 
     if (!installations.some((i) => i.installationId === installationId)) {
       throw new ForbiddenException('You do not have access to that installation');
+    }
+  }
+
+  /**
+   * `listForUser`, with a dead GitHub token turned into an answer the user can act on.
+   *
+   * The mutating paths cannot degrade to an empty page the way `readForUser` does - refusing is
+   * the only safe outcome when the access check itself could not run - but they must still not
+   * answer 401, which the dashboard reads as "your proke session expired" and acts on by
+   * signing the user out.
+   */
+  private async listForUserOrExplain(
+    userId: string,
+    accessToken: string,
+  ): Promise<InstallationNormalized[]> {
+    try {
+      return await this.installationsDataService.listForUser(accessToken);
+    } catch (error) {
+      if (!(error instanceof GithubTokenRejectedError)) {
+        throw error;
+      }
+
+      this.logger.warn(`GitHub rejected the stored token for user ${userId}; clearing it`);
+      await this.userWriteService.clearGithubAccessToken(userId);
+
+      throw new ForbiddenException(
+        'GitHub no longer accepts your authorization. Sign in with GitHub again to reconnect.',
+      );
     }
   }
 }

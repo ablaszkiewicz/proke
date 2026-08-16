@@ -20,8 +20,9 @@ export class SlackWorkspaceEntity {
   @Prop()
   teamName: string;
 
-  // The app's own user id in this workspace. Kept so delivery can recognise proke's own
-  // messages, and because Slack asks for it in a few places.
+  // The app's own user id in this workspace, as Slack returned it on install. Recorded rather
+  // than used: nothing reads it today. It is here because it is only ever handed over once, at
+  // install time, and recovering it later means another round trip.
   @Prop()
   botUserId: string;
 

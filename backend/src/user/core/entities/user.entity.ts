@@ -11,11 +11,22 @@ export class UserEntity {
   @Prop({ unique: true, sparse: true })
   githubId?: string;
 
-  // The @handle. Changes whenever the user renames themselves, so githubId stays the identity.
-  // Looked up only for @mentions, where the payload gives us a handle and nothing else - and
-  // refreshed on every login, so a rename costs at most the pokes between the two.
-  @Prop({ index: true })
+  // The @handle, as GitHub cases it. Display only - it changes whenever the user renames
+  // themselves, so githubId stays the identity.
+  @Prop()
   githubLogin?: string;
+
+  // The same handle, lowercased, and the field mention routing actually queries. GitHub treats
+  // handles case-insensitively, so this is what makes that an indexed equality rather than a
+  // case-insensitive regex, which Mongo cannot serve from an index at all.
+  //
+  // Unique because GitHub itself guarantees one live owner per handle. Two rows claiming one
+  // handle only ever means a stale row left behind by a rename, and that is exactly the state
+  // that used to let a poke - repository name, title, and a slice of the comment - land on
+  // whoever the unordered findOne happened to return. UserWriteService releases the handle from
+  // any other row before claiming it here, which is what keeps this index satisfiable.
+  @Prop({ unique: true, sparse: true })
+  githubLoginLower?: string;
 
   // Kept for display and as the future join key to other platforms. Optional: GitHub only
   // hands one over if the user has a verified primary address.
@@ -28,10 +39,14 @@ export class UserEntity {
   @Prop()
   avatarUrl?: string;
 
-  // The OAuth App token. Notifications arrive by webhook now, so this is only used to ask
-  // GitHub which orgs the user belongs to when rendering the connections page. Deliberately
-  // absent from UserSerializer.serialize() so it can never leave through the API. Plaintext is
-  // acceptable at `read:org`; encrypt at rest before anything asks for `repo`.
+  // The GitHub App user-to-server token. Notifications arrive by webhook, so this is only used
+  // to ask GitHub which installations the user can reach and what their role in an org is.
+  //
+  // Encrypted at rest by TokenCipherService, the same key that guards the Slack bot tokens, and
+  // deliberately absent from UserSerializer.serialize() so it can never leave through the API.
+  // Encrypted regardless of how narrow today's scopes are: the app's user permissions are
+  // widened on GitHub's settings page, not in this file, so nobody making that change would
+  // ever see a note here telling them to come back and encrypt it.
   @Prop()
   githubAccessToken?: string;
 

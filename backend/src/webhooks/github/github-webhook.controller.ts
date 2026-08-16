@@ -43,7 +43,12 @@ export class GithubWebhookController {
     const payload = request.body;
 
     // GitHub gives up on a delivery after 10 seconds, so acknowledge first and do the work
-    // detached. A redelivery is cheap; a timeout gets the endpoint marked unhealthy.
+    // detached, or a slow Slack call gets the whole endpoint marked unhealthy.
+    //
+    // Nothing here is idempotent yet. X-GitHub-Delivery is not read, so a redelivery - which
+    // GitHub does on any non-2xx, and which is a button on the deliveries page - sends the poke
+    // a second time. For a product whose whole job is not pestering people, that is a real cost
+    // rather than the free retry it looks like.
     void this.handle(event, payload).catch((error) => {
       this.logger.error(`Failed handling ${event}: ${error}`);
     });

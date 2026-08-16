@@ -23,7 +23,8 @@ export class SlackApiError extends Error {
 export interface SlackIdentity {
   slackUserId: string;
   slackHandle?: string;
-  teamId: string;
+  /** Optional because nothing here requires it; the OAuth response is where the team is settled. */
+  teamId?: string;
   teamName?: string;
 }
 
@@ -42,7 +43,9 @@ export class SlackApiService {
     const data = await this.call('users.identity', userToken);
 
     return {
-      slackUserId: data.user?.id,
+      // `ok: true` with no user id should not be possible, so this is not a fallback path - it
+      // is a refusal to hand back an object whose type says `string` while holding undefined.
+      slackUserId: this.required(data.user?.id, 'users.identity', 'missing_user_id'),
       slackHandle: data.user?.name,
       teamId: data.team?.id,
       teamName: data.team?.name,
@@ -56,7 +59,24 @@ export class SlackApiService {
   public async openDirectMessage(botToken: string, slackUserId: string): Promise<string> {
     const data = await this.call('conversations.open', botToken, { users: slackUserId });
 
-    return data.channel?.id;
+    // Without this the undefined travelled on into chat.postMessage as the channel, where Slack
+    // answered with a far less obvious error than the one that actually happened.
+    return this.required(data.channel?.id, 'conversations.open', 'missing_channel_id');
+  }
+
+  /**
+   * Asserts a field Slack's contract promises but its response did not carry.
+   *
+   * Raised as a SlackApiError rather than a plain one so it travels the same path as every other
+   * Slack failure: delivery already knows how to classify those, and a malformed response lands
+   * as `failed` rather than as an unhandled exception.
+   */
+  private required(value: string | undefined, method: string, code: string): string {
+    if (!value) {
+      throw new SlackApiError(method, code);
+    }
+
+    return value;
   }
 
   public async postMessage(

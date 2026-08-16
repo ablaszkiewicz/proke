@@ -51,4 +51,17 @@ export class SlackWorkspaceWriteService {
   public async markRevoked(teamId: string): Promise<void> {
     await this.workspaceModel.updateOne({ teamId }, { $set: { revokedAt: new Date() } }).exec();
   }
+
+  /**
+   * Forgets who installed proke into a workspace, without touching the install itself.
+   *
+   * Used when that person deletes their account. The workspace belongs to everyone still using
+   * it - uninstalling it because one member left would take their colleagues' notifications down
+   * with them - but the row must stop pointing at a user who no longer exists.
+   */
+  public async clearInstalledBy(userId: string): Promise<void> {
+    await this.workspaceModel
+      .updateMany({ installedByUserId: userId }, { $unset: { installedByUserId: '' } })
+      .exec();
+  }
 }
