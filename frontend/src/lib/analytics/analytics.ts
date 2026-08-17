@@ -74,6 +74,16 @@ export function initAnalytics(): void {
   initialized = true;
 }
 
+/**
+ * Whether `initAnalytics()` found a key and ran.
+ *
+ * Exported for surveys.ts, which goes past `captureEvent` to PostHog's own survey API and so
+ * needs the same guard: without a key, `posthog.getSurveys` throws rather than no-opping.
+ */
+export function isAnalyticsInitialized(): boolean {
+  return initialized;
+}
+
 /** An event about something the user did that the server has no way to observe. */
 export function captureEvent(
   event: AnalyticsEvent,

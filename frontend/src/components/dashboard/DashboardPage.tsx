@@ -1,6 +1,6 @@
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { OrganisationsPanel, type OrganisationsPanelProps } from "./OrganisationsPanel";
 import { PokesPanel } from "./PokesPanel";
 import { SlackPanel, type SlackPanelProps } from "./SlackPanel";
@@ -16,6 +16,12 @@ export interface DashboardPageProps extends OrganisationsPanelProps {
   user: DashboardUser;
   slack: SlackPanelProps;
   onLogout: () => void;
+  /**
+   * Slot in the footer line, between who you are and the way out. A slot rather than the
+   * component itself because what goes here talks to PostHog directly, and this page has to
+   * keep rendering on mock data in the drafts gallery.
+   */
+  feedback?: ReactNode;
   className?: string;
 }
 
@@ -31,6 +37,7 @@ export function DashboardPage({
   user,
   slack,
   onLogout,
+  feedback,
   className,
   ...organisations
 }: DashboardPageProps) {
@@ -76,6 +83,12 @@ export function DashboardPage({
             </span>
           </span>
           <span aria-hidden="true">·</span>
+          {feedback ? (
+            <>
+              {feedback}
+              <span aria-hidden="true">·</span>
+            </>
+          ) : null}
           <button
             type="button"
             onClick={onLogout}

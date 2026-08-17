@@ -1,3 +1,4 @@
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { captureEvent } from "@/lib/analytics/analytics";
 import { authLogic } from "@/lib/logics/authLogic";
 import { connectionsLogic } from "@/lib/logics/connectionsLogic";
@@ -40,6 +41,10 @@ export function Dashboard() {
         loaded: userLoaded,
       }}
       onLogout={logout}
+      // The one control on this page that reports itself. Everything else here captures a
+      // `frontend_*` event; the popover sends PostHog's own `survey shown`/`sent`/`dismissed`,
+      // which is what puts an answer on the survey rather than in a custom event nobody reads.
+      feedback={<FeedbackButton />}
       connections={connections}
       installUrl={installUrl}
       loading={resultLoading}
