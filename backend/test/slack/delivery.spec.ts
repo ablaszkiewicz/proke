@@ -280,6 +280,121 @@ describe('Slack delivery', () => {
       expect(posts[0].blocks[1].type).toEqual('context');
     });
 
+    it('says the verdict and what came with it in one sentence', async () => {
+      // given - an approval with notes on it is one act, and reads as one
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.ReviewSubmitted,
+          reviewState: 'approved',
+          comments: { count: 3, mentioned: false },
+        }),
+      );
+
+      // then
+      expect(lead(posts)).toContain('✅ @ada approved and left 3 comments on *<');
+    });
+
+    it('counts a single comment as one', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.ReviewSubmitted,
+          reviewState: 'approved',
+          comments: { count: 1, mentioned: false },
+        }),
+      );
+
+      // then
+      expect(lead(posts)).toContain('✅ @ada approved and left a comment on *<');
+    });
+
+    it('stays grammatical when a verdict gains a second clause', async () => {
+      // given - "requested changes on" already carries its preposition, and only the last
+      // clause may keep one
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.ReviewSubmitted,
+          reviewState: 'changes_requested',
+          comments: { count: 2, mentioned: false },
+        }),
+      );
+
+      // then - not "requested changes on and left 2 comments on"
+      expect(lead(posts)).toContain('❌ @ada requested changes and left 2 comments on *<');
+    });
+
+    it('counts comments that came with no verdict in front of them', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.PullRequestComment,
+          comments: { count: 4, mentioned: false },
+        }),
+      );
+
+      // then
+      expect(lead(posts)).toContain('@ada left 4 comments on *<');
+    });
+
+    it('does not let being named collapse into being commented at', async () => {
+      // given - being mentioned is why somebody is poked at all
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.PullRequestMention,
+          comments: { count: 2, mentioned: true },
+        }),
+      );
+
+      // then
+      expect(lead(posts)).toContain('@ada mentioned you in 2 comments on *<');
+    });
+
+    it('quotes the one comment the batch chose, under the whole sentence', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.ReviewSubmitted,
+          reviewState: 'approved',
+          comments: { count: 2, mentioned: false },
+          excerpt: 'nit: rename this',
+        }),
+      );
+
+      // then
+      expect(posts[0].blocks[1].text.text).toEqual('> nit: rename this');
+      expect(posts[0].text).toContain('✅ @ada approved and left 2 comments on');
+    });
+
     it('sets the owner logo and the size of the change beside the repository', async () => {
       // given
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });

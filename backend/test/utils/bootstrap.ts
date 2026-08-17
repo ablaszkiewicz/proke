@@ -7,6 +7,7 @@ import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
 import { NotificationDeliveryService } from '../../src/notifications/delivery/notification-delivery.service';
+import { ReviewBatchService } from '../../src/notifications/delivery/review-batch.service';
 import { SlackNotificationDeliveryService } from '../../src/notifications/delivery/slack-notification-delivery.service';
 import { SlackLinkEntity } from '../../src/slack/links/core/entities/slack-link.entity';
 import { SlackModule } from '../../src/slack/slack.module';
@@ -22,6 +23,30 @@ import { GithubWebhookModule } from '../../src/webhooks/github/github-webhook.mo
 import { SlackEventsModule } from '../../src/webhooks/slack/slack-events.module';
 import { AuthUtils } from './auth-utils';
 import { closeInMemoryMongoServer, rootMongooseTestModule } from './mongo-in-memory-server';
+
+/**
+ * A review is held open for a window so its several webhooks arrive as one poke. Five seconds
+ * is right in production and would be five seconds of dead time in every spec that sends one -
+ * long enough here that two requests comfortably land inside it, and no longer.
+ *
+ * Set before anything Nest builds, because the window is read once when the service is
+ * constructed. `??=` so a spec that wants a different one can still say so first.
+ */
+process.env.REVIEW_BATCH_WINDOW_MS ??= '150';
+
+/**
+ * No spec may reach the internet.
+ *
+ * Without this, anything a spec forgot to mock goes to the real api.github.com: a DNS lookup, a
+ * handshake and a 401, seconds at a time, and the suite fails or passes depending on the
+ * network. An unmocked call now fails instantly and locally, which is also a fair simulation of
+ * GitHub being unreachable - every one of these paths is supposed to survive that.
+ *
+ * Loopback stays open for the two things that are genuinely local: supertest's ephemeral server
+ * and the MongoDB the harness starts.
+ */
+nock.disableNetConnect();
+nock.enableNetConnect((host) => host.startsWith('127.0.0.1') || host.startsWith('localhost'));
 
 export async function createTestApp() {
   const module: TestingModule = await Test.createTestingModule({
@@ -93,6 +118,9 @@ export async function createTestApp() {
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),
       slackNotificationDeliveryService: app.get(SlackNotificationDeliveryService),
+      // So a spec can close the batching window itself rather than sitting through it - and so
+      // that "nothing was delivered" can mean it, instead of meaning "not yet".
+      reviewBatchService: app.get(ReviewBatchService),
       // So a spec can go through the same paths the app uses - the only way to assert that an
       // encrypted-at-rest token still comes out usable, or that claiming a handle releases it
       // from whoever held it before.

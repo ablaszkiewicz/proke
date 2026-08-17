@@ -75,9 +75,14 @@ describe('Webhooks (github)', () => {
     });
   };
 
-  /** Nothing delivered is proven by a quiet interval - there is no event to wait for. */
+  /**
+   * Nothing delivered is proven by a quiet interval - there is no event to wait for. The window
+   * a review is held open in is closed by hand afterwards, so that a poke merely being held
+   * cannot read as a poke that was suppressed.
+   */
   const expectNoPoke = async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
+    await bootstrap.services.reviewBatchService.flushAll();
     expect(deliverSpy).not.toHaveBeenCalled();
   };
 
@@ -1032,6 +1037,202 @@ describe('Webhooks (github)', () => {
 
       // then
       await expectNoPoke();
+    });
+  });
+
+  /**
+   * GitHub delivers one review as several webhooks - one per inline comment, plus one for the
+   * submission - in no guaranteed order. Sent straight through, approving a pull request with
+   * three notes on it costs the author four Slack messages.
+   */
+  describe('a review arriving in pieces', () => {
+    const REVIEW_ID = 88001;
+    const PULL_REQUEST = {
+      number: 9,
+      title: 'Wire up webhooks',
+      html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+      user: { id: 4242, login: 'author' },
+    };
+
+    const reviewPayload = (review: object = {}, reviewId = REVIEW_ID) => ({
+      action: 'submitted',
+      installation: { id: Number(INSTALLATION_ID) },
+      repository: REPOSITORY,
+      sender: { id: 999, login: 'reviewer' },
+      review: {
+        id: reviewId,
+        state: 'approved',
+        html_url: `https://github.com/ablaszkiewicz/proke/pull/9#pullrequestreview-${reviewId}`,
+        ...review,
+      },
+      pull_request: PULL_REQUEST,
+    });
+
+    const commentPayload = (id: number, body: string, reviewId = REVIEW_ID) => ({
+      action: 'created',
+      installation: { id: Number(INSTALLATION_ID) },
+      repository: REPOSITORY,
+      sender: { id: 999, login: 'reviewer' },
+      comment: {
+        id,
+        pull_request_review_id: reviewId,
+        html_url: `https://github.com/ablaszkiewicz/proke/pull/9#discussion_r${id}`,
+        body,
+      },
+      pull_request: PULL_REQUEST,
+    });
+
+    /**
+     * Every one of these pokes is about a pull request with a number, so the size of the change
+     * gets fetched. Once, thanks to the cache, however many webhooks the review arrived as.
+     */
+    const mockDiff = () => {
+      nock('https://api.github.com')
+        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+        .reply(201, {
+          token: 'ghs_installation',
+          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+      nock('https://api.github.com')
+        .get('/repos/ablaszkiewicz/proke/pulls/9')
+        .reply(200, { additions: 5, deletions: 1 });
+    };
+
+    const setupAuthor = async () => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    /**
+     * One poke and no second one. Any batch that failed to merge would still be sitting in its
+     * own window, so closing them all by hand is what makes the count mean something.
+     */
+    const onlyNotification = async () => {
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await bootstrap.services.reviewBatchService.flushAll();
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+
+      return deliverSpy.mock.calls[0][1];
+    };
+
+    it('folds an approval and its comments into a single poke', async () => {
+      // given
+      await setupAuthor();
+      mockDiff();
+
+      // when - three webhooks for one act
+      await send('pull_request_review', reviewPayload());
+      await send('pull_request_review_comment', commentPayload(10, 'nit: rename this'));
+      await send('pull_request_review_comment', commentPayload(20, 'and this one too'));
+
+      // then - one message, which knows how much it stands for
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        reviewState: 'approved',
+        comments: { count: 2, mentioned: false },
+        excerpt: 'nit: rename this',
+      });
+    });
+
+    it('quotes the review’s own words ahead of the comments', async () => {
+      // given - the reviewer talking about the change as a whole outranks a note on one line
+      await setupAuthor();
+      mockDiff();
+
+      // when
+      await send('pull_request_review', reviewPayload({ body: 'Nice, one thing though.' }));
+      await send('pull_request_review_comment', commentPayload(10, 'nit: rename this'));
+
+      // then - and the review body is not counted as one of the comments
+      expect(await onlyNotification()).toMatchObject({
+        excerpt: 'Nice, one thing though.',
+        comments: { count: 1 },
+      });
+    });
+
+    it('quotes the earliest comment rather than the first webhook to land', async () => {
+      // given - webhooks for one review race each other; the ids are what preserve the order
+      await setupAuthor();
+      mockDiff();
+
+      // when - the later comment arrives first
+      await send('pull_request_review_comment', commentPayload(20, 'written second'));
+      await send('pull_request_review_comment', commentPayload(10, 'written first'));
+
+      // then
+      expect(await onlyNotification()).toMatchObject({
+        excerpt: 'written first',
+        comments: { count: 2 },
+      });
+    });
+
+    it('lets an empty review step aside for the comments it carried', async () => {
+      // given - GitHub opens a review behind every set of inline comments, verdict or not
+      await setupAuthor();
+      mockDiff();
+
+      // when
+      await send('pull_request_review', reviewPayload({ state: 'commented', body: '' }));
+      await send('pull_request_review_comment', commentPayload(10, 'this leaks a listener'));
+      await send('pull_request_review_comment', commentPayload(20, 'so does this'));
+
+      // then - "reviewed" would be all this said otherwise, and it said two specific things
+      const notification = await onlyNotification();
+      expect(notification.type).toEqual(NotificationType.PullRequestComment);
+      expect(notification.comments).toEqual({ count: 2, mentioned: false });
+      expect(notification.excerpt).toEqual('this leaks a listener');
+    });
+
+    it('sends what did arrive when the rest never does', async () => {
+      // given - a redelivery, a dropped webhook, or a replica that only saw half of it
+      await setupAuthor();
+      mockDiff();
+
+      // when - the submission never comes
+      await send('pull_request_review_comment', commentPayload(10, 'first'));
+      await send('pull_request_review_comment', commentPayload(20, 'second'));
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ comments: { count: 2 } });
+    });
+
+    it('says you were named rather than merely commented on', async () => {
+      // given - somebody who is not the author, pulled in by name
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '5555',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+      mockDiff();
+
+      // when
+      await send('pull_request_review_comment', commentPayload(10, 'cc @ablaszkiewicz'));
+      await send('pull_request_review_comment', commentPayload(20, '@ablaszkiewicz here too'));
+
+      // then - being named is why they are being poked and must survive the folding
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.PullRequestMention,
+        comments: { count: 2, mentioned: true },
+      });
+    });
+
+    it('keeps two separate reviews apart', async () => {
+      // given - two people reviewing at once is one pull request and two acts
+      await setupAuthor();
+      mockDiff();
+
+      // when
+      await send('pull_request_review', reviewPayload({}, 88001));
+      await send('pull_request_review', reviewPayload({ state: 'changes_requested' }, 99002));
+
+      // then
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      const states = deliverSpy.mock.calls.map((call) => call[1].reviewState).sort();
+      expect(states).toEqual(['approved', 'changes_requested']);
     });
   });
 

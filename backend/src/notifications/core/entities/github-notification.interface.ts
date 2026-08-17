@@ -9,6 +9,36 @@ export interface GithubDiffStat {
   deletions: number;
 }
 
+/**
+ * The comments a review arrived with, once several pokes have been folded into one.
+ *
+ * A count rather than the comments themselves: the message quotes exactly one of them and links
+ * to the review for the rest, so carrying the others would be carrying them nowhere.
+ */
+/**
+ * The review states that are a verdict on the change, as opposed to somebody talking about it.
+ *
+ * A review that is neither is an envelope: GitHub opens one behind every set of inline comments,
+ * including the single comment left outside a review, and where it carries no words of its own
+ * there is nothing in it to report beyond the comments themselves.
+ */
+export const REVIEW_VERDICTS = ['approved', 'changes_requested'] as const;
+
+export type GithubReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+
+export function isReviewVerdict(state: string | undefined): state is GithubReviewVerdict {
+  return REVIEW_VERDICTS.includes(state as GithubReviewVerdict);
+}
+
+export interface GithubNotificationComments {
+  count: number;
+  /**
+   * Whether they named the recipient rather than merely landing on their pull request. Being
+   * mentioned is why somebody is being poked, and must not be flattened into "left 3 comments".
+   */
+  mentioned: boolean;
+}
+
 export interface GithubNotificationNormalized {
   type: NotificationType;
   title: string;
@@ -49,4 +79,21 @@ export interface GithubNotificationNormalized {
    * only a pull request has a diff worth asking GitHub for.
    */
   isPullRequest?: boolean;
+  /**
+   * Which review this belongs to, on the two events a review is delivered as - the submission
+   * itself, and one per inline comment. GitHub puts the same id on all of them, which is what
+   * lets a review that arrived as six webhooks leave as one poke.
+   */
+  reviewId?: string;
+  /**
+   * The inline comment this came from, absent on the review submission itself. Sorts the
+   * comments back into the order they were written, since webhooks do not arrive in one.
+   */
+  commentId?: string;
+  /**
+   * What the rest of the review held, set only where a poke stands for more than one event.
+   * Absent means this poke is about exactly one thing, which is every poke that was never
+   * batched with anything.
+   */
+  comments?: GithubNotificationComments;
 }

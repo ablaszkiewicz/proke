@@ -41,6 +41,12 @@ interface PokeContext {
   actorLogin?: string;
   reviewState?: string;
   hasExcerpt?: boolean;
+  /**
+   * How many comments this one message stood for. Without it a review folded into a single poke
+   * is indistinguishable from a review that only ever had one comment, and the whole point of
+   * the folding - how many messages it saved somebody - cannot be measured.
+   */
+  commentCount?: number;
 }
 
 /**
@@ -77,6 +83,7 @@ export class SlackNotificationDeliveryService {
       actorLogin: notification.actorLogin,
       reviewState: notification.reviewState,
       hasExcerpt: Boolean(notification.excerpt),
+      commentCount: notification.comments?.count,
     });
   }
 
@@ -178,6 +185,7 @@ export class SlackNotificationDeliveryService {
       actor_login: context.actorLogin,
       review_state: context.reviewState,
       has_excerpt: context.hasExcerpt,
+      comment_count: context.commentCount,
       reason,
     });
   }

@@ -12,7 +12,7 @@ import {
   comparePriority,
   NotificationType,
 } from '../../notifications/core/entities/notification-type.enum';
-import { NotificationDeliveryService } from '../../notifications/delivery/notification-delivery.service';
+import { ReviewBatchService } from '../../notifications/delivery/review-batch.service';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
@@ -59,6 +59,10 @@ interface PokeSubject {
   reviewState?: string;
   /** An issue has no diff, and a team mention can be either. */
   isPullRequest?: boolean;
+  /** The review all of this belongs to, on the events that are part of one. */
+  reviewId?: string;
+  /** The inline comment this came from. Absent on the review submission itself. */
+  commentId?: string;
   /**
    * The line counts, where the payload had them. Only `pull_request` events carry the full pull
    * request object; everything else has to be asked for, later and only if the poke survives.
@@ -85,7 +89,7 @@ export class GithubWebhookRouterService {
   constructor(
     private readonly userReadService: UserReadService,
     private readonly subscriptionReadService: SubscriptionReadService,
-    private readonly deliveryService: NotificationDeliveryService,
+    private readonly deliveryService: ReviewBatchService,
     private readonly teamMembersDataService: GithubTeamMembersDataService,
     private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
     private readonly pullRequestDataService: GithubPullRequestDataService,
@@ -158,7 +162,7 @@ export class GithubWebhookRouterService {
         continue;
       }
 
-      await this.deliveryService.deliver(user, await this.withDiff(wanted[0], installationId));
+      await this.deliveryService.submit(user, await this.withDiff(wanted[0], installationId));
     }
   }
 
@@ -480,6 +484,9 @@ export class GithubWebhookRouterService {
       // Approving and demanding changes are opposite news and read as such; the type alone
       // cannot say which happened.
       reviewState: payload.review?.state,
+      // The other half of the review - one webhook per inline comment - carries this same id,
+      // which is the whole basis for the two arriving as one poke.
+      reviewId: identifier(payload.review?.id),
     };
 
     const pokes: Poke[] = [];
@@ -509,6 +516,10 @@ export class GithubWebhookRouterService {
       number: pullRequest.number,
       isPullRequest: true,
       body: payload.comment?.body,
+      // GitHub attaches every inline comment to a review, including the one it opens behind the
+      // scenes for a single comment left outside of one.
+      reviewId: identifier(payload.comment?.pull_request_review_id),
+      commentId: identifier(payload.comment?.id),
     };
 
     const pokes: Poke[] = [];
@@ -624,8 +635,20 @@ export class GithubWebhookRouterService {
       ownerAvatarUrl: context.ownerAvatarUrl,
       isPullRequest: subject.isPullRequest,
       diff: subject.diff,
+      reviewId: subject.reviewId,
+      commentId: subject.commentId,
     };
   }
+}
+
+/**
+ * A GitHub id as a string, or nothing at all.
+ *
+ * `String(undefined)` is `"undefined"`, which would batch every review that arrived without an
+ * id into one - so the check has to happen before the conversion rather than after it.
+ */
+function identifier(value: unknown): string | undefined {
+  return value === undefined || value === null ? undefined : String(value);
 }
 
 /**

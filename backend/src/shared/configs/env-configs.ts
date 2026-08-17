@@ -48,6 +48,14 @@ interface EnvConfig {
     apiKey: string;
     host: string;
   };
+  notifications: {
+    /**
+     * How long a review's pokes are held open so the rest of it can arrive. GitHub delivers a
+     * review as one webhook per inline comment plus one for the submission, in no particular
+     * order, so this is the price of them landing as a single message.
+     */
+    reviewBatchWindowMs: number;
+  };
 }
 
 /**
@@ -98,6 +106,11 @@ export function getEnvConfig(): EnvConfig {
       // secret arrives as an empty string rather than as absent. `??` would let that through
       // and hand the SDK a blank host, which fails on every request instead of falling back.
       host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com',
+    },
+    notifications: {
+      // Five seconds: long enough that the pieces of one review reliably meet, short enough that
+      // a poke is still a poke. Configurable mostly so the e2e suite need not sit through it.
+      reviewBatchWindowMs: Number(process.env.REVIEW_BATCH_WINDOW_MS ?? 5000),
     },
   };
 }

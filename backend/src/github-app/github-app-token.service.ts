@@ -52,17 +52,28 @@ export class GithubAppTokenService {
       return null;
     }
 
-    const response = await fetch(
-      `https://api.github.com/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${appJwt}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
+    let response: Response;
+
+    try {
+      response = await fetch(
+        `https://api.github.com/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${appJwt}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      // GitHub unreachable is "cannot answer", the same as GitHub refusing - and this method
+      // promises null for that. Thrown, it would escape every caller instead: routing one
+      // webhook would die on the way to minting a token, and every recipient of that event
+      // would lose their poke over a picture or a line count.
+      this.logger.warn(`Could not reach GitHub to mint a token for ${installationId}: ${error}`);
+      return null;
+    }
 
     if (!response.ok) {
       this.logger.warn(

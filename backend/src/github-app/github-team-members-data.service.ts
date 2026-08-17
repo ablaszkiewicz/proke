@@ -65,17 +65,26 @@ export class GithubTeamMembersDataService {
       return null;
     }
 
-    const response = await fetch(
-      `https://api.github.com/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(slug)}` +
-        `/members?per_page=${MAX_TEAM_MEMBERS}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
+    let response: Response;
+
+    try {
+      response = await fetch(
+        `https://api.github.com/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(slug)}` +
+          `/members?per_page=${MAX_TEAM_MEMBERS}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      // Null is this method's word for "could not establish", and unreachable is exactly that.
+      // Thrown, it would take down the routing of the whole event rather than one team mention.
+      this.logger.warn(`Could not reach GitHub about ${org}/${slug}: ${error}`);
+      return null;
+    }
 
     // Frequent and unremarkable: people write `@acme/anything` in prose, and only some of those
     // are teams.

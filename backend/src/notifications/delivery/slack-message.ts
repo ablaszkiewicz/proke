@@ -2,6 +2,8 @@ import { SlackMessage } from '../../slack/app/slack-api.service';
 import {
   GithubDiffStat,
   GithubNotificationNormalized,
+  GithubReviewVerdict,
+  isReviewVerdict,
 } from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 
@@ -25,28 +27,42 @@ const AVATAR_HOSTS = ['avatars.githubusercontent.com', 'github.com'];
 const AVATAR_SIZE = 48;
 
 /**
+ * Half a sentence: what somebody did, and the word that joins it to what they did it to.
+ *
+ * Split in two because one poke can be two of these at once - approving a pull request and
+ * leaving notes on it is one act with two halves - and joining them needs the preposition to
+ * belong to the last one. "approved and left 3 comments on X", never "approved on and left".
+ *
+ * The preposition is absent where the verb takes its object directly: "merged X", "approved X".
+ */
+interface Clause {
+  verb: string;
+  preposition?: string;
+}
+
+/**
  * The sentence up to the link, which finishes it. One line, always the same shape:
  * `<who> <did what to> <the thing>`.
  *
  * Issues and pull requests are not distinguished when somebody names you - being mentioned is
  * being mentioned, and the link says which it was.
  */
-const LEAD: Record<
-  NotificationType,
-  (actor: string, notification: GithubNotificationNormalized) => string
-> = {
-  [NotificationType.ReviewRequested]: (actor) => `${actor} requested your review on`,
-  [NotificationType.ReviewSubmitted]: (actor) => `${actor} reviewed`,
-  [NotificationType.PullRequestMerged]: (actor) => `${actor} merged`,
-  [NotificationType.PullRequestComment]: (actor) => `${actor} commented on`,
-  [NotificationType.PullRequestMention]: (actor) => `${actor} mentioned you on`,
-  [NotificationType.IssueMention]: (actor) => `${actor} mentioned you on`,
+const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized) => Clause> = {
+  [NotificationType.ReviewRequested]: () => ({
+    verb: 'requested your review',
+    preposition: 'on',
+  }),
+  [NotificationType.ReviewSubmitted]: () => ({ verb: 'reviewed' }),
+  [NotificationType.PullRequestMerged]: () => ({ verb: 'merged' }),
+  [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
+  [NotificationType.PullRequestMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
+  [NotificationType.IssueMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
   // Says the team: "mentioned you" would be a small lie, and why you got this is the one thing
   // you want from an unexpected poke.
-  [NotificationType.TeamMention]: (actor, notification) =>
-    notification.teamHandle
-      ? `${actor} mentioned @${notification.teamHandle} on`
-      : `${actor} mentioned your team on`,
+  [NotificationType.TeamMention]: (notification) => ({
+    verb: notification.teamHandle ? `mentioned @${notification.teamHandle}` : 'mentioned your team',
+    preposition: 'on',
+  }),
 };
 
 /**
@@ -54,19 +70,16 @@ const LEAD: Record<
  * a marker. Everything else stays unadorned - an emoji on every line is decoration, and stops
  * meaning anything.
  */
-const REVIEW: Record<string, { icon: string; lead: (actor: string) => string }> = {
-  approved: { icon: '✅', lead: (actor) => `${actor} approved` },
-  changes_requested: { icon: '❌', lead: (actor) => `${actor} requested changes on` },
+const REVIEW: Record<GithubReviewVerdict, Clause & { icon: string }> = {
+  approved: { icon: '✅', verb: 'approved' },
+  changes_requested: { icon: '❌', verb: 'requested changes', preposition: 'on' },
 };
 
 export function buildPokeMessage(notification: GithubNotificationNormalized): SlackMessage {
   const actor = notification.actorLogin ? `@${notification.actorLogin}` : 'Someone';
-  const review =
-    notification.type === NotificationType.ReviewSubmitted && notification.reviewState
-      ? REVIEW[notification.reviewState]
-      : undefined;
+  const review = verdict(notification);
 
-  const lead = review ? review.lead(actor) : LEAD[notification.type](actor, notification);
+  const lead = `${actor} ${sentence(leadClauses(notification, review))}`;
   const icon = review ? `${review.icon} ` : '';
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
@@ -133,6 +146,85 @@ function subject(notification: GithubNotificationNormalized): string {
   const title = notification.title || 'View on GitHub';
 
   return notification.number ? `${title} #${notification.number}` : title;
+}
+
+/**
+ * The verdict a submitted review reached, where it reached one.
+ *
+ * A review that neither approved nor blocked has no verdict and no marker - it is somebody
+ * talking, and the words are in the quote underneath.
+ */
+function verdict(
+  notification: GithubNotificationNormalized,
+): (Clause & { icon: string }) | undefined {
+  if (notification.type !== NotificationType.ReviewSubmitted) {
+    return undefined;
+  }
+
+  return isReviewVerdict(notification.reviewState) ? REVIEW[notification.reviewState] : undefined;
+}
+
+/**
+ * What this poke says somebody did - one clause, or two where a review came with notes on it.
+ *
+ * The review half always comes first, because it is the verdict on the whole change and the
+ * comments are remarks inside it.
+ */
+function leadClauses(
+  notification: GithubNotificationNormalized,
+  review: Clause | undefined,
+): Clause[] {
+  // A submitted review without a verdict is still a review: "reviewed" is what LEAD holds for
+  // it, and it belongs in front of the comments the same way an approval does.
+  const first =
+    review ??
+    (notification.type === NotificationType.ReviewSubmitted
+      ? LEAD[NotificationType.ReviewSubmitted](notification)
+      : undefined);
+  const rest = commentClause(notification, Boolean(first));
+
+  if (first && rest) {
+    return [first, rest];
+  }
+
+  return [first ?? rest ?? LEAD[notification.type](notification)];
+}
+
+/**
+ * The clause that counts what was said, where a poke stands for more than one comment.
+ *
+ * Silent about a single comment that has nothing in front of it: "commented on" already says
+ * that, and which of the two wordings you got should not depend on whether a webhook arrived
+ * inside the batching window.
+ */
+function commentClause(
+  notification: GithubNotificationNormalized,
+  hasReview: boolean,
+): Clause | undefined {
+  const comments = notification.comments;
+
+  if (!comments || (comments.count === 1 && !hasReview)) {
+    return undefined;
+  }
+
+  if (comments.count === 1) {
+    return comments.mentioned
+      ? { verb: 'mentioned you', preposition: 'on' }
+      : { verb: 'left a comment', preposition: 'on' };
+  }
+
+  return comments.mentioned
+    ? { verb: `mentioned you in ${comments.count} comments`, preposition: 'on' }
+    : { verb: `left ${comments.count} comments`, preposition: 'on' };
+}
+
+/** Joined with "and", and only the last clause keeps its preposition - the link follows it. */
+function sentence(clauses: Clause[]): string {
+  const preposition = clauses[clauses.length - 1].preposition;
+
+  return (
+    clauses.map((clause) => clause.verb).join(' and ') + (preposition ? ` ${preposition}` : '')
+  );
 }
 
 /** Whoever owns the repository. The alt text for their avatar, and nothing else. */
