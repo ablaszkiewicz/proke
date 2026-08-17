@@ -219,6 +219,11 @@ export function FeedbackButton({ className }: { className?: string }) {
         so `inset-auto m-0` is what hands that back to `place` above. The card - and the motion,
         which is a transform and would otherwise fight the centring translate on this element -
         is the div inside.
+
+        `overflow-visible` undoes the UA `overflow: auto` as well: the card rises into place
+        from 6px below, which is 6px of overflow for the length of the animation, which the
+        browser answers with a scrollbar that appears and then leaves - taking the card's width
+        with it both times.
       */}
       <div
         ref={panelRef}
@@ -229,7 +234,7 @@ export function FeedbackButton({ className }: { className?: string }) {
         tabIndex={-1}
         onBeforeToggle={handleBeforeToggle}
         onToggle={handleToggle}
-        className="fixed inset-auto m-0 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 bg-transparent p-0 outline-none"
+        className="fixed inset-auto m-0 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 overflow-visible bg-transparent p-0 outline-none"
       >
         <div className="animate-rise-in rounded-xl border bg-card p-4 text-left text-card-foreground shadow-xl">
           {isSent ? (

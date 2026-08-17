@@ -35,7 +35,7 @@ export function SplitDraft() {
           <div className="flex items-baseline justify-between">
             <Eyebrow>Organisations</Eyebrow>
             <span className="text-xs text-muted-foreground">
-              {on} of {MOCK_ORGS.length} on
+              Listening to {on} of {MOCK_ORGS.length}
             </span>
           </div>
 

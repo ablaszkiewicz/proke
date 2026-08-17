@@ -26,7 +26,8 @@ export interface OrganisationsPanelProps {
 const STAGGER_MS = 55;
 
 /**
- * The accounts proke can see, and the one switch that matters per account: on or off. One card,
+ * The accounts proke can see, and the one switch that matters per account: listening or muted.
+ * One card,
  * rows divided by hairlines rather than boxed individually - the list is the object, not each row.
  *
  * Nothing here pops. Rows cascade in once, keyed by installation so a refetch after a toggle
@@ -67,8 +68,8 @@ export function OrganisationsPanel({
           {mode === "loading" ? "Loading…" : null}
           {mode === "counts" ? (
             <>
-              <RollingNumber value={on} max={connections.length} /> of{" "}
-              {connections.length} on
+              Listening to <RollingNumber value={on} max={connections.length} />{" "}
+              of {connections.length}
             </>
           ) : null}
         </span>
