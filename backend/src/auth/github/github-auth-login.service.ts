@@ -19,7 +19,7 @@ import { GithubAuthDataService, GithubProfile } from './github-auth-data.service
  *
  * Lowercase entries, no leading @; the incoming handle is normalized before it is compared.
  */
-export const ALLOWED_GITHUB_LOGINS = ['ablaszkiewicz'];
+export const ALLOWED_GITHUB_LOGINS = ['ablaszkiewicz', 'hpouillot', 'cat-ph'];
 
 @Injectable()
 export class GithubAuthLoginService {
