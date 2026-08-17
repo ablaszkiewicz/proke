@@ -1036,6 +1036,141 @@ describe('Webhooks (github)', () => {
   });
 
   /**
+   * What a poke carries besides the sentence: whose repository it is, and how big the change is.
+   * Neither is in every payload, and the size of a pull request is the one thing here worth a
+   * GitHub call of its own.
+   */
+  describe('the shape of a poke', () => {
+    const AVATAR = 'https://avatars.githubusercontent.com/u/8000?v=4';
+    const OWNED_REPOSITORY = {
+      ...REPOSITORY,
+      owner: { login: 'ablaszkiewicz', avatar_url: AVATAR },
+    };
+
+    const pullRequestPayload = (pullRequest: object = {}) => ({
+      action: 'review_requested',
+      installation: { id: Number(INSTALLATION_ID) },
+      requested_reviewer: { id: 4242, login: 'reviewer' },
+      pull_request: {
+        title: 'Wire up webhooks',
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+        number: 9,
+        user: { id: 999, login: 'author' },
+        ...pullRequest,
+      },
+      repository: OWNED_REPOSITORY,
+      sender: { id: 999, login: 'author' },
+    });
+
+    /** A comment, which arrives with the cut-down pull request object that has no line counts. */
+    const commentPayload = (issue: object = {}, comment: object = {}) => ({
+      action: 'created',
+      installation: { id: Number(INSTALLATION_ID) },
+      issue: {
+        title: 'Something is broken',
+        number: 3,
+        pull_request: { html_url: 'https://github.com/ablaszkiewicz/proke/pull/3' },
+        user: { id: 4242, login: 'author' },
+        ...issue,
+      },
+      comment: {
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/3#issuecomment-1',
+        ...comment,
+      },
+      repository: OWNED_REPOSITORY,
+      sender: { id: 999, login: 'commenter' },
+    });
+
+    const mockInstallationToken = () =>
+      nock('https://api.github.com')
+        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+        .reply(201, {
+          token: 'ghs_installation',
+          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+
+    const setupRecipient = async () => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'reviewer',
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    it('carries the avatar of whoever owns the repository', async () => {
+      // given
+      await setupRecipient();
+
+      // when
+      await send('pull_request', pullRequestPayload({ additions: 163, deletions: 23 }));
+
+      // then
+      expect(await firstNotification()).toMatchObject({ ownerAvatarUrl: AVATAR });
+    });
+
+    it('takes the size of the change straight off a pull request event', async () => {
+      // given - the one event carrying the full pull request object, so nothing is mocked here
+      await setupRecipient();
+
+      // when
+      await send('pull_request', pullRequestPayload({ additions: 163, deletions: 23 }));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        diff: { additions: 163, deletions: 23 },
+      });
+    });
+
+    it('asks GitHub for the size when the event did not carry it', async () => {
+      // given - or the same pull request would look different depending on which event poked you
+      await setupRecipient();
+      mockInstallationToken();
+      const pull = nock('https://api.github.com')
+        .get('/repos/ablaszkiewicz/proke/pulls/3')
+        .reply(200, { additions: 12, deletions: 400 });
+
+      // when
+      await send('issue_comment', commentPayload());
+
+      // then
+      expect(await firstNotification()).toMatchObject({ diff: { additions: 12, deletions: 400 } });
+      expect(pull.isDone()).toEqual(true);
+    });
+
+    it('pokes without the size rather than not at all', async () => {
+      // given - a pull request GitHub will not tell us about
+      await setupRecipient();
+      mockInstallationToken();
+      nock('https://api.github.com').get('/repos/ablaszkiewicz/proke/pulls/3').reply(404, {});
+
+      // when
+      await send('issue_comment', commentPayload());
+
+      // then - the poke is the point; the size is decoration on it
+      const notification = await firstNotification();
+      expect(notification.type).toEqual(NotificationType.PullRequestComment);
+      expect(notification.diff).toBeUndefined();
+    });
+
+    it('does not go asking about an issue, which has no diff to ask for', async () => {
+      // given - the same event minus the field that makes it a pull request
+      await setupRecipient();
+      const token = mockInstallationToken();
+
+      // when - a mention, because a comment on an issue is not a poke on its own
+      await send(
+        'issue_comment',
+        commentPayload({ pull_request: undefined }, { body: 'cc @reviewer' }),
+      );
+
+      // then - nothing consumed the token, so nothing went near GitHub
+      expect(await firstNotification()).toMatchObject({ type: NotificationType.IssueMention });
+      expect(token.isDone()).toEqual(false);
+    });
+  });
+
+  /**
    * Opting into an installation is not the same as being able to see what it covers.
    *
    * An org-wide install reaches repositories a given member cannot open, and an @mention is

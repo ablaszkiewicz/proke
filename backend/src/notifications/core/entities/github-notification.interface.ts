@@ -1,5 +1,14 @@
 import { NotificationType } from './notification-type.enum';
 
+/**
+ * How big the change is. Two numbers rather than a total, because "+400 −4" and "+202 −202" are
+ * the same total and completely different asks.
+ */
+export interface GithubDiffStat {
+  additions: number;
+  deletions: number;
+}
+
 export interface GithubNotificationNormalized {
   type: NotificationType;
   title: string;
@@ -25,4 +34,19 @@ export interface GithubNotificationNormalized {
   excerpt?: string;
   /** `org/team`, on a team mention only - the recipient was named as part of a group. */
   teamHandle?: string;
+  /**
+   * The avatar of whoever owns the repository - an organisation's logo, or a person's face for
+   * a repository they own themselves. Recognised far faster than the name beside it is read.
+   */
+  ownerAvatarUrl?: string;
+  /**
+   * Pull requests only, and only where we could establish it. Webhooks carry the line counts on
+   * `pull_request` events and on no others, so a poke about a comment has to go and ask.
+   */
+  diff?: GithubDiffStat;
+  /**
+   * Whether the thing is a pull request rather than an issue. A team mention can be either, and
+   * only a pull request has a diff worth asking GitHub for.
+   */
+  isPullRequest?: boolean;
 }

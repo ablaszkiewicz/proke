@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { GithubPullRequestDataService } from '../../github-app/github-pull-request-data.service';
 import {
   GithubTeamMember,
   GithubTeamMembersDataService,
 } from '../../github-app/github-team-members-data.service';
-import { GithubNotificationNormalized } from '../../notifications/core/entities/github-notification.interface';
+import {
+  GithubDiffStat,
+  GithubNotificationNormalized,
+} from '../../notifications/core/entities/github-notification.interface';
 import {
   comparePriority,
   NotificationType,
@@ -35,6 +39,8 @@ interface Poke {
 interface EventContext {
   repositoryFullName: string;
   actorLogin: string;
+  /** The organisation's logo, or the owner's face on a repository belonging to a person. */
+  ownerAvatarUrl?: string;
 }
 
 /**
@@ -51,6 +57,13 @@ interface PokeSubject {
   body?: string;
   /** `approved`, `changes_requested`, `commented` - only ever set on a submitted review. */
   reviewState?: string;
+  /** An issue has no diff, and a team mention can be either. */
+  isPullRequest?: boolean;
+  /**
+   * The line counts, where the payload had them. Only `pull_request` events carry the full pull
+   * request object; everything else has to be asked for, later and only if the poke survives.
+   */
+  diff?: GithubDiffStat;
 }
 
 /**
@@ -75,6 +88,7 @@ export class GithubWebhookRouterService {
     private readonly deliveryService: NotificationDeliveryService,
     private readonly teamMembersDataService: GithubTeamMembersDataService,
     private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
+    private readonly pullRequestDataService: GithubPullRequestDataService,
   ) {}
 
   public async route(event: string, payload: any): Promise<void> {
@@ -144,8 +158,41 @@ export class GithubWebhookRouterService {
         continue;
       }
 
-      await this.deliveryService.deliver(user, wanted[0]);
+      await this.deliveryService.deliver(user, await this.withDiff(wanted[0], installationId));
     }
+  }
+
+  /**
+   * Fills in the line counts the payload did not carry.
+   *
+   * Last of all, and past every gate above, because it is the second thing here that costs a
+   * GitHub call and the only one spent on presentation rather than on whether to poke at all -
+   * a poke nobody is getting must not pay for it. The call is cached per pull request, so a
+   * thread being commented on costs one for everybody it reaches.
+   */
+  private async withDiff(
+    notification: GithubNotificationNormalized,
+    installationId: string,
+  ): Promise<GithubNotificationNormalized> {
+    if (notification.diff || !notification.isPullRequest || !notification.number) {
+      return notification;
+    }
+
+    const [owner, name, ...rest] = notification.repositoryFullName.split('/');
+
+    if (!owner || !name || rest.length > 0) {
+      return notification;
+    }
+
+    const diff = await this.pullRequestDataService.readDiff(
+      installationId,
+      owner,
+      name,
+      notification.number,
+    );
+
+    // A poke without the size is still the poke. Nothing here is worth dropping one over.
+    return diff ? { ...notification, diff } : notification;
   }
 
   /**
@@ -348,6 +395,7 @@ export class GithubWebhookRouterService {
     const context: EventContext = {
       repositoryFullName: payload?.repository?.full_name ?? '',
       actorLogin: payload?.sender?.login ?? '',
+      ownerAvatarUrl: payload?.repository?.owner?.avatar_url,
     };
 
     switch (event) {
@@ -377,6 +425,10 @@ export class GithubWebhookRouterService {
       title: pullRequest.title,
       htmlUrl: pullRequest.html_url,
       number: pullRequest.number,
+      isPullRequest: true,
+      // The one event that carries the full pull request object, so the one where the size of
+      // the change is free.
+      diff: readDiff(pullRequest),
     };
 
     if (payload.action === 'review_requested' && payload.requested_reviewer) {
@@ -422,6 +474,7 @@ export class GithubWebhookRouterService {
       title: pullRequest.title,
       htmlUrl: payload.review?.html_url ?? pullRequest.html_url,
       number: pullRequest.number,
+      isPullRequest: true,
       // Empty on a bare approval, which is right: there is nothing to quote.
       body: payload.review?.body,
       // Approving and demanding changes are opposite news and read as such; the type alone
@@ -454,6 +507,7 @@ export class GithubWebhookRouterService {
       title: pullRequest.title,
       htmlUrl: payload.comment?.html_url ?? pullRequest.html_url,
       number: pullRequest.number,
+      isPullRequest: true,
       body: payload.comment?.body,
     };
 
@@ -485,6 +539,7 @@ export class GithubWebhookRouterService {
       title: issue.title,
       htmlUrl: payload.comment?.html_url ?? issue.html_url,
       number: issue.number,
+      isPullRequest,
       body: payload.comment?.body,
     };
 
@@ -566,8 +621,26 @@ export class GithubWebhookRouterService {
       excerpt: normalizeBody(subject.body),
       reviewState: subject.reviewState?.toLowerCase(),
       teamHandle,
+      ownerAvatarUrl: context.ownerAvatarUrl,
+      isPullRequest: subject.isPullRequest,
+      diff: subject.diff,
     };
   }
+}
+
+/**
+ * The line counts off a full pull request object, and nothing off a cut-down one.
+ *
+ * Absent rather than zero where the payload does not say, so that "we were not told" stays
+ * distinguishable from "nothing changed" all the way to the message - the two look identical
+ * once they are rendered, and only one of them is true.
+ */
+function readDiff(pullRequest: any): GithubDiffStat | undefined {
+  if (!Number.isFinite(pullRequest?.additions) || !Number.isFinite(pullRequest?.deletions)) {
+    return undefined;
+  }
+
+  return { additions: pullRequest.additions, deletions: pullRequest.deletions };
 }
 
 /**

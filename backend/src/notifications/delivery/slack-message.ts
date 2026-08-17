@@ -1,5 +1,8 @@
 import { SlackMessage } from '../../slack/app/slack-api.service';
-import { GithubNotificationNormalized } from '../core/entities/github-notification.interface';
+import {
+  GithubDiffStat,
+  GithubNotificationNormalized,
+} from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 
 /**
@@ -8,6 +11,18 @@ import { NotificationType } from '../core/entities/notification-type.enum';
  * screens about your pull request is asking you to go and read them there.
  */
 const MAX_EXCERPT_CHARS = 320;
+
+/**
+ * Where a repository owner's avatar may come from.
+ *
+ * Slack fetches every `image_url` itself when the message is posted and rejects the whole
+ * message if it cannot - so an unexpected host is not a broken picture, it is a poke that never
+ * arrives. Only the two GitHub serves avatars from are worth that risk.
+ */
+const AVATAR_HOSTS = ['avatars.githubusercontent.com', 'github.com'];
+
+/** Slack draws context images at about 20px; twice that keeps it sharp without being a download. */
+const AVATAR_SIZE = 48;
 
 /**
  * The sentence up to the link, which finishes it. One line, always the same shape:
@@ -55,11 +70,16 @@ export function buildPokeMessage(notification: GithubNotificationNormalized): Sl
   const icon = review ? `${review.icon} ` : '';
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
+  const avatar = avatarUrl(notification.ownerAvatarUrl);
+  const diff = notification.diff ? diffLabel(notification.diff) : undefined;
 
   return {
     // Slack shows this, not the blocks, in the notification banner and the sidebar preview -
     // so it says the whole thing rather than being a "this message has no text" placeholder.
-    text: `${icon}${lead} ${label} · ${notification.repositoryFullName}`,
+    // The size rides along: deciding whether to open a review request now or later is mostly a
+    // question of how big it is, and the banner is where that decision gets made.
+    text:
+      `${icon}${lead} ${label} · ${notification.repositoryFullName}` + (diff ? ` (${diff})` : ''),
     blocks: [
       {
         type: 'section',
@@ -73,7 +93,15 @@ export function buildPokeMessage(notification: GithubNotificationNormalized): Sl
       ...(excerpt ? [{ type: 'section', text: { type: 'mrkdwn', text: quote(excerpt) } }] : []),
       {
         type: 'context',
-        elements: [{ type: 'mrkdwn', text: escape(notification.repositoryFullName) }],
+        elements: [
+          // The org's logo, read before the name beside it is. Left out rather than substituted
+          // when there is none - a placeholder avatar says something false about who owns this.
+          ...(avatar ? [{ type: 'image', image_url: avatar, alt_text: owner(notification) }] : []),
+          { type: 'mrkdwn', text: escape(notification.repositoryFullName) },
+          // Its own element, so Slack sets it apart from the name rather than running the two
+          // together, and in backticks, which is what makes Slack colour it.
+          ...(diff ? [{ type: 'mrkdwn', text: `\`${diff}\`` }] : []),
+        ],
       },
     ],
   };
@@ -105,6 +133,54 @@ function subject(notification: GithubNotificationNormalized): string {
   const title = notification.title || 'View on GitHub';
 
   return notification.number ? `${title} #${notification.number}` : title;
+}
+
+/** Whoever owns the repository. The alt text for their avatar, and nothing else. */
+function owner(notification: GithubNotificationNormalized): string {
+  return notification.repositoryFullName.split('/')[0] || notification.repositoryFullName;
+}
+
+/**
+ * The avatar Slack is allowed to go and fetch, sized down on the way.
+ *
+ * Anything unparseable, insecure or off GitHub is dropped rather than passed through: Slack
+ * validates image URLs when the message is posted, and a rejected block would cost the whole
+ * poke to gain a picture.
+ */
+function avatarUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.protocol !== 'https:' || !AVATAR_HOSTS.includes(parsed.hostname)) {
+      return undefined;
+    }
+
+    // GitHub serves whatever size is asked for, and the full-resolution original is several
+    // hundred kilobytes to render at twenty pixels.
+    parsed.searchParams.set('s', String(AVATAR_SIZE));
+
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `+163/-23`. How big the change is, in the shape everybody already reads it in.
+ *
+ * Grouped at the thousands because the difference between a four and a five digit diff is the
+ * whole message at that size, and unseparated digits make it a thing to count rather than read.
+ */
+function diffLabel(diff: GithubDiffStat): string {
+  return `+${group(diff.additions)}/-${group(diff.deletions)}`;
+}
+
+function group(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /**

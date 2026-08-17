@@ -280,6 +280,76 @@ describe('Slack delivery', () => {
       expect(posts[0].blocks[1].type).toEqual('context');
     });
 
+    it('sets the owner logo and the size of the change beside the repository', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          ownerAvatarUrl: 'https://avatars.githubusercontent.com/u/8000?v=4',
+          diff: { additions: 1163, deletions: 23 },
+        }),
+      );
+
+      // then
+      const [avatar, repository, diff] = posts[0].blocks[1].elements;
+      // Sized down on the way: Slack draws this at about twenty pixels, and the original is
+      // several hundred kilobytes.
+      expect(avatar).toEqual({
+        type: 'image',
+        image_url: 'https://avatars.githubusercontent.com/u/8000?v=4&s=48',
+        alt_text: 'ablaszkiewicz',
+      });
+      expect(repository.text).toEqual('ablaszkiewicz/proke');
+      // Backticks, which is what makes Slack colour it rather than run it into the name.
+      expect(diff.text).toEqual('`+1,163/-23`');
+    });
+
+    it('carries the size into the push banner, where the decision gets made', async () => {
+      // given - whether to open a review request now or later is mostly a question of its size
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(user, notification({ diff: { additions: 163, deletions: 23 } }));
+
+      // then
+      expect(posts[0].text).toEqual(
+        '@ada requested your review on Make the reel blur honest #42 · ablaszkiewicz/proke ' +
+          '(+163/-23)',
+      );
+    });
+
+    it('drops an avatar Slack would refuse to fetch', async () => {
+      // given - Slack loads every image_url itself when the message is posted and rejects the
+      // whole message if it cannot, so a stray host would cost the poke rather than the picture
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(user, notification({ ownerAvatarUrl: 'http://example.com/x.png' }));
+
+      // then - the repository name and nothing else
+      expect(posts[0].blocks[1].elements).toHaveLength(1);
+      expect(posts[0].blocks[1].elements[0].type).toEqual('mrkdwn');
+    });
+
+    it('leaves the line out of a poke that has no size to report', async () => {
+      // given - an issue mention, and every pull request whose counts we could not establish
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(user, notification({ type: NotificationType.IssueMention }));
+
+      // then - no empty backticks, and no "+0/-0" claiming nothing changed
+      expect(posts[0].blocks[1].elements).toHaveLength(1);
+      expect(posts[0].text).not.toContain('(');
+    });
+
     it('escapes what Slack would otherwise read as markup', async () => {
       // given - pull request titles are user-written text and regularly contain both
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
