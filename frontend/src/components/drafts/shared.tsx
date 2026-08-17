@@ -168,7 +168,7 @@ export function OrgActions({
         <GhostAction>Fix on GitHub</GhostAction>
       ) : (
         <GhostAction emphasis={org.status === "available"}>
-          {org.status === "subscribed" ? "Turn off" : "Turn on"}
+          {org.status === "subscribed" ? "Mute" : "Listen"}
         </GhostAction>
       )}
       {!compact ? (

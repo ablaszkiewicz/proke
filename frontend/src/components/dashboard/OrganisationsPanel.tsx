@@ -181,7 +181,7 @@ function StatusLine({ connection }: { connection: Connection }) {
     return <>Suspended on GitHub</>;
   }
 
-  const prefix = connection.status === "subscribed" ? "On" : "Not on yet";
+  const prefix = connection.status === "subscribed" ? "Listening" : "Muted";
 
   if (connection.repositoryCount === undefined) {
     // GitHub could not be asked. Falling back to what the installation says about itself is
@@ -343,7 +343,7 @@ function ConnectionRow({
       <span
         aria-hidden="true"
         className={cn(
-          // Eased, because a turn on/off now lands the moment it is clicked and a colour
+          // Eased, because a listen/mute now lands the moment it is clicked and a colour
           // snapping across the row would be the one hard edge left in it.
           "size-1.5 shrink-0 rounded-full transition-colors duration-300",
           DOT[connection.status]
@@ -372,7 +372,7 @@ function ConnectionRow({
       </div>
 
       {/* gap-1, the same breathing room Slack's panel leaves between Disconnect and its
-          primary action - Remove sits next to Turn off and should not read as one control. */}
+          primary action - Remove sits next to Mute and should not read as one control. */}
       <div className="flex shrink-0 items-center gap-1">
         {/*
           Destructive and rare: there on hover, invisible otherwise. Sits *before* the toggle so
@@ -404,7 +404,7 @@ function ConnectionRow({
                 : onSubscribe(connection.installationId)
             }
           >
-            {isSubscribed ? "Turn off" : "Turn on"}
+            {isSubscribed ? "Mute" : "Listen"}
           </Button>
         )}
       </div>

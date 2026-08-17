@@ -43,9 +43,9 @@ export function FeedDraft() {
                 </span>
                 <span className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                   {org.status === "subscribed"
-                    ? "Turn off"
+                    ? "Mute"
                     : org.status === "available"
-                      ? "Turn on"
+                      ? "Listen"
                       : "Fix"}
                 </span>
               </li>

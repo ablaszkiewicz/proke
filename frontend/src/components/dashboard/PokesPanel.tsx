@@ -8,7 +8,7 @@ const CHECK =
 
 /**
  * What a poke can be about. Nothing here is a control - every kind is on for every account
- * you turn on, and pretending otherwise with disabled checkboxes just looks broken. So it is a
+ * you listen to, and pretending otherwise with disabled checkboxes just looks broken. So it is a
  * list with a tick beside each, and a window underneath onto the Slack message that kind
  * produces, which scrolls to whichever row the pointer is on - and plays itself in on arrival.
  */
@@ -65,7 +65,7 @@ export function PokesPanel() {
       <PokeReel index={activeIndex} className="mt-4" />
 
       <p className="mt-auto pt-4 text-[10px] leading-relaxed text-muted-foreground/60">
-        Every kind, in every repo, for every organisation you turn on. Choosing
+        Every kind, in every repo, for every organisation you listen to. Choosing
         repos and kinds comes later.
       </p>
     </section>
