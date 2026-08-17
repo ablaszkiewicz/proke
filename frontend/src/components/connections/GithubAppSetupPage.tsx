@@ -3,6 +3,7 @@ import {
   CallbackScreen,
   useCallbackTimeline,
 } from "@/components/ui/CallbackScreen";
+import { captureEvent } from "@/lib/analytics/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -27,6 +28,22 @@ export function GithubAppSetupPage() {
 
   const isRequest = setupAction === "request";
   const { leaving, ready } = useCallbackTimeline(!isRequest);
+
+  /*
+    The strongest case in proke for a frontend event.
+
+    `setup_action=request` means an owner has to approve the install, and as the copy below
+    says, GitHub exposes pending requests through no API and no webhook - this redirect is the
+    only time anybody is told. Without this event those people are simply missing: a click that
+    never became an installation, with no way to tell "asked and waiting" from "gave up".
+
+    An effect with an empty dependency list, not the render body: this component re-renders as
+    the callback timeline advances through `leaving` and `ready`, and capturing inline would
+    report one arrival three times.
+  */
+  useEffect(() => {
+    captureEvent("org_install_returned", { setup_action: setupAction ?? "none" });
+  }, [setupAction]);
 
   useEffect(() => {
     if (ready) {

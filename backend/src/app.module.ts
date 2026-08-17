@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { getEnvConfig } from './shared/configs/env-configs';
@@ -11,6 +12,8 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
 @Module({
   imports: [
     MongooseModule.forRoot(getEnvConfig().mongo.url),
+    // Global, so everything below can capture without importing it. See analytics.module.ts.
+    AnalyticsModule,
     AuthCoreModule,
     UserCoreModule,
     ConnectionsModule,

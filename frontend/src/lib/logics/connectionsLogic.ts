@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from "kea";
 import { loaders } from "kea-loaders";
 
+import { captureEvent } from "../analytics/analytics";
 import {
   ConnectionsApi,
   type Connection,
@@ -184,8 +185,16 @@ export const connectionsLogic = kea<connectionsLogicType>([
       }
     };
 
+    /*
+      Intent only. Whether the write landed is the server's to report - it fires
+      backend_org_subscribed and backend_org_subscribe_failed with the reason - and repeating
+      that guess here would be a worse copy of it, lost to every ad blocker. A click with no
+      backend event behind it is already the signal that something was dropped on the way.
+    */
     return {
       subscribe: async ({ installationId }) => {
+        captureEvent("org_subscribe_clicked", { installation_id: installationId });
+
         await toggle(
           installationId,
           "subscribed",
@@ -194,6 +203,8 @@ export const connectionsLogic = kea<connectionsLogicType>([
         );
       },
       unsubscribe: async ({ installationId }) => {
+        captureEvent("org_unsubscribe_clicked", { installation_id: installationId });
+
         await toggle(
           installationId,
           "available",
@@ -211,6 +222,11 @@ export const connectionsLogic = kea<connectionsLogicType>([
         if (!jwtToken) {
           return;
         }
+
+        // Fires after the confirmation dialog, not before it, because this action is only
+        // dispatched once somebody has confirmed. That is the intent worth counting - backing
+        // out of the dialog is not an attempt to remove anything.
+        captureEvent("org_uninstall_clicked", { installation_id: installationId });
 
         actions.setPending(installationId, true);
 

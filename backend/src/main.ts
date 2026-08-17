@@ -1,7 +1,14 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { PostHogInterceptor } from 'posthog-node/nestjs';
+import { AnalyticsService } from './analytics/analytics.service';
 import { AppModule } from './app.module';
-import { assertProductionEnv, getEnvConfig } from './shared/configs/env-configs';
+import {
+  assertProductionEnv,
+  getEnvConfig,
+  isAnalyticsConfigured,
+} from './shared/configs/env-configs';
 import { buildValidationPipe } from './shared/validation/validation-pipe';
 
 async function bootstrap() {
@@ -23,8 +30,47 @@ async function bootstrap() {
 
   app.useGlobalPipes(buildValidationPipe());
 
+  installAnalyticsInterceptor(app);
+
   await app.init();
   await app.listen(getEnvConfig().app.port);
+}
+
+/**
+ * Ties every event captured during a request back to the browser session that made it.
+ *
+ * posthog-js is configured with `tracing_headers` for this host, so requests from the frontend
+ * arrive carrying `x-posthog-session-id`. The interceptor puts it - along with the URL, method,
+ * path, user agent and client IP - into an AsyncLocalStorage context for the life of the
+ * request, which means a `backend_org_subscribed` can be opened straight into the session
+ * replay of the click that caused it.
+ *
+ * It also reads a distinct id from the headers, which is forgeable. AnalyticsService requires
+ * an explicit one on every call for exactly that reason, and PostHog prefers the explicit
+ * value, so the header never decides who an event belongs to.
+ *
+ * Exception capture is left off (the default). Error tracking is a separate decision from
+ * product analytics and should be turned on deliberately, not inherited from this.
+ */
+function installAnalyticsInterceptor(app: Awaited<ReturnType<typeof NestFactory.create>>): void {
+  const logger = new Logger('Analytics');
+
+  if (!isAnalyticsConfigured()) {
+    // Loud in production, silent everywhere else: locally and in the e2e suite having no key
+    // is the intended state, but on a deployed box it means events are going nowhere and the
+    // only symptom is an empty dashboard nobody thinks to distrust.
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn('POSTHOG_API_KEY is not set - no analytics will be captured.');
+    }
+
+    return;
+  }
+
+  const client = app.get(AnalyticsService).client;
+
+  if (client) {
+    app.useGlobalInterceptors(new PostHogInterceptor(client));
+  }
 }
 bootstrap();
 

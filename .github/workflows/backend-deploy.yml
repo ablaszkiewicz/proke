@@ -105,6 +105,11 @@ jobs:
           slack-redirect-uri: ${{ secrets.SLACK_REDIRECT_URI }}
           slack-token-encryption-key: ${{ secrets.SLACK_TOKEN_ENCRYPTION_KEY }}
 
+          # Same project token the frontend bundle carries, so both halves of proke land in one
+          # project. Unset simply means no analytics - the app boots either way.
+          posthog-api-key: ${{ secrets.POSTHOG_API_KEY }}
+          posthog-host: ${{ vars.POSTHOG_HOST }}
+
       - name: Prune
         uses: './.github/templates/prune'
         with:

@@ -3,6 +3,7 @@ import {
   CallbackScreen,
   useCallbackTimeline,
 } from "@/components/ui/CallbackScreen";
+import { captureEvent } from "@/lib/analytics/analytics";
 import { slackLogic } from "@/lib/logics/slackLogic";
 import { useNavigate } from "@tanstack/react-router";
 import { useActions, useValues } from "kea";
@@ -29,16 +30,28 @@ export function SlackCallbackPage() {
     const state = params.get("state");
 
     if (code && state) {
+      // One event for both flows, because Slack allows one redirect URL and this page cannot
+      // tell signing in from adding the app. The backend can - only an install comes back with
+      // a bot token - so it is the half that splits them, into slack_linked and
+      // slack_workspace_installed.
+      captureEvent("slack_returned", { result: "ok" });
       connect({ code, state });
       return;
     }
 
     // Slack sends `error=access_denied` when somebody backs out, and nothing else at all when
     // an admin has to approve the install first.
+    const error = params.get("error");
+
+    // The half that exists nowhere else. Neither of these ever reaches proke's backend: there
+    // is no code to post, so the round trip simply ends here. Without this event, somebody who
+    // needs an admin's approval is indistinguishable from somebody who changed their mind.
+    captureEvent("slack_returned", { result: error ?? "no_code" });
+
     setActionError(
-      params.get("error") === "access_denied"
+      error === "access_denied"
         ? "That authorization was cancelled."
-        : (params.get("error") ?? "Slack did not send a code back.")
+        : (error ?? "Slack did not send a code back.")
     );
   }, [connect, setActionError]);
 

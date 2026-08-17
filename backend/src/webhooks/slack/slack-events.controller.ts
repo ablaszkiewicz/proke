@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request } from 'express';
+import { AnalyticsService } from '../../analytics/analytics.service';
 import { Public } from '../../auth/core/decorators/is-public';
 import { SlackSignatureService } from '../../slack/app/slack-signature.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
@@ -32,6 +33,7 @@ export class SlackEventsController {
     private readonly signatureService: SlackSignatureService,
     private readonly workspaceWriteService: SlackWorkspaceWriteService,
     private readonly linkWriteService: SlackLinkWriteService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   @Post('events')
@@ -71,6 +73,15 @@ export class SlackEventsController {
     }
 
     this.logger.warn(`Slack workspace ${teamId} sent ${type}; dropping its links`);
+
+    // Keyed on the workspace, not a person, and deliberately without one: this is one event
+    // about a workspace that has gone away, not an event about each of the people in it. The
+    // users are still proke users - they have simply lost their destination - and writing a
+    // person profile off a Slack team id would invent a person who does not exist.
+    this.analytics.captureWithoutPerson(`slack_team:${teamId}`, 'slack_workspace_revoked', {
+      team_id: teamId,
+      reason: type,
+    });
 
     // The workspace row survives, marked revoked, so the dashboard can say "add proke back"
     // rather than silently forgetting. The links do not: a Slack user id only ever meant

@@ -1,3 +1,4 @@
+import { captureEvent } from "@/lib/analytics/analytics";
 import { authLogic } from "@/lib/logics/authLogic";
 import { connectionsLogic } from "@/lib/logics/connectionsLogic";
 import { slackLogic } from "@/lib/logics/slackLogic";
@@ -47,6 +48,18 @@ export function Dashboard() {
       onSubscribe={subscribe}
       onUnsubscribe={unsubscribe}
       onUninstall={uninstall}
+      /*
+        The three controls that leave proke for github.com or slack.com. Everything else on this
+        page goes through a logic, which is where its event is captured; these have no action to
+        hang one off, and they are the last thing seen before a round trip plenty of people
+        never come back from - so the click is the only evidence they tried.
+
+        Passed from here rather than written into the panels because those are presentational
+        and the drafts gallery renders them on mock data.
+      */
+      onAddClick={() =>
+        captureEvent("org_install_clicked", { already_on: connections.length })
+      }
       slack={{
         connection: slackConnection,
         loading: slackLoading,
@@ -54,6 +67,11 @@ export function Dashboard() {
         actionError: slackError,
         onDisconnect: disconnect,
         onTest: sendTestPoke,
+        onConnectClick: () => captureEvent("slack_connect_clicked"),
+        onInstallClick: () =>
+          captureEvent("slack_install_clicked", {
+            team_id: slackConnection.teamId,
+          }),
       }}
     />
   );

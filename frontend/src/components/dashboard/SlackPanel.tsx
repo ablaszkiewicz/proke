@@ -11,6 +11,13 @@ export interface SlackPanelProps {
   actionError: string | null;
   onDisconnect: () => void;
   onTest: () => void;
+  /**
+   * Both authorize buttons leave for slack.com, so unlike Disconnect and Send a test poke there
+   * is no action behind them - just a link. Optional, and supplied only by Dashboard, so the
+   * drafts gallery renders the same panel without reporting design work as product use.
+   */
+  onConnectClick?: () => void;
+  onInstallClick?: () => void;
 }
 
 type Mode = "loading" | "unconfigured" | SlackConnection["status"];
@@ -30,6 +37,8 @@ export function SlackPanel({
   actionError,
   onDisconnect,
   onTest,
+  onConnectClick,
+  onInstallClick,
 }: SlackPanelProps) {
   const mode: Mode =
     loading && !connection.connectUrl
@@ -84,7 +93,9 @@ export function SlackPanel({
         <div className="flex shrink-0 items-center gap-1">
           {mode === "unlinked" ? (
             <Button asChild size="sm">
-              <a href={connection.connectUrl || undefined}>Connect Slack</a>
+              <a href={connection.connectUrl || undefined} onClick={onConnectClick}>
+                Connect Slack
+              </a>
             </Button>
           ) : null}
 
@@ -92,7 +103,9 @@ export function SlackPanel({
             <>
               <DisconnectButton onDisconnect={onDisconnect} />
               <Button asChild size="sm">
-                <a href={connection.installUrl || undefined}>Add to workspace</a>
+                <a href={connection.installUrl || undefined} onClick={onInstallClick}>
+                  Add to workspace
+                </a>
               </Button>
             </>
           ) : null}

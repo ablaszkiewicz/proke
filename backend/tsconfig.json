@@ -11,7 +11,16 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "src/*": ["src/*"]
+      "src/*": ["src/*"],
+      // posthog-node publishes its NestJS interceptor on a subpath, declared in the package's
+      // "exports" map. Node reads that map and resolves `posthog-node/nestjs` at runtime
+      // without help; TypeScript only reads it under moduleResolution node16/nodenext/bundler,
+      // and this project is on the classic `node` resolver that comes with module: commonjs.
+      //
+      // Switching resolvers to fix one import would change how every module in the project
+      // resolves and emits, so the import is pointed at the types directly instead. Delete
+      // this the day the project moves to nodenext.
+      "posthog-node/nestjs": ["./node_modules/posthog-node/dist/entrypoints/nestjs"]
     },
     "incremental": true,
     "skipLibCheck": true,

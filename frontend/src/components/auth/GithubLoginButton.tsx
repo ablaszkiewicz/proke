@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
+import { captureEvent } from "@/lib/analytics/analytics";
 import { useState } from "react";
 
 export function GithubLoginButton() {
@@ -10,6 +11,10 @@ export function GithubLoginButton() {
 
   const handleGithubLogin = () => {
     setRedirecting(true);
+
+    // The top of the funnel, and the only place it can be measured: everything after this
+    // happens on github.com until they come back, and plenty of people do not.
+    captureEvent("github_login_clicked");
 
     const redirectUri = `${appUrl}/app/callbacks/oauth/github`;
     // No `scope` here: this is a GitHub App, and GitHub ignores the parameter. What the

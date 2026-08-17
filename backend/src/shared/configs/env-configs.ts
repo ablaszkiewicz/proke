@@ -43,6 +43,11 @@ interface EnvConfig {
     // Named for Slack because that is where it started; it is the app's one data-at-rest key.
     tokenEncryptionKey: string;
   };
+  posthog: {
+    // Blank turns analytics off entirely rather than failing. See isAnalyticsConfigured.
+    apiKey: string;
+    host: string;
+  };
 }
 
 /**
@@ -86,6 +91,13 @@ export function getEnvConfig(): EnvConfig {
       redirectUri: process.env.SLACK_REDIRECT_URI ?? '',
       tokenEncryptionKey:
         process.env.SLACK_TOKEN_ENCRYPTION_KEY ?? DEVELOPMENT_SECRETS.tokenEncryptionKey,
+    },
+    posthog: {
+      apiKey: process.env.POSTHOG_API_KEY ?? '',
+      // `||`, not `??`: the deploy passes POSTHOG_HOST unconditionally, so an unset repository
+      // secret arrives as an empty string rather than as absent. `??` would let that through
+      // and hand the SDK a blank host, which fails on every request instead of falling back.
+      host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com',
     },
   };
 }
@@ -166,6 +178,19 @@ export function isSlackConfigured(): boolean {
   const { clientId, clientSecret, redirectUri } = getEnvConfig().slack;
 
   return Boolean(clientId && clientSecret && redirectUri);
+}
+
+/**
+ * Whether events go anywhere. False is a supported state, not a broken one: local runs and the
+ * e2e suite have no key, and neither should be making network calls to PostHog.
+ *
+ * Deliberately absent from assertProductionEnv's required list. Everything else in there guards
+ * something that fails *unsafely* when missing - a forgeable token, a public encryption key.
+ * A missing analytics key loses numbers, and refusing to boot a notification product over lost
+ * numbers is the wrong trade. main.ts warns about it instead, so it is visible rather than silent.
+ */
+export function isAnalyticsConfigured(): boolean {
+  return Boolean(getEnvConfig().posthog.apiKey);
 }
 
 /**

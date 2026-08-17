@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AnalyticsService } from '../../analytics/analytics.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
 import { SubscriptionWriteService } from '../../subscriptions/write/subscription-write.service';
@@ -24,9 +25,15 @@ export class UserDeletionService {
     private readonly subscriptionWriteService: SubscriptionWriteService,
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   public async deleteAccount(userId: string): Promise<void> {
+    // Before the account goes, not after. Capture queues in memory and flushes later, but the
+    // event is stamped with this distinct id now - and once the row is gone there is nothing
+    // left to read it from.
+    this.analytics.capture(userId, 'account_deleted');
+
     // Which organisations they asked to hear about.
     await this.subscriptionWriteService.deleteForUser(userId);
 

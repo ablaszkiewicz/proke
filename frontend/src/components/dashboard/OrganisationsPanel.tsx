@@ -13,6 +13,12 @@ export interface OrganisationsPanelProps {
   onSubscribe: (installationId: string) => void;
   onUnsubscribe: (installationId: string) => void;
   onUninstall: (installationId: string) => void;
+  /**
+   * Adding an organisation leaves for github.com, so unlike every other control here there is
+   * no action behind it - just a link. Optional, and supplied only by Dashboard, so the drafts
+   * gallery renders the same panel without reporting design work as product use.
+   */
+  onAddClick?: () => void;
 }
 
 /** Gap between one row's entrance and the next. Long enough to read as a cascade, short enough
@@ -36,6 +42,7 @@ export function OrganisationsPanel({
   onSubscribe,
   onUnsubscribe,
   onUninstall,
+  onAddClick,
 }: OrganisationsPanelProps) {
   const on = connections.filter((c) => c.status === "subscribed").length;
   const isInitialLoad = loading && connections.length === 0;
@@ -97,6 +104,7 @@ export function OrganisationsPanel({
         href={installUrl || undefined}
         aria-hidden={!installUrl}
         tabIndex={installUrl ? undefined : -1}
+        onClick={onAddClick}
         style={{ animationDelay: `${connections.length * STAGGER_MS}ms` }}
         className={cn(
           "-ml-1 mt-2 flex w-fit items-center gap-2 rounded-md py-1.5 pr-2 pl-1 text-xs text-muted-foreground transition-colors hover:text-foreground",

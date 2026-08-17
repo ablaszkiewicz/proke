@@ -57,6 +57,14 @@ inputs:
   slack-token-encryption-key:
     required: true
 
+  # Analytics. Optional, unlike everything above: the app boots and works without it, and a
+  # deploy that has lost the key should not be a deploy that has lost notifications. It logs a
+  # warning in production instead of refusing to start.
+  posthog-api-key:
+    required: false
+  posthog-host:
+    required: false
+
 runs:
   using: 'composite'
   steps:
@@ -99,4 +107,6 @@ runs:
           -e SLACK_SIGNING_SECRET="${{ inputs.slack-signing-secret }}" \
           -e SLACK_REDIRECT_URI="${{ inputs.slack-redirect-uri }}" \
           -e SLACK_TOKEN_ENCRYPTION_KEY="${{ inputs.slack-token-encryption-key }}" \
+          -e POSTHOG_API_KEY="${{ inputs.posthog-api-key }}" \
+          -e POSTHOG_HOST="${{ inputs.posthog-host }}" \
           ${{ inputs.image-name }}

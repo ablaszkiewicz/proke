@@ -2,6 +2,7 @@ import {
   CallbackScreen,
   useCallbackTimeline,
 } from "@/components/ui/CallbackScreen";
+import { captureEvent } from "@/lib/analytics/analytics";
 import { authLogic } from "@/lib/logics/authLogic";
 import { useNavigate } from "@tanstack/react-router";
 import { useActions, useValues } from "kea";
@@ -19,8 +20,16 @@ export function GithubCallbackPage() {
     const code = params.get("code");
 
     if (code) {
+      // Not "the login worked" - only that GitHub sent us back with something to spend. The
+      // backend owns the outcome, and refuses some of these outright.
+      captureEvent("github_login_returned", { result: "ok" });
       exchangeGithubCodeForJwt(code);
     } else {
+      // The half no server ever sees. GitHub turned them away or they backed out, so nothing
+      // is ever posted to proke and this page is the only record the attempt happened at all.
+      captureEvent("github_login_returned", {
+        result: params.get("error") ?? "no_code",
+      });
       setLoginError(params.get("error_description") ?? "No GitHub code in URL");
     }
   }, [exchangeGithubCodeForJwt, setLoginError]);

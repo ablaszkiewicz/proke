@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from "kea";
 import { loaders } from "kea-loaders";
 
+import { captureEvent } from "../analytics/analytics";
 import { SlackApi, type SlackConnection } from "../api/slack.api";
 import { authLogic } from "./authLogic";
 
@@ -147,6 +148,10 @@ export const slackLogic = kea<slackLogicType>([
         return;
       }
 
+      // Intent only, here and in sendTestPoke below. The outcome of both is the server's to
+      // report - backend_slack_disconnected, and backend_poke_sent/dropped for the test.
+      captureEvent("slack_disconnect_clicked");
+
       actions.setOptimisticDisconnect(true);
 
       try {
@@ -175,6 +180,8 @@ export const slackLogic = kea<slackLogicType>([
       if (!jwtToken) {
         return;
       }
+
+      captureEvent("slack_test_poke_clicked");
 
       clearTimeout(sentTimeout);
 

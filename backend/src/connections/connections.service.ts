@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { AnalyticsEvent } from '../analytics/analytics-events';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { GithubAppInstallationsService } from '../github-app/github-app-installations.service';
 import { InstallationNormalized } from '../installations/core/entities/installation.interface';
 import { InstallationReadService } from '../installations/read/installation-read.service';
@@ -18,6 +20,23 @@ import {
   GithubUserInstallationsDataService,
 } from './github-user-installations-data.service';
 
+/**
+ * A 403 that also says, in one word, why - so it can be counted.
+ *
+ * Every refusal in here is an ordinary ForbiddenException to the caller and reads identically
+ * to the browser. The reason code exists only so the analytics event can tell them apart
+ * without matching on a human-readable message, which would break the moment somebody improves
+ * the wording.
+ */
+class ConnectionRefusal extends ForbiddenException {
+  constructor(
+    message: string,
+    public readonly reason: string,
+  ) {
+    super(message);
+  }
+}
+
 @Injectable()
 export class ConnectionsService {
   private readonly logger = new Logger(ConnectionsService.name);
@@ -32,6 +51,7 @@ export class ConnectionsService {
     private readonly appInstallationsService: GithubAppInstallationsService,
     private readonly installationReadService: InstallationReadService,
     private readonly installationWriteService: InstallationWriteService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   public async readForUser(userId: string): Promise<ConnectionsResponse> {
@@ -122,9 +142,23 @@ export class ConnectionsService {
   }
 
   public async subscribe(userId: string, installationId: string): Promise<void> {
-    await this.assertUserCanAccessInstallation(userId, installationId);
+    let installation: InstallationNormalized;
+
+    try {
+      installation = await this.assertUserCanAccessInstallation(userId, installationId);
+    } catch (error) {
+      this.captureFailure(userId, 'org_subscribe_failed', installationId, error);
+      throw error;
+    }
 
     await this.subscriptionWriteService.create(userId, installationId);
+
+    this.analytics.capture(userId, 'org_subscribed', {
+      installation_id: installationId,
+      account_login: installation.accountLogin,
+      account_type: installation.accountType,
+      repository_selection: installation.repositorySelection,
+    });
   }
 
   /**
@@ -169,6 +203,12 @@ export class ConnectionsService {
   public async unsubscribe(userId: string, installationId: string): Promise<void> {
     // No access check: letting someone stop being poked is never the risky direction.
     await this.subscriptionWriteService.delete(userId, installationId);
+
+    // Only the id. Every other path here has the installation in hand already; this one would
+    // have to fetch it, and a database read whose only purpose is to make an analytics event
+    // prettier is not worth doing on a write path. The id joins to org_subscribed, which
+    // carries the account name.
+    this.analytics.capture(userId, 'org_unsubscribed', { installation_id: installationId });
   }
 
   /**
@@ -176,10 +216,30 @@ export class ConnectionsService {
    * per-user action; this is the org-wide one, so it is gated on actually being an owner.
    */
   public async uninstall(userId: string, installationId: string): Promise<void> {
+    let installation: InstallationNormalized | undefined;
+
+    try {
+      installation = await this.performUninstall(userId, installationId);
+    } catch (error) {
+      this.captureFailure(userId, 'org_uninstall_failed', installationId, error);
+      throw error;
+    }
+
+    this.analytics.capture(userId, 'org_uninstalled', {
+      installation_id: installationId,
+      account_login: installation.accountLogin,
+      account_type: installation.accountType,
+    });
+  }
+
+  private async performUninstall(
+    userId: string,
+    installationId: string,
+  ): Promise<InstallationNormalized> {
     const user = await this.userReadService.readByIdOrThrow(userId);
 
     if (!user.githubAccessToken) {
-      throw new ForbiddenException('No GitHub token on file for this user');
+      throw new ConnectionRefusal('No GitHub token on file for this user', 'no_github_token');
     }
 
     const installation = (await this.listForUserOrExplain(userId, user.githubAccessToken)).find(
@@ -187,7 +247,7 @@ export class ConnectionsService {
     );
 
     if (!installation) {
-      throw new ForbiddenException('You do not have access to that installation');
+      throw new ConnectionRefusal('You do not have access to that installation', 'no_access');
     }
 
     await this.assertUserMayUninstall(user, installation);
@@ -198,6 +258,27 @@ export class ConnectionsService {
     // Doing it here too means the next page load is correct even if that is slow or lost.
     await this.installationWriteService.delete(installationId);
     await this.subscriptionWriteService.deleteByInstallation(installationId);
+
+    return installation;
+  }
+
+  /**
+   * A refusal, recorded rather than only thrown.
+   *
+   * The reason is the whole value of the event: "someone tried to remove proke from an org they
+   * do not own" and "someone's GitHub authorization has died" are the same 403 to the browser
+   * and completely different things to know about.
+   */
+  private captureFailure(
+    userId: string,
+    event: AnalyticsEvent,
+    installationId: string,
+    error: unknown,
+  ): void {
+    this.analytics.capture(userId, event, {
+      installation_id: installationId,
+      reason: error instanceof ConnectionRefusal ? error.reason : 'unexpected',
+    });
   }
 
   /**
@@ -226,7 +307,7 @@ export class ConnectionsService {
         installation.accountLogin.toLowerCase() === user.githubLogin!.toLowerCase();
 
       if (!ownsById && !ownsByLogin) {
-        throw new ForbiddenException('That installation is not on your account');
+        throw new ConnectionRefusal('That installation is not on your account', 'not_your_account');
       }
 
       return;
@@ -240,8 +321,9 @@ export class ConnectionsService {
     // null means we could not establish the role - missing permission, suspended membership.
     // Treat anything short of a confirmed admin as a refusal.
     if (role !== 'admin') {
-      throw new ForbiddenException(
+      throw new ConnectionRefusal(
         `Only an owner of ${installation.accountLogin} can remove proke from it.`,
+        'not_owner',
       );
     }
   }
@@ -254,18 +336,24 @@ export class ConnectionsService {
   private async assertUserCanAccessInstallation(
     userId: string,
     installationId: string,
-  ): Promise<void> {
+  ): Promise<InstallationNormalized> {
     const user = await this.userReadService.readByIdOrThrow(userId);
 
     if (!user.githubAccessToken) {
-      throw new ForbiddenException('No GitHub token on file for this user');
+      throw new ConnectionRefusal('No GitHub token on file for this user', 'no_github_token');
     }
 
     const installations = await this.listForUserOrExplain(userId, user.githubAccessToken);
 
-    if (!installations.some((i) => i.installationId === installationId)) {
-      throw new ForbiddenException('You do not have access to that installation');
+    // Returned rather than merely asserted: the caller has to name the account in its event,
+    // and this already holds the only copy of it that GitHub has confirmed for this user.
+    const installation = installations.find((i) => i.installationId === installationId);
+
+    if (!installation) {
+      throw new ConnectionRefusal('You do not have access to that installation', 'no_access');
     }
+
+    return installation;
   }
 
   /**
@@ -290,8 +378,9 @@ export class ConnectionsService {
       this.logger.warn(`GitHub rejected the stored token for user ${userId}; clearing it`);
       await this.userWriteService.clearGithubAccessToken(userId);
 
-      throw new ForbiddenException(
+      throw new ConnectionRefusal(
         'GitHub no longer accepts your authorization. Sign in with GitHub again to reconnect.',
+        'github_token_rejected',
       );
     }
   }

@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PokeTrigger } from '../../analytics/analytics-events';
+import { AnalyticsService } from '../../analytics/analytics.service';
 import { SlackApiError, SlackApiService, SlackMessage } from '../../slack/app/slack-api.service';
 import { SlackLinkNormalized } from '../../slack/links/core/entities/slack-link.interface';
 import { SlackLinkReadService } from '../../slack/links/read/slack-link-read.service';
@@ -23,6 +25,25 @@ const DEAD_WORKSPACE = ['token_revoked', 'account_inactive', 'invalid_auth', 'no
 const DEAD_LINK = ['user_not_found', 'users_not_found', 'user_disabled', 'cannot_dm_bot'];
 
 /**
+ * What a Slack message was, for analytics only.
+ *
+ * Separate from SlackMessage on purpose: that is what the user reads, this is what we count.
+ * Threading it through `send` rather than deriving it from the rendered message means the one
+ * choke point every Slack message passes through can describe every message honestly - a test
+ * poke is not a notification and should never be counted as one.
+ */
+interface PokeContext {
+  trigger: PokeTrigger;
+  /** A NotificationType for real pokes; `test` or `welcome` for the two synthetic ones. */
+  pokeType: string;
+  /** owner/name. Absent on the synthetic messages, which come from no repository. */
+  repository?: string;
+  actorLogin?: string;
+  reviewState?: string;
+  hasExcerpt?: boolean;
+}
+
+/**
  * Puts a poke in front of somebody in Slack.
  *
  * Needs both halves of the model to line up: the link says who this person is inside a
@@ -42,13 +63,21 @@ export class SlackNotificationDeliveryService {
     private readonly workspaceReadService: SlackWorkspaceReadService,
     private readonly workspaceWriteService: SlackWorkspaceWriteService,
     private readonly slackApiService: SlackApiService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   public async deliver(
     user: UserNormalized,
     notification: GithubNotificationNormalized,
   ): Promise<SlackDeliveryOutcome> {
-    return this.send(user.id, buildPokeMessage(notification));
+    return this.send(user.id, buildPokeMessage(notification), {
+      trigger: 'github_webhook',
+      pokeType: notification.type,
+      repository: notification.repositoryFullName,
+      actorLogin: notification.actorLogin,
+      reviewState: notification.reviewState,
+      hasExcerpt: Boolean(notification.excerpt),
+    });
   }
 
   /**
@@ -56,7 +85,12 @@ export class SlackNotificationDeliveryService {
    * point is to find out before a real notification is riding on it.
    */
   public async deliverTest(user: UserNormalized): Promise<SlackDeliveryOutcome> {
-    return this.send(user.id, buildTestMessage(user.githubLogin), { rethrow: true });
+    return this.send(
+      user.id,
+      buildTestMessage(user.githubLogin),
+      { trigger: 'test', pokeType: 'test' },
+      { rethrow: true },
+    );
   }
 
   /**
@@ -65,16 +99,24 @@ export class SlackNotificationDeliveryService {
    * outcome to log and move past - the connection itself is stored and fine either way.
    */
   public async deliverWelcome(user: UserNormalized): Promise<SlackDeliveryOutcome> {
-    return this.send(user.id, buildTestMessage(user.githubLogin));
+    return this.send(user.id, buildTestMessage(user.githubLogin), {
+      trigger: 'welcome',
+      pokeType: 'welcome',
+    });
   }
 
   private async send(
     userId: string,
     message: SlackMessage,
+    context: PokeContext,
     options: { rethrow?: boolean } = {},
   ): Promise<SlackDeliveryOutcome> {
     const link = await this.linkReadService.readForUser(userId);
 
+    // Nothing captured on either of these. They are not failures, they are people who have not
+    // finished connecting - and a poke that had nowhere to go says exactly the same thing every
+    // time it happens, once per event in every repository they are subscribed to. Whether
+    // somebody has connected Slack is a fact about the person, not about each poke.
     if (!link) {
       return 'no-link';
     }
@@ -87,9 +129,20 @@ export class SlackNotificationDeliveryService {
 
     try {
       await this.post(link, workspace.botToken, message);
+      this.record(userId, context, 'poke_sent');
+
       return 'sent';
     } catch (error) {
       const outcome = await this.handleFailure(link, error);
+
+      // Only reachable once Slack has actually been asked and said no, which is what separates
+      // this from the two quiet returns above. Note that `workspace-missing` means something
+      // different down here: not "never installed" but "the bot token was alive until this
+      // moment", which is the whole workspace going down and worth every one of these events.
+      //
+      // Recorded before the rethrow, so the test button's failures are counted like any other
+      // rather than disappearing into the exception that reports them.
+      this.record(userId, context, 'poke_failed', outcome);
 
       if (options.rethrow) {
         throw error;
@@ -97,6 +150,36 @@ export class SlackNotificationDeliveryService {
 
       return outcome;
     }
+  }
+
+  /**
+   * Every Slack message proke actually attempts, counted in one place.
+   *
+   * Two event names rather than one with an `outcome` property: an event called "sent" that
+   * also means "tried and failed" makes every chart built on it ambiguous, and the number of
+   * attempts is just the two added together.
+   *
+   * The distinct id is the *recipient* - the event is about somebody being poked, not about
+   * whoever caused it. That person is `actor_login`, a property.
+   */
+  private record(
+    userId: string,
+    context: PokeContext,
+    event: 'poke_sent' | 'poke_failed',
+    reason?: SlackDeliveryOutcome,
+  ): void {
+    this.analytics.capture(userId, event, {
+      poke_type: context.pokeType,
+      trigger: context.trigger,
+      repository: context.repository,
+      // Split out here rather than in a query: grouping pokes by organisation is the first
+      // question anyone asks of this data, and it should not need string surgery in HogQL.
+      repository_owner: context.repository?.split('/')[0],
+      actor_login: context.actorLogin,
+      review_state: context.reviewState,
+      has_excerpt: context.hasExcerpt,
+      reason,
+    });
   }
 
   /**

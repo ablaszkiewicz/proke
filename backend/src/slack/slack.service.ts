@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { SlackNotificationDeliveryService } from '../notifications/delivery/slack-notification-delivery.service';
 import { getEnvConfig, isSlackConfigured } from '../shared/configs/env-configs';
 import { UserReadService } from '../user/read/user-read.service';
 import { SlackApiError, SlackApiService } from './app/slack-api.service';
-import { SlackOAuthService } from './app/slack-oauth.service';
+import { SlackOAuthResult, SlackOAuthService } from './app/slack-oauth.service';
 import { SlackStateService } from './app/slack-state.service';
 import { SlackConnectionResponse, SlackConnectionStatus } from './dto/slack-connection.response';
 import { SlackLinkReadService } from './links/read/slack-link-read.service';
@@ -32,6 +33,7 @@ export class SlackService {
     private readonly stateService: SlackStateService,
     private readonly slackApiService: SlackApiService,
     private readonly deliveryService: SlackNotificationDeliveryService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   public async readConnection(userId: string): Promise<SlackConnectionResponse> {
@@ -84,16 +86,34 @@ export class SlackService {
     state: string,
   ): Promise<SlackConnectionResponse> {
     if (this.stateService.verify(state) !== userId) {
+      this.analytics.capture(userId, 'slack_connect_failed', { reason: 'bad_state' });
+
       throw new BadRequestException(
         'That Slack authorization was not for this account, or it expired. Try again.',
       );
     }
 
-    const result = await this.oauthService.exchangeCode(code);
+    let result: SlackOAuthResult;
+
+    try {
+      result = await this.oauthService.exchangeCode(code);
+    } catch (error) {
+      // Slack turning the code down: expired, already spent, or the app misconfigured. The
+      // browser only ever sees the message, so this is the one place it can be counted.
+      this.analytics.capture(userId, 'slack_connect_failed', { reason: 'oauth_rejected' });
+
+      throw error;
+    }
 
     if (!result.teamId) {
+      this.analytics.capture(userId, 'slack_connect_failed', { reason: 'no_team' });
+
       throw new BadRequestException('Slack did not say which workspace this was for');
     }
+
+    // Read before the upsert below overwrites it. Separating a first connection from somebody
+    // reconnecting is most of what makes the funnel readable.
+    const existingLink = await this.linkReadService.readForUser(userId);
 
     if (result.botToken && result.botUserId) {
       await this.workspaceWriteService.install({
@@ -104,9 +124,28 @@ export class SlackService {
         botScopes: result.botScopes,
         installedByUserId: userId,
       });
+
+      this.analytics.capture(userId, 'slack_workspace_installed', {
+        team_id: result.teamId,
+        bot_scopes: result.botScopes,
+      });
     }
 
-    await this.link(userId, result.teamId, result.teamName, result.slackUserId, result.userToken);
+    try {
+      await this.link(userId, result.teamId, result.teamName, result.slackUserId, result.userToken);
+    } catch (error) {
+      this.analytics.capture(userId, 'slack_connect_failed', { reason: 'no_identity' });
+
+      throw error;
+    }
+
+    this.analytics.capture(userId, 'slack_linked', {
+      team_id: result.teamId,
+      is_first_link: !existingLink,
+      // True when one round trip did both halves - the installer gets linked without a second
+      // authorization. Worth telling apart from a link onto a workspace somebody else set up.
+      with_install: Boolean(result.botToken),
+    });
 
     const connection = await this.readConnection(userId);
 
@@ -148,6 +187,8 @@ export class SlackService {
     // Only the link. The workspace install belongs to whoever added it and to everyone else
     // using it - one person leaving is not grounds for uninstalling proke on their colleagues.
     await this.linkWriteService.deleteForUser(userId);
+
+    this.analytics.capture(userId, 'slack_disconnected');
   }
 
   public async sendTestPoke(userId: string): Promise<void> {

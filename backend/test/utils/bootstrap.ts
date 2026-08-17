@@ -2,6 +2,7 @@ import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Model } from 'mongoose';
 import * as nock from 'nock';
+import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
@@ -25,6 +26,10 @@ export async function createTestApp() {
   const module: TestingModule = await Test.createTestingModule({
     imports: [
       rootMongooseTestModule(),
+      // Global in app.module.ts, so it has to be listed here too or every service that
+      // captures fails to resolve. With no POSTHOG_API_KEY - which the suite never sets - it
+      // provides a client that does nothing, so no spec makes a network call to PostHog.
+      AnalyticsModule,
       AuthCoreModule,
       UserCoreModule,
       ConnectionsModule,
