@@ -1,10 +1,16 @@
 import * as nock from 'nock';
 import * as request from 'supertest';
+import { ALLOWED_LOGIN_EMAILS } from '../../src/auth/github/github-auth-login.service';
 import { AuthMethod } from '../../src/user/core/enum/auth-method.enum';
 import { createTestApp } from '../utils/bootstrap';
 
 describe('Auth (github)', () => {
   let bootstrap: Awaited<ReturnType<typeof createTestApp>>;
+
+  // While proke is closed, every login that is meant to succeed has to come from an address on
+  // the allowlist. Taken from the constant rather than repeated, so editing the list moves the
+  // suite with it instead of turning every happy path red.
+  const allowedEmail = ALLOWED_LOGIN_EMAILS[0];
 
   beforeAll(async () => {
     process.env.GH_APP_CLIENT_ID = 'Iv-test';
@@ -47,7 +53,7 @@ describe('Auth (github)', () => {
           verified: true,
         },
         {
-          email: overrides?.email ?? 'primary@test.com',
+          email: overrides?.email ?? allowedEmail,
           primary: true,
           verified: true,
         },
@@ -60,7 +66,7 @@ describe('Auth (github)', () => {
 
     await bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
-      email: 'primary@test.com',
+      email: allowedEmail,
     });
 
     // when
@@ -77,7 +83,7 @@ describe('Auth (github)', () => {
 
   it('matches an existing user by github id even when their email changed', async () => {
     // given
-    mockGithubOauth({ githubId: 4242, email: 'brand-new@test.com', login: 'renamed' });
+    mockGithubOauth({ githubId: 4242, email: allowedEmail, login: 'renamed' });
 
     await bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
@@ -97,17 +103,17 @@ describe('Auth (github)', () => {
     expect(await bootstrap.models.userModel.findOne()).toMatchObject({
       githubId: '4242',
       githubLogin: 'renamed',
-      email: 'brand-new@test.com',
+      email: allowedEmail,
     });
   });
 
   it('creates a separate account for a different github id on the same email', async () => {
     // given
-    mockGithubOauth({ githubId: 9999, email: 'shared@test.com' });
+    mockGithubOauth({ githubId: 9999, email: allowedEmail });
 
     await bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
-      email: 'shared@test.com',
+      email: allowedEmail,
     });
 
     // when
@@ -138,14 +144,61 @@ describe('Auth (github)', () => {
     expect(await bootstrap.models.userModel.findOne()).toMatchObject({
       githubId: '4242',
       githubLogin: 'test-login',
-      email: 'primary@test.com',
+      email: allowedEmail,
       authMethod: AuthMethod.Github,
       avatarUrl: 'https://some-avatar.com',
     });
   });
 
+  it('rejects a login from an email that is not on the allowlist', async () => {
+    // given
+    mockGithubOauth({ githubId: 7777, email: 'someone-else@test.com', login: 'a-stranger' });
 
-  it('logs a user in even when github will not hand over their email', async () => {
+    // when
+    const loginResponse = await request(bootstrap.app.getHttpServer())
+      .post('/auth/github/login')
+      .send({ githubCode: 'whatever' });
+
+    // then - and no half-made account left behind by the attempt
+    expect(loginResponse.status).toEqual(403);
+    expect(loginResponse.body.token).toBeUndefined();
+    expect(await bootstrap.models.userModel.countDocuments()).toEqual(0);
+  });
+
+  it('matches the allowlist regardless of how github cases the address', async () => {
+    // given
+    mockGithubOauth({ email: allowedEmail.toUpperCase() });
+
+    // when
+    const loginResponse = await request(bootstrap.app.getHttpServer())
+      .post('/auth/github/login')
+      .send({ githubCode: 'whatever' });
+
+    // then
+    expect(loginResponse.status).toEqual(201);
+    expect(loginResponse.body.token).toBeDefined();
+  });
+
+  it('refuses to let an existing user back in once they are off the allowlist', async () => {
+    // given - an account made before the list existed
+    mockGithubOauth({ githubId: 4242, email: 'grandfathered@test.com' });
+
+    await bootstrap.utils.authUtils.setupUser({
+      githubId: '4242',
+      email: 'grandfathered@test.com',
+    });
+
+    // when
+    const loginResponse = await request(bootstrap.app.getHttpServer())
+      .post('/auth/github/login')
+      .send({ githubCode: 'whatever' });
+
+    // then - the list gates every login, not just the first one
+    expect(loginResponse.status).toEqual(403);
+    expect(loginResponse.body.token).toBeUndefined();
+  });
+
+  it('rejects a login when github will not hand over the email', async () => {
     // given - no "Email addresses" account permission on the app
     nock('https://github.com')
       .post('/login/oauth/access_token')
@@ -161,13 +214,9 @@ describe('Auth (github)', () => {
       .post('/auth/github/login')
       .send({ githubCode: 'whatever' });
 
-    // then - identity is githubId, so a missing email is not a blocker
-    expect(loginResponse.status).toEqual(201);
-    expect(loginResponse.body.token).toBeDefined();
-    expect(await bootstrap.models.userModel.findOne()).toMatchObject({
-      githubId: '4242',
-      githubLogin: 'test-login',
-    });
+    // then - the allowlist fails closed: unreadable is not the same as allowed
+    expect(loginResponse.status).toEqual(403);
+    expect(await bootstrap.models.userModel.countDocuments()).toEqual(0);
   });
 
   it('rejects a login when the app credentials are not configured', async () => {

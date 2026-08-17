@@ -37,7 +37,8 @@ export const authLogic = kea<authLogicType>([
       {
         setLoginError: (_, { loginError }) => loginError,
         exchangeGithubCodeForJwt: () => null,
-        exchangeGithubCodeForJwtFailure: () => "GitHub login failed",
+        exchangeGithubCodeForJwtFailure: (_, { error }) =>
+          error || "GitHub login failed",
         logout: () => null,
       },
     ],
