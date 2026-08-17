@@ -391,7 +391,9 @@ describe('Slack delivery', () => {
       const payload = {
         action: 'review_requested',
         installation: { id: 5150 },
-        repository: { id: 314, full_name: 'ablaszkiewicz/proke' },
+        // Public, so the chain under test here is webhook to DM rather than the repository
+        // access check - that one has its own specs in the webhook suite.
+        repository: { id: 314, full_name: 'ablaszkiewicz/proke', private: false },
         sender: { id: 999, login: 'ada' },
         requested_reviewer: { id: Number(user.githubId) },
         pull_request: {

@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { GithubAppModule } from '../../github-app/github-app.module';
 import { InstallationWriteModule } from '../../installations/write/installation-write.module';
 import { NotificationsCoreModule } from '../../notifications/core/notifications-core.module';
+import { InMemoryCacheModule } from '../../shared/cache/in-memory-cache.module';
 import { SubscriptionReadModule } from '../../subscriptions/read/subscription-read.module';
 import { SubscriptionWriteModule } from '../../subscriptions/write/subscription-write.module';
 import { UserReadModule } from '../../user/read/user-read.module';
+import { GithubRepositoryAccessDataService } from './github-repository-access-data.service';
 import { GithubWebhookInstallationsService } from './github-webhook-installations.service';
 import { GithubWebhookRouterService } from './github-webhook-router.service';
 import { GithubWebhookSignatureService } from './github-webhook-signature.service';
@@ -18,11 +20,13 @@ import { GithubWebhookController } from './github-webhook.controller';
     NotificationsCoreModule,
     SubscriptionReadModule,
     SubscriptionWriteModule,
+    InMemoryCacheModule,
   ],
   controllers: [GithubWebhookController],
   providers: [
     GithubWebhookSignatureService,
     GithubWebhookInstallationsService,
+    GithubRepositoryAccessDataService,
     GithubWebhookRouterService,
   ],
 })

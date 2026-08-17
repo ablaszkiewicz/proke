@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import * as nock from 'nock';
 import * as request from 'supertest';
 import { NotificationType } from '../../src/notifications/core/entities/notification-type.enum';
 import { createTestApp } from '../utils/bootstrap';
@@ -23,6 +24,15 @@ describe('Webhooks (github) - handle reuse', () => {
 
   beforeEach(async () => {
     await bootstrap.methods.beforeEach();
+
+    // The repository here is private, which is the whole point of the scenario - so every poke
+    // now has to clear the access check first. Nobody in this file is testing that check, so it
+    // answers yes for everyone and the specs stay about handles.
+    nock('https://api.github.com')
+      .persist()
+      .get(/^\/repos\//)
+      .reply(200, {});
+
     deliverSpy = jest
       .spyOn(bootstrap.services.notificationDeliveryService, 'deliver')
       .mockResolvedValue(undefined);
@@ -75,6 +85,7 @@ describe('Webhooks (github) - handle reuse', () => {
     const { user } = await bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
       githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
     });
     await subscribe(user.id);
 
@@ -90,6 +101,7 @@ describe('Webhooks (github) - handle reuse', () => {
     const { user } = await bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
       githubLogin: 'Alice',
+      githubAccessToken: 'gho_token',
     });
     await subscribe(user.id);
 
@@ -102,7 +114,10 @@ describe('Webhooks (github) - handle reuse', () => {
 
   it('stores the handle lowercased so the lookup can use its index', async () => {
     // given
-    const { user } = await bootstrap.utils.authUtils.setupUser({ githubLogin: 'Alice' });
+    const { user } = await bootstrap.utils.authUtils.setupUser({
+      githubLogin: 'Alice',
+      githubAccessToken: 'gho_token',
+    });
 
     // when
     const stored = await bootstrap.models.userModel.findById(user.id).lean<any>().exec();
@@ -117,11 +132,15 @@ describe('Webhooks (github) - handle reuse', () => {
     const stale = await bootstrap.utils.authUtils.setupUser({
       githubId: '1111',
       githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
     });
     await subscribe(stale.user.id);
 
     // and - B has claimed @alice and signs in, which is the moment we learn about it
-    const claimant = await bootstrap.utils.authUtils.setupUser({ githubId: '2222' });
+    const claimant = await bootstrap.utils.authUtils.setupUser({
+      githubId: '2222',
+      githubAccessToken: 'gho_token',
+    });
     await bootstrap.services.userWriteService.update({
       id: claimant.user.id,
       githubLogin: 'alice',
@@ -140,8 +159,12 @@ describe('Webhooks (github) - handle reuse', () => {
     const stale = await bootstrap.utils.authUtils.setupUser({
       githubId: '1111',
       githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
     });
-    const claimant = await bootstrap.utils.authUtils.setupUser({ githubId: '2222' });
+    const claimant = await bootstrap.utils.authUtils.setupUser({
+      githubId: '2222',
+      githubAccessToken: 'gho_token',
+    });
 
     // when
     await bootstrap.services.userWriteService.update({
@@ -160,8 +183,16 @@ describe('Webhooks (github) - handle reuse', () => {
 
   it('never lets two rows claim one handle', async () => {
     // given
-    await bootstrap.utils.authUtils.setupUser({ githubId: '1111', githubLogin: 'alice' });
-    await bootstrap.utils.authUtils.setupUser({ githubId: '2222', githubLogin: 'alice' });
+    await bootstrap.utils.authUtils.setupUser({
+      githubId: '1111',
+      githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
+    });
+    await bootstrap.utils.authUtils.setupUser({
+      githubId: '2222',
+      githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
+    });
 
     // then - the invariant the unique index and the release-on-claim exist to hold
     expect(await bootstrap.models.userModel.countDocuments({ githubLoginLower: 'alice' })).toEqual(
@@ -174,10 +205,14 @@ describe('Webhooks (github) - handle reuse', () => {
     const stale = await bootstrap.utils.authUtils.setupUser({
       githubId: '7000',
       githubLogin: 'alice',
+      githubAccessToken: 'gho_token',
     });
     await subscribe(stale.user.id);
 
-    const claimant = await bootstrap.utils.authUtils.setupUser({ githubId: '2222' });
+    const claimant = await bootstrap.utils.authUtils.setupUser({
+      githubId: '2222',
+      githubAccessToken: 'gho_token',
+    });
     await bootstrap.services.userWriteService.update({
       id: claimant.user.id,
       githubLogin: 'alice',

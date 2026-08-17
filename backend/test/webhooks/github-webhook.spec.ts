@@ -56,8 +56,11 @@ describe('Webhooks (github)', () => {
   };
 
   const INSTALLATION_ID = '5150';
-  const REPOSITORY = { id: 314, full_name: 'ablaszkiewicz/proke' };
-  const OTHER_REPOSITORY = { id: 271, full_name: 'ablaszkiewicz/other' };
+  // Public on purpose. Routing is what these specs are about, and a public repository is the
+  // one case where nobody has to be asked whether they may see it - so the access check stays
+  // out of the way here and gets a describe block of its own below.
+  const REPOSITORY = { id: 314, full_name: 'ablaszkiewicz/proke', private: false };
+  const OTHER_REPOSITORY = { id: 271, full_name: 'ablaszkiewicz/other', private: false };
 
   /**
    * Opting the user in is what authorises a poke; installing alone is not enough. Written with
@@ -807,7 +810,7 @@ describe('Webhooks (github)', () => {
 
   describe('team mentions', () => {
     const ORG = 'acme';
-    const ORG_REPOSITORY = { id: 314, full_name: 'acme/proke' };
+    const ORG_REPOSITORY = { id: 314, full_name: 'acme/proke', private: false };
 
     /**
      * An org-owned repository: `organization` is the only thing saying which org the comment
@@ -1029,6 +1032,194 @@ describe('Webhooks (github)', () => {
 
       // then
       await expectNoPoke();
+    });
+  });
+
+  /**
+   * Opting into an installation is not the same as being able to see what it covers.
+   *
+   * An org-wide install reaches repositories a given member cannot open, and an @mention is
+   * prose - anybody can type anybody's handle into an issue in a private repository. Without a
+   * check here the poke relays the repository name, the title and a quote of the comment to
+   * somebody GitHub itself would never have notified.
+   */
+  describe('repository access', () => {
+    const PRIVATE_REPOSITORY = { id: 900, full_name: 'acme/secret', private: true };
+
+    const privateCommentPayload = (body: string) => ({
+      action: 'created',
+      installation: { id: Number(INSTALLATION_ID) },
+      organization: { login: 'acme' },
+      issue: {
+        title: 'Rotate the signing key',
+        pull_request: { html_url: 'https://github.com/acme/secret/pull/3' },
+        user: { id: 7000, login: 'author' },
+      },
+      comment: { html_url: 'https://github.com/acme/secret/pull/3#issuecomment-1', body },
+      repository: PRIVATE_REPOSITORY,
+      sender: { id: 999, login: 'commenter' },
+    });
+
+    /** 200 is "you can see it"; GitHub answers 404 rather than 403 for one you cannot. */
+    const mockRepositoryAccess = (granted: boolean, times = 1) =>
+      nock('https://api.github.com')
+        .get('/repos/acme/secret')
+        .times(times)
+        .reply(granted ? 200 : 404, {});
+
+    const setupMember = async (githubLogin: string, githubId = '4242', overrides: object = {}) => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId,
+        githubLogin,
+        githubAccessToken: 'gho_token',
+        ...overrides,
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    it('does not poke somebody mentioned in a repository they cannot see', async () => {
+      // given - a member of the org, opted in, with no access to this particular repository
+      await setupMember('ablaszkiewicz');
+      const access = mockRepositoryAccess(false);
+
+      // when - anybody in the org can type this handle
+      await send('issue_comment', privateCommentPayload('cc @ablaszkiewicz'));
+
+      // then - the repository name, the title and the comment all stay where they belong
+      await expectNoPoke();
+      expect(access.isDone()).toBe(true);
+    });
+
+    it('pokes them once they can see it', async () => {
+      // given
+      await setupMember('ablaszkiewicz');
+      mockRepositoryAccess(true);
+
+      // when
+      await send('issue_comment', privateCommentPayload('cc @ablaszkiewicz'));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMention,
+        repositoryFullName: 'acme/secret',
+      });
+    });
+
+    it('gates a poke routed by id, not only a mention', async () => {
+      // given - the author of the pull request, who has since lost access to the repository
+      await setupMember('author', '7000');
+      mockRepositoryAccess(false);
+
+      // when - a comment on their own pull request, routed by the id in the payload
+      await send('issue_comment', privateCommentPayload('any progress on this?'));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('asks nothing about a public repository', async () => {
+      // given - a user with no GitHub token at all, who would fail the check if it ran
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+      // An interceptor that has to go untouched: reaching GitHub here would be the bug.
+      const access = nock('https://api.github.com')
+        .get('/repos/ablaszkiewicz/proke')
+        .reply(200, {});
+
+      // when
+      await send(
+        'issue_comment',
+        prCommentPayload({ body: 'cc @ablaszkiewicz', authorGithubId: 7000 }),
+      );
+
+      // then - there is nothing to leak, and it is the common case; it must not cost a call
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMention,
+      });
+      expect(access.isDone()).toBe(false);
+    });
+
+    it('drops the poke when there is no token to vouch for the user', async () => {
+      // given - signed in before proke asked for GitHub authorization, or revoked it since
+      await setupMember('ablaszkiewicz', '4242', { githubAccessToken: undefined });
+
+      // when
+      await send('issue_comment', privateCommentPayload('cc @ablaszkiewicz'));
+
+      // then - failing open here is the leak this check exists to close
+      await expectNoPoke();
+    });
+
+    it('drops the poke when GitHub cannot be asked at all', async () => {
+      // given
+      await setupMember('ablaszkiewicz');
+      nock('https://api.github.com').get('/repos/acme/secret').reply(500);
+
+      // when
+      await send('issue_comment', privateCommentPayload('cc @ablaszkiewicz'));
+
+      // then - a rate limit or an outage is not evidence that somebody may read a private repo
+      await expectNoPoke();
+    });
+
+    it('does not re-ask GitHub for every comment on the same thread', async () => {
+      // given - one interceptor, so a second call would go unmatched
+      await setupMember('ablaszkiewicz');
+      const access = mockRepositoryAccess(true);
+
+      // when
+      await send('issue_comment', privateCommentPayload('cc @ablaszkiewicz'));
+      await waitFor(() => deliverSpy.mock.calls.length === 1);
+      await send('issue_comment', privateCommentPayload('@ablaszkiewicz again'));
+
+      // then
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      expect(access.isDone()).toBe(true);
+    });
+
+    it('pokes only the members of a mentioned team who can see the repository', async () => {
+      // given - a team whose members do not all have access to where it was named
+      const ada = await setupMember('ada', '4242');
+      await setupMember('rob', '4243');
+
+      nock('https://api.github.com')
+        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+        .reply(201, {
+          token: 'ghs_installation',
+          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+      nock('https://api.github.com')
+        .get('/orgs/acme/teams/reviewers/members')
+        .query({ per_page: '100' })
+        .reply(200, [
+          { id: 4242, login: 'ada' },
+          { id: 4243, login: 'rob' },
+        ]);
+
+      // Team membership is not repository access - GitHub answers per person, and so do we.
+      nock('https://api.github.com')
+        .get('/repos/acme/secret')
+        .times(2)
+        .reply(function () {
+          return this.req.headers.authorization === 'Bearer gho_ada' ? [200, {}] : [404, {}];
+        });
+
+      await bootstrap.services.userWriteService.update({
+        id: ada.id,
+        githubAccessToken: 'gho_ada',
+      });
+
+      // when
+      await send('issue_comment', privateCommentPayload('ping @acme/reviewers'));
+
+      // then
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy.mock.calls.map((call) => call[0].id)).toEqual([ada.id]);
     });
   });
 

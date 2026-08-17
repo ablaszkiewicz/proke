@@ -13,6 +13,7 @@ import { isNotificationAllowed } from '../../subscriptions/core/notification-pre
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
 import { UserReadService } from '../../user/read/user-read.service';
+import { GithubRepositoryAccessDataService } from './github-repository-access-data.service';
 import { extractMentions, MentionedTeam } from './github-mentions';
 
 /**
@@ -73,6 +74,7 @@ export class GithubWebhookRouterService {
     private readonly subscriptionReadService: SubscriptionReadService,
     private readonly deliveryService: NotificationDeliveryService,
     private readonly teamMembersDataService: GithubTeamMembersDataService,
+    private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
   ) {}
 
   public async route(event: string, payload: any): Promise<void> {
@@ -136,8 +138,57 @@ export class GithubWebhookRouterService {
         continue;
       }
 
+      // Last, and after preferences on purpose: this is the only gate that costs a GitHub call,
+      // so it is not worth paying for somebody who muted this kind of poke anyway.
+      if (!(await this.maySeeRepository(user, payload?.repository))) {
+        continue;
+      }
+
       await this.deliveryService.deliver(user, wanted[0]);
     }
+  }
+
+  /**
+   * Whether this person is allowed to know the event happened at all.
+   *
+   * Everything above this line reasons about the *installation*: which one the event came from,
+   * and whether this user opted into it. None of that is repository access. An org-wide install
+   * covers repositories a given member cannot open, and an @mention is only prose - anybody can
+   * type anybody's handle into an issue in a private repository, and a team mention reaches
+   * every member of a team whether or not that team can see where it was written.
+   *
+   * Without this the poke relays the repository name, the title and a quote of the comment to
+   * somebody GitHub itself would not have notified.
+   *
+   * Public repositories skip the call: there is nothing to leak, and it is the common case.
+   */
+  private async maySeeRepository(user: UserNormalized, repository: any): Promise<boolean> {
+    if (repository?.private === false) {
+      return true;
+    }
+
+    const repositoryFullName = repository?.full_name;
+
+    // Nothing to ask about. Every event we route carries a repository, so this is a malformed
+    // payload rather than a kind of event, and a poke naming no repository is no loss.
+    if (!repositoryFullName) {
+      this.logger.warn('Dropping a poke for an event carrying no repository');
+      return false;
+    }
+
+    const access = await this.repositoryAccessDataService.canAccess(user, repositoryFullName);
+
+    if (access === null) {
+      // A revoked token, a rate limit, GitHub being down. Failing open here is the whole leak
+      // this check exists to close, so a question we could not ask is a no.
+      this.logger.warn(
+        `Dropping a poke for ${user.githubLogin ?? user.id}: could not confirm access to ` +
+          repositoryFullName,
+      );
+      return false;
+    }
+
+    return access;
   }
 
   /**
