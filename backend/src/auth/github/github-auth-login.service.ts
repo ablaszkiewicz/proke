@@ -8,13 +8,17 @@ import { GithubLoginBody } from './dto/github-login.body';
 import { GithubAuthDataService } from './github-auth-data.service';
 
 /**
- * Temporary: proke is closed while it is being built, so exactly one address gets past the
+ * Temporary: proke is closed while it is being built, so exactly one account gets past the
  * OAuth round trip. Hard-coded rather than read from the environment on purpose - it is meant
  * to be deleted when the app opens up, not to become a setting nobody remembers to unset.
  *
- * Lowercase entries only; the incoming address is normalized before it is compared.
+ * Handles rather than email addresses, because /user/emails needs the "Email addresses: Read"
+ * account permission and quietly returns nothing without it - which a gate reads as "not on the
+ * list" and locks everyone out. The handle comes back from /user, which the login already needs.
+ *
+ * Lowercase entries, no leading @; the incoming handle is normalized before it is compared.
  */
-export const ALLOWED_LOGIN_EMAILS = ['kqmdjc8@gmail.com'];
+export const ALLOWED_GITHUB_LOGINS = ['ablaszkiewicz'];
 
 @Injectable()
 export class GithubAuthLoginService {
@@ -31,11 +35,13 @@ export class GithubAuthLoginService {
     const accessToken = await this.githubAuthDataService.getAccessToken(dto.githubCode);
 
     const profile = await this.githubAuthDataService.getGithubProfile(accessToken);
-    const email = await this.githubAuthDataService.getGithubEmail(accessToken);
 
-    // Before any read or write. A rejected login must not leave an account behind, and must not
-    // refresh the stored token on one that already exists.
-    this.assertEmailAllowed(email, profile.login);
+    // As early as the handle is known: before the extra call for the email, and before any read
+    // or write. A rejected login must not leave an account behind, and must not refresh the
+    // stored token on one that already exists.
+    this.assertLoginAllowed(profile.login);
+
+    const email = await this.githubAuthDataService.getGithubEmail(accessToken);
 
     const user = await this.userReadService.readByGithubId(profile.id);
 
@@ -72,21 +78,17 @@ export class GithubAuthLoginService {
   }
 
   /**
-   * Fails closed on a missing address. Everywhere else an unreadable email costs nothing but a
-   * display attribute, but here it is the thing being checked, and "we could not read it" is
-   * not "it is on the list". If this starts rejecting the allowed account, the GitHub App has
-   * lost its Account permission "Email addresses: Read".
+   * Handles are case-insensitive on GitHub's side, and a list edited by hand is as likely to
+   * carry the @ as not, so both are normalized away rather than left to trip someone up.
    */
-  private assertEmailAllowed(email: string | undefined, githubLogin: string): void {
-    const normalized = email?.trim().toLowerCase();
+  private assertLoginAllowed(githubLogin: string): void {
+    const normalized = githubLogin.trim().toLowerCase().replace(/^@/, '');
 
-    if (normalized && ALLOWED_LOGIN_EMAILS.includes(normalized)) {
+    if (ALLOWED_GITHUB_LOGINS.includes(normalized)) {
       return;
     }
 
-    this.logger.warn(
-      `Rejected login for @${githubLogin} (${normalized ?? 'no readable email'}): not on the allowlist.`,
-    );
+    this.logger.warn(`Rejected login for @${normalized}: not on the allowlist.`);
 
     throw new ForbiddenException('proke is closed right now, and this account is not on the list.');
   }
