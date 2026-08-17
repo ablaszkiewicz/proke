@@ -11,6 +11,7 @@ import { SlackNotificationDeliveryService } from '../../src/notifications/delive
 import { SlackLinkEntity } from '../../src/slack/links/core/entities/slack-link.entity';
 import { SlackModule } from '../../src/slack/slack.module';
 import { SlackWorkspaceEntity } from '../../src/slack/workspaces/core/entities/slack-workspace.entity';
+import { InMemoryCacheService } from '../../src/shared/cache/in-memory-cache.service';
 import { buildValidationPipe } from '../../src/shared/validation/validation-pipe';
 import { SubscriptionEntity } from '../../src/subscriptions/core/entities/subscription.entity';
 import { UserEntity } from '../../src/user/core/entities/user.entity';
@@ -57,6 +58,7 @@ export async function createTestApp() {
     getModelToken(SlackWorkspaceEntity.name),
   );
   const slackLinkModel: Model<SlackLinkEntity> = module.get(getModelToken(SlackLinkEntity.name));
+  const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
     await userModel.deleteMany({});
@@ -69,6 +71,8 @@ export async function createTestApp() {
   const beforeEach = async () => {
     await clearDatabase();
     nock.cleanAll();
+    // Outlives the database, so without this a team one spec looked up is still known in the next.
+    inMemoryCacheService.clear();
   };
 
   const afterAll = async () => {
@@ -94,6 +98,7 @@ export async function createTestApp() {
       // from whoever held it before.
       userReadService: app.get(UserReadService),
       userWriteService: app.get(UserWriteService),
+      inMemoryCacheService,
     },
     utils: {
       authUtils: new AuthUtils(app),

@@ -104,6 +104,12 @@ export const POKE_PREVIEWS: PokePreview[] = [
     subject: "Uploads time out over 50MB #77",
     repository: "acme/web",
   },
+  {
+    actor: "rob",
+    lead: "mentioned @acme/reviewers on",
+    subject: "Drop the legacy uploader #501",
+    repository: "acme/api",
+  },
 ];
 
 /**

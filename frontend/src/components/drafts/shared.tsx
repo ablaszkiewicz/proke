@@ -221,6 +221,12 @@ const POKE_TEXT: Record<NotificationType, ReactNode> = {
       <Who>octocat</Who> mentioned you on <Ref>logdash-io/core#7</Ref>
     </>
   ),
+  team_mention: (
+    <>
+      <Who>octocat</Who> mentioned <Ref>@cryptly-dev/reviewers</Ref> on{" "}
+      <Ref>cryptly-dev/api#42</Ref>
+    </>
+  ),
 };
 
 export function PokeText({

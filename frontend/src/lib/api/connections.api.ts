@@ -8,7 +8,8 @@ export type NotificationType =
   | "pull_request_merged"
   | "pull_request_comment"
   | "pull_request_mention"
-  | "issue_mention";
+  | "issue_mention"
+  | "team_mention";
 
 export interface RepositoryPreference {
   repositoryId: string;

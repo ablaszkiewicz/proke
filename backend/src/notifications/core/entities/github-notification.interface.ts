@@ -23,4 +23,6 @@ export interface GithubNotificationNormalized {
    * Full length and unformatted. How much of it to show is the destination's business.
    */
   excerpt?: string;
+  /** `org/team`, on a team mention only - the recipient was named as part of a group. */
+  teamHandle?: string;
 }

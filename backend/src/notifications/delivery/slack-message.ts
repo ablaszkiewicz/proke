@@ -16,13 +16,22 @@ const MAX_EXCERPT_CHARS = 320;
  * Issues and pull requests are not distinguished when somebody names you - being mentioned is
  * being mentioned, and the link says which it was.
  */
-const LEAD: Record<NotificationType, (actor: string) => string> = {
+const LEAD: Record<
+  NotificationType,
+  (actor: string, notification: GithubNotificationNormalized) => string
+> = {
   [NotificationType.ReviewRequested]: (actor) => `${actor} requested your review on`,
   [NotificationType.ReviewSubmitted]: (actor) => `${actor} reviewed`,
   [NotificationType.PullRequestMerged]: (actor) => `${actor} merged`,
   [NotificationType.PullRequestComment]: (actor) => `${actor} commented on`,
   [NotificationType.PullRequestMention]: (actor) => `${actor} mentioned you on`,
   [NotificationType.IssueMention]: (actor) => `${actor} mentioned you on`,
+  // Says the team: "mentioned you" would be a small lie, and why you got this is the one thing
+  // you want from an unexpected poke.
+  [NotificationType.TeamMention]: (actor, notification) =>
+    notification.teamHandle
+      ? `${actor} mentioned @${notification.teamHandle} on`
+      : `${actor} mentioned your team on`,
 };
 
 /**
@@ -42,7 +51,7 @@ export function buildPokeMessage(notification: GithubNotificationNormalized): Sl
       ? REVIEW[notification.reviewState]
       : undefined;
 
-  const lead = review ? review.lead(actor) : LEAD[notification.type](actor);
+  const lead = review ? review.lead(actor) : LEAD[notification.type](actor, notification);
   const icon = review ? `${review.icon} ` : '';
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;

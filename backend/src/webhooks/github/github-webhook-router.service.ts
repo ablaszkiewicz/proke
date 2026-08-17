@@ -1,4 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  GithubTeamMember,
+  GithubTeamMembersDataService,
+} from '../../github-app/github-team-members-data.service';
 import { GithubNotificationNormalized } from '../../notifications/core/entities/github-notification.interface';
 import {
   comparePriority,
@@ -9,12 +13,16 @@ import { isNotificationAllowed } from '../../subscriptions/core/notification-pre
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
 import { UserReadService } from '../../user/read/user-read.service';
-import { extractMentionedLogins } from './github-mentions';
+import { extractMentions, MentionedTeam } from './github-mentions';
 
-/** Whoever should hear about this. By id where the payload gives one, by handle for mentions. */
+/**
+ * Whoever should hear about this. By id where the payload gives one, by handle for mentions, and
+ * by team where a group was named - which is a question for GitHub rather than a person yet.
+ */
 interface PokeRecipient {
   githubId?: string;
   githubLogin?: string;
+  team?: MentionedTeam;
 }
 
 interface Poke {
@@ -64,12 +72,13 @@ export class GithubWebhookRouterService {
     private readonly userReadService: UserReadService,
     private readonly subscriptionReadService: SubscriptionReadService,
     private readonly deliveryService: NotificationDeliveryService,
+    private readonly teamMembersDataService: GithubTeamMembersDataService,
   ) {}
 
   public async route(event: string, payload: any): Promise<void> {
-    const pokes = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
+    const candidates = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
 
-    if (pokes.length === 0) {
+    if (candidates.length === 0) {
       return;
     }
 
@@ -79,6 +88,18 @@ export class GithubWebhookRouterService {
     // opt-in would authorise the poke, so we do not send it.
     if (!installationId) {
       this.logger.warn(`Dropping ${event} with no installation id`);
+      return;
+    }
+
+    // After suppression so a bot naming a team costs no API call, and before grouping so a team
+    // is just several more candidates by the time preferences are consulted.
+    const pokes = await this.expandTeamMentions(
+      candidates,
+      installationId,
+      payload?.organization?.login,
+    );
+
+    if (pokes.length === 0) {
       return;
     }
 
@@ -147,6 +168,65 @@ export class GithubWebhookRouterService {
     }
 
     return kept;
+  }
+
+  /**
+   * Turns `@org/team` into the people in it - one candidate each, all carrying the notification
+   * built from the sentence that named them. A team we cannot resolve pokes nobody, deliberately:
+   * the alternative is guessing at who was meant.
+   */
+  private async expandTeamMentions(
+    pokes: Poke[],
+    installationId: string,
+    organizationLogin: string | undefined,
+  ): Promise<Poke[]> {
+    if (!pokes.some((poke) => poke.recipient.team)) {
+      return pokes;
+    }
+
+    const expanded: Poke[] = [];
+
+    for (const poke of pokes) {
+      const team = poke.recipient.team;
+
+      if (!team) {
+        expanded.push(poke);
+        continue;
+      }
+
+      const members = await this.readTeamMembers(team, installationId, organizationLogin);
+
+      for (const member of members) {
+        expanded.push({
+          recipient: { githubId: member.githubId },
+          notification: poke.notification,
+        });
+      }
+    }
+
+    return expanded;
+  }
+
+  private async readTeamMembers(
+    team: MentionedTeam,
+    installationId: string,
+    organizationLogin: string | undefined,
+  ): Promise<GithubTeamMember[]> {
+    // The event's own org is the only one we hold a token for. `@someone-else/team` is prose,
+    // and a repository owned by a person has no teams at all.
+    if (!organizationLogin || team.org.toLowerCase() !== organizationLogin.toLowerCase()) {
+      return [];
+    }
+
+    try {
+      return (
+        (await this.teamMembersDataService.listMembers(installationId, team.org, team.slug)) ?? []
+      );
+    } catch (error) {
+      // One unreachable team must not cost the other people this event was going to poke.
+      this.logger.warn(`Could not expand @${team.handle}: ${error}`);
+      return [];
+    }
   }
 
   /**
@@ -397,6 +477,7 @@ export class GithubWebhookRouterService {
     );
   }
 
+  /** `type` is the personal mention only; a team mention is one type either way. */
   private mentionPokes(
     type: NotificationType,
     subject: PokeSubject,
@@ -404,16 +485,25 @@ export class GithubWebhookRouterService {
   ): Poke[] {
     // The text that mentions somebody is the whole reason they are being poked, so it travels
     // with the poke rather than being thrown away after the @handles are pulled out of it.
-    return extractMentionedLogins(subject.body).map((githubLogin) => ({
-      recipient: { githubLogin },
-      notification: this.build(type, subject, context),
-    }));
+    const { logins, teams } = extractMentions(subject.body);
+
+    return [
+      ...logins.map((githubLogin) => ({
+        recipient: { githubLogin },
+        notification: this.build(type, subject, context),
+      })),
+      ...teams.map((team) => ({
+        recipient: { team },
+        notification: this.build(NotificationType.TeamMention, subject, context, team.handle),
+      })),
+    ];
   }
 
   private build(
     type: NotificationType,
     subject: PokeSubject,
     context: EventContext,
+    teamHandle?: string,
   ): GithubNotificationNormalized {
     return {
       type,
@@ -424,6 +514,7 @@ export class GithubWebhookRouterService {
       actorLogin: context.actorLogin,
       excerpt: normalizeBody(subject.body),
       reviewState: subject.reviewState?.toLowerCase(),
+      teamHandle,
     };
   }
 }
@@ -436,6 +527,8 @@ const BOT_SUPPRESSED_TYPES: NotificationType[] = [
   NotificationType.PullRequestComment,
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
+  // A bot naming a team is the same noise multiplied by everyone in it.
+  NotificationType.TeamMention,
 ];
 
 /**

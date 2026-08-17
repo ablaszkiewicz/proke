@@ -1,4 +1,5 @@
-import { createHmac } from 'crypto';
+import { createHmac, generateKeyPairSync } from 'crypto';
+import * as nock from 'nock';
 import * as request from 'supertest';
 import { NotificationType } from '../../src/notifications/core/entities/notification-type.enum';
 import { RepositoryScope } from '../../src/subscriptions/core/entities/subscription.interface';
@@ -13,6 +14,17 @@ describe('Webhooks (github)', () => {
 
   beforeAll(async () => {
     process.env.GH_APP_WEBHOOK_SECRET = WEBHOOK_SECRET;
+
+    // Expanding a team mention starts by signing an app JWT, so it needs a key that signs.
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+
+    process.env.GH_APP_ID = '12345';
+    process.env.GH_APP_PRIVATE_KEY = privateKey as string;
+
     bootstrap = await createTestApp();
   });
 
@@ -708,24 +720,6 @@ describe('Webhooks (github)', () => {
       await expectNoPoke();
     });
 
-    it('ignores a team mention', async () => {
-      // given - a user whose handle happens to match the org half of @org/team
-      const { user } = await bootstrap.utils.authUtils.setupUser({
-        githubId: '4242',
-        githubLogin: 'acme',
-      });
-      await subscribe(user.id);
-
-      // when
-      await send(
-        'issue_comment',
-        prCommentPayload({ body: 'ping @acme/reviewers', authorGithubId: 7000 }),
-      );
-
-      // then
-      await expectNoPoke();
-    });
-
     it('ignores an email address that looks like a mention', async () => {
       // given
       const { user } = await bootstrap.utils.authUtils.setupUser({
@@ -808,6 +802,233 @@ describe('Webhooks (github)', () => {
       expect(types).toEqual(
         [NotificationType.PullRequestComment, NotificationType.PullRequestMention].sort(),
       );
+    });
+  });
+
+  describe('team mentions', () => {
+    const ORG = 'acme';
+    const ORG_REPOSITORY = { id: 314, full_name: 'acme/proke' };
+
+    /**
+     * An org-owned repository: `organization` is the only thing saying which org the comment
+     * happened in. The author is nobody in particular, so the only pokes in play are the team's.
+     */
+    const teamCommentPayload = (body: string, senderGithubId = 999) => ({
+      action: 'created',
+      installation: { id: Number(INSTALLATION_ID) },
+      organization: { login: ORG },
+      issue: {
+        title: 'Something is broken',
+        pull_request: { html_url: 'https://github.com/acme/proke/pull/3' },
+        user: { id: 7000, login: 'author' },
+      },
+      comment: { html_url: 'https://github.com/acme/proke/pull/3#issuecomment-1', body },
+      repository: ORG_REPOSITORY,
+      sender: { id: senderGithubId, login: 'commenter' },
+    });
+
+    const mockInstallationToken = () =>
+      nock('https://api.github.com')
+        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+        .reply(201, {
+          token: 'ghs_installation',
+          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+
+    /** `overCap` is how GitHub says there is more: a Link header offering a second page. */
+    const mockTeamMembers = (
+      slug: string,
+      members: { id: number; login: string }[],
+      { overCap = false, org = ORG }: { overCap?: boolean; org?: string } = {},
+    ) =>
+      nock('https://api.github.com')
+        .get(`/orgs/${org}/teams/${slug}/members`)
+        .query({ per_page: '100' })
+        .reply(
+          200,
+          members,
+          overCap
+            ? {
+                link: `<https://api.github.com/orgs/${org}/teams/${slug}/members?page=2>; rel="next"`,
+              }
+            : {},
+        );
+
+    const setupMember = async (githubId: string, githubLogin: string) => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({ githubId, githubLogin });
+      await subscribe(user.id);
+      return user;
+    };
+
+    it('pokes everybody in a mentioned team', async () => {
+      // given - two of the three members have proke accounts
+      await setupMember('4242', 'ada');
+      await setupMember('4243', 'rob');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [
+        { id: 4242, login: 'ada' },
+        { id: 4243, login: 'rob' },
+        { id: 4244, login: 'nina' },
+      ]);
+
+      // when
+      await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+
+      // then - one poke each, naming the team rather than claiming they were named personally
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      const recipients = deliverSpy.mock.calls.map((call) => call[0].githubLogin).sort();
+      expect(recipients).toEqual(['ada', 'rob']);
+      expect(deliverSpy.mock.calls[0][1]).toMatchObject({
+        type: NotificationType.TeamMention,
+        teamHandle: 'acme/reviewers',
+        repositoryFullName: 'acme/proke',
+      });
+    });
+
+    it('does not poke the person who wrote the mention', async () => {
+      // given - the commenter is in the team they named
+      await setupMember('999', 'commenter');
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [
+        { id: 999, login: 'commenter' },
+        { id: 4242, login: 'ada' },
+      ]);
+
+      // when
+      await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+
+      // then
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+      expect(deliverSpy.mock.calls[0][0].githubLogin).toEqual('ada');
+    });
+
+    it('skips a team with more members than the cap', async () => {
+      // given - a full page and an offer of another one is GitHub saying "more than 100"
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers(
+        'everyone',
+        Array.from({ length: 100 }, (_, index) => ({ id: 4242 + index, login: `member${index}` })),
+        { overCap: true },
+      );
+
+      // when
+      await send('issue_comment', teamCommentPayload('morning @acme/everyone'));
+
+      // then - a mention that would reach the whole org is not a poke, it is an announcement
+      await expectNoPoke();
+    });
+
+    it('does not read the org half of a team handle as a person', async () => {
+      // given - a user whose handle happens to match the org, and no such team
+      await setupMember('4242', 'acme');
+      mockInstallationToken();
+      nock('https://api.github.com')
+        .get(`/orgs/${ORG}/teams/nobody/members`)
+        .query(true)
+        .reply(404);
+
+      // when
+      await send('issue_comment', teamCommentPayload('ping @acme/nobody'));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('ignores a team belonging to another organisation', async () => {
+      // given - the only token we hold is this org's, so someone else's team is just prose
+      await setupMember('4242', 'ada');
+
+      // when
+      await send('issue_comment', teamCommentPayload('like @othercorp/reviewers do'));
+
+      // then - and no GitHub call was made to find that out
+      await expectNoPoke();
+      expect(nock.pendingMocks()).toHaveLength(0);
+    });
+
+    it('collapses a comment naming both you and your team into the personal mention', async () => {
+      // given
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when
+      await send('issue_comment', teamCommentPayload('@ada and @acme/reviewers - thoughts?'));
+
+      // then - one poke, and the one that says somebody asked her rather than her team
+      const notification = await firstNotification();
+      expect(notification).toMatchObject({ type: NotificationType.PullRequestMention });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks GitHub about a team once and remembers the answer', async () => {
+      // given - one interceptor each, so a second lookup would be an unmatched request
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when - two separate events naming the same team
+      await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+      await waitFor(() => deliverSpy.mock.calls.length === 1);
+      await send('issue_comment', teamCommentPayload('again @acme/reviewers'));
+
+      // then - both delivered, off one round trip
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      expect(nock.pendingMocks()).toHaveLength(0);
+    });
+
+    it('ignores a team mention from a bot', async () => {
+      // given
+      await setupMember('4242', 'ada');
+      const payload = {
+        ...teamCommentPayload('ping @acme/reviewers'),
+        sender: { id: 555, login: 'dependabot[bot]', type: 'Bot' },
+      };
+
+      // when
+      await send('issue_comment', payload);
+
+      // then - suppressed before anything is asked of GitHub, so nothing was
+      await expectNoPoke();
+      expect(nock.pendingMocks()).toHaveLength(0);
+    });
+
+    it('does not poke a team member who has not opted into the installation', async () => {
+      // given - an account, but no subscription
+      await bootstrap.utils.authUtils.setupUser({ githubId: '4242', githubLogin: 'ada' });
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when
+      await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+
+      // then - somebody else's install is not consent, and a team mention is no exception
+      await expectNoPoke();
+    });
+
+    it('does not poke a team member who has switched team mentions off', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ada',
+      });
+      await subscribe(user.id, {
+        repositoryScope: RepositoryScope.All,
+        notificationTypes: [NotificationType.PullRequestMention],
+      });
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when
+      await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+
+      // then
+      await expectNoPoke();
     });
   });
 

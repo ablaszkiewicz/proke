@@ -16,6 +16,8 @@ export enum NotificationType {
   PullRequestComment = 'pull_request_comment',
   PullRequestMention = 'pull_request_mention',
   IssueMention = 'issue_mention',
+  /** `@org/team`, on a pull request or an issue alike - the link says which it was. */
+  TeamMention = 'team_mention',
 }
 
 export const ALL_NOTIFICATION_TYPES: NotificationType[] = Object.values(NotificationType);
@@ -32,6 +34,8 @@ const PRIORITY: NotificationType[] = [
   NotificationType.PullRequestComment,
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
+  // Last: being asked directly outranks being included in a group.
+  NotificationType.TeamMention,
 ];
 
 export function comparePriority(a: NotificationType, b: NotificationType): number {

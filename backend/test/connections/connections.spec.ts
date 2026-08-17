@@ -74,9 +74,7 @@ describe('Connections', () => {
       accountLogin: 'acme-corp',
       status: ConnectionStatus.Available,
     });
-    expect(response.body.installUrl).toEqual(
-      'https://github.com/apps/proke-dev/installations/new',
-    );
+    expect(response.body.installUrl).toEqual('https://github.com/apps/proke-dev/installations/new');
   });
 
   it('flips to subscribed once the user opts in', async () => {
@@ -184,6 +182,25 @@ describe('Connections', () => {
         notificationTypes: ALL_NOTIFICATION_TYPES,
         repositories: [],
       });
+    });
+
+    it("does not freeze today's list of types onto the subscription", async () => {
+      // given
+      mockUserInstallations([acmeInstallation], 1);
+      const { token, user } = await setupUser();
+
+      // when
+      await request(bootstrap.app.getHttpServer())
+        .post('/connections/5150/subscription')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - storing the list made each new type arrive switched off for everybody who had
+      // already subscribed
+      const stored = await bootstrap.models.subscriptionModel.findOne({
+        userId: user.id,
+        installationId: '5150',
+      });
+      expect(stored?.notificationTypes).toBeUndefined();
     });
 
     it('reports no preferences for an account that is not on', async () => {
@@ -340,9 +357,7 @@ describe('Connections', () => {
       // given
       mockUserInstallations([acmeInstallation]);
       mockRole('acme-corp', 'admin');
-      const uninstall = nock('https://api.github.com')
-        .delete('/app/installations/5150')
-        .reply(204);
+      const uninstall = nock('https://api.github.com').delete('/app/installations/5150').reply(204);
 
       const { token, user } = await setupUser();
       await bootstrap.models.subscriptionModel.create({
@@ -426,9 +441,7 @@ describe('Connections', () => {
           repository_selection: 'all',
         },
       ]);
-      const uninstall = nock('https://api.github.com')
-        .delete('/app/installations/6100')
-        .reply(204);
+      const uninstall = nock('https://api.github.com').delete('/app/installations/6100').reply(204);
 
       const { token } = await setupUser();
 

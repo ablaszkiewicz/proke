@@ -19,6 +19,10 @@ export class SubscriptionWriteService {
    *
    * The defaults go in on insert only: re-subscribing after unsubscribing starts fresh, but a
    * redundant subscribe must never quietly reset preferences somebody chose.
+   *
+   * `notificationTypes` is deliberately not among them. Writing today's list froze each
+   * subscriber's idea of "everything" at the moment they clicked, so a type added later arrived
+   * switched off for everybody who had already subscribed. Only a real choice stores a list.
    */
   public async create(userId: string, installationId: string): Promise<void> {
     const preferences = defaultPreferences();
@@ -30,7 +34,6 @@ export class SubscriptionWriteService {
           userId,
           installationId,
           repositoryScope: preferences.repositoryScope,
-          notificationTypes: preferences.notificationTypes,
           repositories: preferences.repositories,
         },
       },

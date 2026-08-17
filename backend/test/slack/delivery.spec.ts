@@ -190,6 +190,21 @@ describe('Slack delivery', () => {
       expect(posts[1].blocks[0].text.text).toContain('@ada mentioned you on *<');
     });
 
+    it('names the team rather than claiming the person was named', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({ type: NotificationType.TeamMention, teamHandle: 'acme/reviewers' }),
+      );
+
+      // then
+      expect(lead(posts)).toContain('@ada mentioned @acme/reviewers on *<');
+    });
+
     it('drops the number when the payload had none', async () => {
       // given
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });

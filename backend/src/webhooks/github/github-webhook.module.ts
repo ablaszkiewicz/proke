@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GithubAppModule } from '../../github-app/github-app.module';
 import { InstallationWriteModule } from '../../installations/write/installation-write.module';
 import { NotificationsCoreModule } from '../../notifications/core/notifications-core.module';
 import { SubscriptionReadModule } from '../../subscriptions/read/subscription-read.module';
@@ -12,6 +13,7 @@ import { GithubWebhookController } from './github-webhook.controller';
 @Module({
   imports: [
     UserReadModule,
+    GithubAppModule,
     InstallationWriteModule,
     NotificationsCoreModule,
     SubscriptionReadModule,
