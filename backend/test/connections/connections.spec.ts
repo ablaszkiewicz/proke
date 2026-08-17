@@ -49,6 +49,41 @@ describe('Connections', () => {
       .reply(200, { total_count: installations.length, installations });
   };
 
+  /**
+   * What GitHub says about *this user's* reach into whatever installations a test set up:
+   * which repositories they see through each one, and their role in the account.
+   *
+   * Matched by pattern and persisted, because the read asks once per installation per load and
+   * several specs load twice. Uninstall specs deliberately do not call this - they mock the
+   * membership endpoint themselves, and a persisted interceptor registered here would answer
+   * ahead of theirs.
+   */
+  const mockViewerAccess = ({
+    repositories = [],
+    totalCount,
+    role = null,
+  }: {
+    repositories?: object[];
+    totalCount?: number;
+    role?: 'admin' | 'member' | null;
+  } = {}) => {
+    nock('https://api.github.com')
+      .persist()
+      .get(/^\/user\/installations\/\d+\/repositories/)
+      .reply(200, { total_count: totalCount ?? repositories.length, repositories });
+
+    nock('https://api.github.com')
+      .persist()
+      .get(/^\/user\/memberships\/orgs\//)
+      .reply(role ? 200 : 403, role ? { state: 'active', role } : {});
+  };
+
+  const repository = (id: number, fullName: string, isPrivate = false) => ({
+    id,
+    full_name: fullName,
+    private: isPrivate,
+  });
+
   const setupUser = () =>
     bootstrap.utils.authUtils.setupUser({
       githubId: '4242',
@@ -59,6 +94,7 @@ describe('Connections', () => {
   it('shows an installation a colleague created as available, not on', async () => {
     // given - user B can see the org's installation, but never opted in
     mockUserInstallations([acmeInstallation]);
+    mockViewerAccess();
     const { token } = await setupUser();
 
     // when
@@ -80,6 +116,7 @@ describe('Connections', () => {
   it('flips to subscribed once the user opts in', async () => {
     // given - once for the subscribe access check, once for the reload
     mockUserInstallations([acmeInstallation], 2);
+    mockViewerAccess();
     const { token } = await setupUser();
 
     // when
@@ -151,6 +188,7 @@ describe('Connections', () => {
   it('reports a suspended installation as suspended', async () => {
     // given
     mockUserInstallations([{ ...acmeInstallation, suspended_at: '2026-08-14T12:00:00Z' }]);
+    mockViewerAccess();
     const { token } = await setupUser();
 
     // when
@@ -162,10 +200,152 @@ describe('Connections', () => {
     expect(response.body.connections[0].status).toEqual(ConnectionStatus.Suspended);
   });
 
+  describe('what this user can actually see', () => {
+    const personalInstallation = (id: number, account: object) => ({
+      id,
+      account,
+      // What the installer granted, and the source of the whole problem: it says "all" whether
+      // the account has one repository or two hundred, and whoever is reading is not the
+      // person who granted it.
+      repository_selection: 'all',
+    });
+
+    it('counts the repositories the user reaches, not the ones the install covers', async () => {
+      // given - a colleague installed proke across their entire personal account and shared
+      // exactly one repository of it
+      mockUserInstallations([
+        personalInstallation(6300, { id: 999, login: 'hugues', type: 'User' }),
+      ]);
+      mockViewerAccess({ repositories: [repository(31, 'hugues/side-project', true)] });
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - "all repos" was true of the installation and false of everything this user sees
+      expect(response.body.connections[0]).toMatchObject({
+        repositorySelection: 'all',
+        repositoryCount: 1,
+        repositories: [{ repositoryId: '31', fullName: 'hugues/side-project', private: true }],
+      });
+    });
+
+    it("calls somebody else's personal installation a membership", async () => {
+      // given
+      mockUserInstallations([
+        personalInstallation(6300, { id: 999, login: 'hugues', type: 'User' }),
+      ]);
+      mockViewerAccess();
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - the row read "personal" before this, which is what your own profile reads too
+      expect(response.body.connections[0].viewerRole).toEqual('member');
+    });
+
+    it('calls the user own personal installation an ownership', async () => {
+      // given - the account id, not the handle: handles move and ids do not
+      mockUserInstallations([
+        personalInstallation(6100, { id: 4242, login: 'renamed-since', type: 'User' }),
+      ]);
+      mockViewerAccess();
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then
+      expect(response.body.connections[0].viewerRole).toEqual('owner');
+    });
+
+    it('reads an org role from GitHub rather than guessing at it', async () => {
+      // given
+      mockUserInstallations([acmeInstallation]);
+      mockViewerAccess({ role: 'admin' });
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then
+      expect(response.body.connections[0].viewerRole).toEqual('owner');
+    });
+
+    it('says nothing about a role GitHub would not confirm', async () => {
+      // given - e.g. the app lacks the Members permission
+      mockUserInstallations([acmeInstallation]);
+      mockViewerAccess({ role: null });
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - no label beats a guessed one, and the row still renders
+      expect(response.body.connections[0].viewerRole).toBeUndefined();
+      expect(response.body.connections[0].accountLogin).toEqual('acme-corp');
+    });
+
+    it('keeps the count honest when it sends fewer names than there are repositories', async () => {
+      // given - one page of names out of a much larger account
+      mockUserInstallations([acmeInstallation]);
+      mockViewerAccess({
+        repositories: [repository(1, 'acme-corp/api'), repository(2, 'acme-corp/web')],
+        totalCount: 212,
+      });
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - a "212 repos" heading over a list of two is the point, not a bug
+      expect(response.body.connections[0].repositoryCount).toEqual(212);
+      expect(response.body.connections[0].repositories).toHaveLength(2);
+    });
+
+    it('still renders a row GitHub would not answer about', async () => {
+      // given - the repositories endpoint is down or forbidden
+      mockUserInstallations([acmeInstallation]);
+      nock('https://api.github.com')
+        .persist()
+        .get(/^\/user\/installations\/\d+\/repositories/)
+        .reply(500);
+      nock('https://api.github.com')
+        .persist()
+        .get(/^\/user\/memberships\/orgs\//)
+        .reply(403);
+      const { token } = await setupUser();
+
+      // when
+      const response = await request(bootstrap.app.getHttpServer())
+        .get('/connections')
+        .set('authorization', `Bearer ${token}`);
+
+      // then - absent, not zero: the UI falls back to what the installation says about itself
+      expect(response.status).toEqual(200);
+      expect(response.body.connections[0].repositoryCount).toBeUndefined();
+      expect(response.body.connections[0].repositorySelection).toEqual('all');
+    });
+  });
+
   describe('notification preferences', () => {
     it('turning an account on opts into everything', async () => {
       // given
       mockUserInstallations([acmeInstallation], 2);
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when
@@ -206,6 +386,7 @@ describe('Connections', () => {
     it('reports no preferences for an account that is not on', async () => {
       // given
       mockUserInstallations([acmeInstallation]);
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when
@@ -221,6 +402,7 @@ describe('Connections', () => {
     it('stores the full enriched shape the UI does not expose yet', async () => {
       // given
       mockUserInstallations([acmeInstallation], 2);
+      mockViewerAccess();
       const { token, user } = await setupUser();
       await bootstrap.models.subscriptionModel.create({
         userId: user.id,
@@ -267,6 +449,7 @@ describe('Connections', () => {
     it('keeps an empty type list rather than reading it as "everything"', async () => {
       // given
       mockUserInstallations([acmeInstallation], 2);
+      mockViewerAccess();
       const { token, user } = await setupUser();
       await bootstrap.models.subscriptionModel.create({
         userId: user.id,

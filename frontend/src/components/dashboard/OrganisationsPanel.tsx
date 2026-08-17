@@ -152,17 +152,136 @@ const STATUS_COLOR: Record<Connection["status"], string> = {
   suspended: "text-amber-500",
 };
 
-function statusText(connection: Connection): string {
-  switch (connection.status) {
-    case "subscribed":
-      return connection.repositorySelection === "selected"
-        ? "On · selected repos"
-        : "On · all repos";
-    case "available":
-      return "Not on yet";
-    case "suspended":
-      return "Suspended on GitHub";
+/** How many names the hover list shows before it starts counting the rest. */
+const NAMED_REPOS = 8;
+
+/**
+ * What kind of account this is, and what the signed-in user is to it.
+ *
+ * "personal" alone was actively misleading on somebody else's account: a colleague who shares
+ * one repository out of their own profile produced a row reading exactly like your own profile.
+ * The role is the half that distinguishes them, so it is the half that has to be there.
+ */
+function accountMeta(connection: Connection): string | null {
+  const parts = [
+    connection.accountType === "User" ? "personal" : null,
+    connection.viewerRole,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * The second line of a row: what proke is doing with this account, and how much of it this
+ * user can actually see.
+ */
+function StatusLine({ connection }: { connection: Connection }) {
+  if (connection.status === "suspended") {
+    // Nothing is being delivered, so how many repositories it would cover is not the point.
+    return <>Suspended on GitHub</>;
   }
+
+  const prefix = connection.status === "subscribed" ? "On" : "Not on yet";
+
+  if (connection.repositoryCount === undefined) {
+    // GitHub could not be asked. Falling back to what the installation says about itself is
+    // the wording this row carried before it could say anything sharper.
+    return (
+      <>
+        {prefix} ·{" "}
+        {connection.repositorySelection === "selected"
+          ? "selected repos"
+          : "all repos"}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {prefix} · <RepositoryCount connection={connection} />
+    </>
+  );
+}
+
+/**
+ * How many repositories *this user* reaches through the installation, and - on hover or focus -
+ * which ones.
+ *
+ * The count comes from the server rather than from the names below it: a two-hundred-repository
+ * org sends the first hundred, and a list saying "100" under a heading saying "212" would be
+ * the sort of quiet wrongness nobody reports.
+ */
+function RepositoryCount({ connection }: { connection: Connection }) {
+  const count = connection.repositoryCount ?? 0;
+  const named = (connection.repositories ?? []).slice(0, NAMED_REPOS);
+  const unnamed = count - named.length;
+
+  const label =
+    count === 0
+      ? "no repos you can see"
+      : `${count} ${count === 1 ? "repo" : "repos"}`;
+
+  if (named.length === 0) {
+    return <>{label}</>;
+  }
+
+  const listId = `repos-${connection.installationId}`;
+
+  return (
+    <span className="group/repos relative inline-block">
+      {/*
+        Focusable so the list is reachable without a pointer, described by it so a screen reader
+        gets the names rather than a floating fragment, and dotted rather than solid so it reads
+        as "there is more here" instead of as a link that goes somewhere.
+      */}
+      <span
+        tabIndex={0}
+        aria-describedby={listId}
+        className="cursor-default rounded-sm underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      >
+        {label}
+      </span>
+
+      {/*
+        Above the trigger, so the last row in the list opens into the card rather than off the
+        bottom of it. pointer-events-none keeps it from swallowing the hover it depends on.
+      */}
+      <span
+        id={listId}
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-0 z-10 mb-1.5 w-max max-w-56 rounded-md border bg-popover p-2 text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover/repos:opacity-100 group-focus-within/repos:opacity-100"
+      >
+        <span className="mb-1 block text-[10px] text-muted-foreground">
+          Repos you can reach
+        </span>
+        {named.map((repository) => (
+          <span
+            key={repository.repositoryId}
+            className="block truncate text-[11px] leading-relaxed"
+          >
+            {shortName(repository.fullName, connection.accountLogin)}
+          </span>
+        ))}
+        {unnamed > 0 ? (
+          <span className="mt-1 block text-[10px] text-muted-foreground">
+            +{unnamed} more
+          </span>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * `acme-corp/api` under a row already headed `acme-corp` is the account name eight times over.
+ * Anything not owned by this account keeps its prefix, because there the owner is the news.
+ */
+function shortName(fullName: string, accountLogin: string): string {
+  const prefix = `${accountLogin}/`;
+
+  return fullName.toLowerCase().startsWith(prefix.toLowerCase())
+    ? fullName.slice(prefix.length)
+    : fullName;
 }
 
 function ConnectionRow({
@@ -183,6 +302,7 @@ function ConnectionRow({
   const confirm = useConfirm();
   const isSubscribed = connection.status === "subscribed";
   const isSuspended = connection.status === "suspended";
+  const meta = accountMeta(connection);
 
   const confirmUninstall = async () => {
     const isOrganisation = connection.accountType === "Organization";
@@ -233,9 +353,9 @@ function ConnectionRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">
           {connection.accountLogin}
-          {connection.accountType === "User" ? (
+          {meta ? (
             <span className="ml-1.5 text-[10px] text-muted-foreground">
-              personal
+              {meta}
             </span>
           ) : null}
         </p>
@@ -247,7 +367,7 @@ function ConnectionRow({
             STATUS_COLOR[connection.status]
           )}
         >
-          {statusText(connection)}
+          <StatusLine connection={connection} />
         </p>
       </div>
 

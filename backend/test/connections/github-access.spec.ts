@@ -36,6 +36,25 @@ describe('Connections - GitHub access', () => {
     ...overrides,
   });
 
+  /**
+   * The two things the connections read asks GitHub about *this user's* standing, once per
+   * installation: which repositories they reach through it, and their role in the account.
+   *
+   * Matched by pattern and persisted because the count of installations is the point of half
+   * the specs below - one of them lists a hundred and one of them.
+   */
+  const mockViewerAccess = () => {
+    nock('https://api.github.com')
+      .persist()
+      .get(/^\/user\/installations\/\d+\/repositories/)
+      .reply(200, { total_count: 0, repositories: [] });
+
+    nock('https://api.github.com')
+      .persist()
+      .get(/^\/user\/memberships\/orgs\//)
+      .reply(403);
+  };
+
   describe('a GitHub token GitHub no longer accepts', () => {
     const mockRejectedToken = (times = 1) =>
       nock('https://api.github.com')
@@ -108,6 +127,7 @@ describe('Connections - GitHub access', () => {
         .get('/user/installations')
         .query(true)
         .reply(200, { total_count: 1, installations: [installation(5150)] });
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when
@@ -136,6 +156,7 @@ describe('Connections - GitHub access', () => {
         .get('/user/installations')
         .query({ per_page: '100', page: '2' })
         .reply(200, { total_count: 101, installations: secondPage });
+      mockViewerAccess();
 
       const { token } = await setupUser();
 
@@ -180,6 +201,7 @@ describe('Connections - GitHub access', () => {
         .get('/user/installations')
         .query({ per_page: '100', page: '1' })
         .reply(200, { total_count: 1, installations: [installation(5150)] });
+      mockViewerAccess();
 
       const { token } = await setupUser();
 
@@ -212,6 +234,7 @@ describe('Connections - GitHub access', () => {
         suspendedAt: new Date(),
       });
       mockInstallations([installation(5150, { suspended_at: null })]);
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when
@@ -226,6 +249,7 @@ describe('Connections - GitHub access', () => {
     it('backfills a row for an installation it has never seen a webhook for', async () => {
       // given - installed before the app's webhook was configured, so the mirror is blind to it
       mockInstallations([installation(5150)]);
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when
@@ -243,6 +267,7 @@ describe('Connections - GitHub access', () => {
     it('still renders an installation the mirror has no row for', async () => {
       // given
       mockInstallations([installation(5150)]);
+      mockViewerAccess();
       const { token } = await setupUser();
 
       // when

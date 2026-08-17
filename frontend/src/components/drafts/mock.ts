@@ -10,7 +10,10 @@ export interface MockOrg {
   type: "User" | "Organization";
   status: OrgStatus;
   scope: "all" | "selected";
+  /** How many of the account's repositories this user reaches - not how many it has. */
   repos: number;
+  /** What this user is to the account. Undefined stands in for "GitHub would not say". */
+  role?: "owner" | "member";
 }
 
 export const MOCK_USER = {
@@ -26,6 +29,7 @@ export const MOCK_ORGS: MockOrg[] = [
     status: "subscribed",
     scope: "all",
     repos: 12,
+    role: "owner",
   },
   {
     id: "5151",
@@ -34,6 +38,7 @@ export const MOCK_ORGS: MockOrg[] = [
     status: "subscribed",
     scope: "selected",
     repos: 4,
+    role: "member",
   },
   {
     id: "5152",
@@ -42,14 +47,27 @@ export const MOCK_ORGS: MockOrg[] = [
     status: "available",
     scope: "all",
     repos: 21,
+    role: "owner",
   },
+  // The row this all exists for: somebody else's profile, one repository of it shared with you.
+  // The installation still reports "all", because that is what its owner granted.
   {
     id: "5153",
+    login: "hugues",
+    type: "User",
+    status: "subscribed",
+    scope: "all",
+    repos: 1,
+    role: "member",
+  },
+  {
+    id: "5154",
     login: "corelabsltd",
     type: "Organization",
     status: "suspended",
     scope: "all",
     repos: 3,
+    role: "member",
   },
 ];
 

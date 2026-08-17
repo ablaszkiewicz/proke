@@ -10,6 +10,7 @@ import { ConnectionsController } from './connections.controller';
 import { ConnectionsService } from './connections.service';
 import { GithubOrgMembershipDataService } from './github-org-membership-data.service';
 import { GithubUserInstallationsDataService } from './github-user-installations-data.service';
+import { GithubUserRepositoriesDataService } from './github-user-repositories-data.service';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { GithubUserInstallationsDataService } from './github-user-installations-
   providers: [
     ConnectionsService,
     GithubUserInstallationsDataService,
+    GithubUserRepositoriesDataService,
     GithubOrgMembershipDataService,
   ],
 })

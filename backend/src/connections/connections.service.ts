@@ -13,12 +13,34 @@ import { SubscriptionWriteService } from '../subscriptions/write/subscription-wr
 import { UserNormalized } from '../user/core/entities/user.interface';
 import { UserReadService } from '../user/read/user-read.service';
 import { UserWriteService } from '../user/write/user-write.service';
-import { ConnectionStatus, ConnectionsResponse } from './dto/connection.response';
+import {
+  AccessibleRepositoryResponse,
+  ConnectionStatus,
+  ConnectionsResponse,
+  ViewerRole,
+} from './dto/connection.response';
 import { UpdateNotificationPreferencesBody } from './dto/update-notification-preferences.body';
 import {
   GithubTokenRejectedError,
   GithubUserInstallationsDataService,
 } from './github-user-installations-data.service';
+import { GithubUserRepositoriesDataService } from './github-user-repositories-data.service';
+import { ownsPersonalAccount } from './installation-ownership';
+
+/**
+ * What one installation looks like from where a particular user stands, as opposed to what it
+ * is. Every field is optional because every field costs a GitHub call that can fail, and a row
+ * with a missing label is a much better outcome than a page that will not load.
+ */
+interface ViewerAccess {
+  viewerRole?: ViewerRole;
+  repositoryCount?: number;
+  repositories?: AccessibleRepositoryResponse[];
+}
+
+// Installations looked up at a time. Each one costs up to two GitHub calls, and GitHub's
+// secondary rate limit counts concurrency rather than volume.
+const ACCESS_LOOKUP_BATCH = 8;
 
 /**
  * A 403 that also says, in one word, why - so it can be counted.
@@ -45,6 +67,7 @@ export class ConnectionsService {
     private readonly userReadService: UserReadService,
     private readonly userWriteService: UserWriteService,
     private readonly installationsDataService: GithubUserInstallationsDataService,
+    private readonly repositoriesDataService: GithubUserRepositoriesDataService,
     private readonly subscriptionReadService: SubscriptionReadService,
     private readonly subscriptionWriteService: SubscriptionWriteService,
     private readonly orgMembershipDataService: GithubOrgMembershipDataService,
@@ -92,13 +115,16 @@ export class ConnectionsService {
 
     await this.backfillMirror(installations, mirrored);
 
+    // GitHub said which installations this user may see; the mirror says what proke knows about
+    // each one. The mirror wins where it has a row, so every member of an org reads the same
+    // state, kept current by the installation webhooks. The live payload is the fallback for
+    // anything installed before those webhooks were wired up.
+    const resolved = installations.map((live) => mirrored.get(live.installationId) ?? live);
+
+    const access = await this.readViewerAccess(user, resolved);
+
     return {
-      connections: installations.map((live) => {
-        // GitHub said which installations this user may see; the mirror says what proke knows
-        // about each one. The mirror wins where it has a row, so every member of an org reads
-        // the same state, kept current by the installation webhooks. The live payload is the
-        // fallback for anything installed before those webhooks were wired up.
-        const installation = mirrored.get(live.installationId) ?? live;
+      connections: resolved.map((installation) => {
         const preferences = preferencesByInstallation.get(installation.installationId);
 
         return {
@@ -111,12 +137,108 @@ export class ConnectionsService {
               ? ConnectionStatus.Subscribed
               : ConnectionStatus.Available,
           repositorySelection: installation.repositorySelection,
+          ...access.get(installation.installationId),
           manageUrl: buildManageUrl(installation.installationId),
           preferences,
         };
       }),
       installUrl: buildInstallUrl(),
     };
+  }
+
+  /**
+   * What each installation looks like from where this user stands: which repositories they
+   * reach through it, and what they are to the account it sits on.
+   *
+   * Both have to be asked of GitHub with the user's own token, because both are properties of
+   * the person rather than of the installation - `repository_selection` says "all" to somebody
+   * who was shared exactly one repository, and an org owner and a contractor read the same row.
+   *
+   * The calls are independent, so they go out in parallel - but in bounded batches rather than
+   * all at once, because GitHub's secondary rate limit is about concurrency and somebody in a
+   * hundred installations would otherwise open two hundred sockets on one page load.
+   *
+   * Every call is allowed to fail on its own: a row that loses its repository count still
+   * renders, still toggles, and still says what the installation covers. None of this gates
+   * anything.
+   */
+  private async readViewerAccess(
+    user: UserNormalized,
+    installations: InstallationNormalized[],
+  ): Promise<Map<string, ViewerAccess>> {
+    const access = new Map<string, ViewerAccess>();
+
+    for (let start = 0; start < installations.length; start += ACCESS_LOOKUP_BATCH) {
+      const batch = installations.slice(start, start + ACCESS_LOOKUP_BATCH);
+
+      const entries = await Promise.all(
+        batch.map(
+          async (installation) =>
+            [
+              installation.installationId,
+              await this.readViewerAccessFor(user, installation),
+            ] as const,
+        ),
+      );
+
+      for (const [installationId, viewerAccess] of entries) {
+        access.set(installationId, viewerAccess);
+      }
+    }
+
+    return access;
+  }
+
+  private async readViewerAccessFor(
+    user: UserNormalized,
+    installation: InstallationNormalized,
+  ): Promise<ViewerAccess> {
+    try {
+      const [accessible, viewerRole] = await Promise.all([
+        this.repositoriesDataService.listForInstallation(
+          user.githubAccessToken!,
+          installation.installationId,
+        ),
+        this.readViewerRole(user, installation),
+      ]);
+
+      return {
+        viewerRole,
+        repositoryCount: accessible?.totalCount,
+        repositories: accessible?.repositories,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Could not read this user's access to installation ${installation.installationId}: ${error}`,
+      );
+
+      return {};
+    }
+  }
+
+  private async readViewerRole(
+    user: UserNormalized,
+    installation: InstallationNormalized,
+  ): Promise<ViewerRole | undefined> {
+    if (installation.accountType !== 'Organization') {
+      // A personal installation has exactly one owner - the account it sits on. Anybody else
+      // seeing it was granted a repository inside it, which is a membership by any other name.
+      return ownsPersonalAccount(user, installation) ? ViewerRole.Owner : ViewerRole.Member;
+    }
+
+    const role = await this.orgMembershipDataService.readRole(
+      user.githubAccessToken!,
+      installation.accountLogin,
+    );
+
+    // null is "could not establish" - a missing Members permission, a suspended membership.
+    // Undefined leaves the label off the row rather than guessing at somebody's standing, and
+    // is the only honest answer; the uninstall gate reads the same null as a refusal.
+    if (role === null) {
+      return undefined;
+    }
+
+    return role === 'admin' ? ViewerRole.Owner : ViewerRole.Member;
   }
 
   /**
@@ -292,21 +414,9 @@ export class ConnectionsService {
     installation: InstallationNormalized,
   ): Promise<void> {
     if (installation.accountType !== 'Organization') {
-      // A personal installation belongs to exactly one person, and this asks by account id
-      // rather than by handle. Handles move: GitHub frees one the moment its owner renames, so
-      // a comparison of two strings that both change is the wrong question to ask about
-      // ownership. The login check stays as a fallback for payloads carrying no account id.
-      const ownsById =
-        Boolean(installation.accountId) &&
-        Boolean(user.githubId) &&
-        installation.accountId === user.githubId;
-
-      const ownsByLogin =
-        !installation.accountId &&
-        Boolean(user.githubLogin) &&
-        installation.accountLogin.toLowerCase() === user.githubLogin!.toLowerCase();
-
-      if (!ownsById && !ownsByLogin) {
+      // A personal installation belongs to exactly one person. The same test decides whether a
+      // row is labelled owner or member, and the two must never disagree.
+      if (!ownsPersonalAccount(user, installation)) {
         throw new ConnectionRefusal('That installation is not on your account', 'not_your_account');
       }
 

@@ -30,12 +30,37 @@ export interface NotificationPreferences {
   repositories: RepositoryPreference[];
 }
 
+/**
+ * What the signed-in user is to the account an installation sits on. Owner is whoever can
+ * remove the app for everybody; anyone a colleague shared a single repository with is a member.
+ */
+export type ViewerRole = "owner" | "member";
+
+export interface AccessibleRepository {
+  repositoryId: string;
+  fullName: string;
+  private: boolean;
+}
+
 export interface Connection {
   installationId: string;
   accountLogin: string;
   accountType: "User" | "Organization";
   status: ConnectionStatus;
+  /**
+   * What the installer granted the app - the same string for everybody who can see the
+   * installation, so it says nothing about this user. `repositoryCount` is the one to render.
+   */
   repositorySelection?: "all" | "selected";
+  /** Absent when GitHub would not say - the app may lack the Members permission. */
+  viewerRole?: ViewerRole;
+  /**
+   * How many repositories this user reaches through the installation. Absent when GitHub could
+   * not be asked, which is not the same as zero - fall back to `repositorySelection` then.
+   */
+  repositoryCount?: number;
+  /** Up to the first hundred by name, so shorter than `repositoryCount` on a large account. */
+  repositories?: AccessibleRepository[];
   manageUrl: string;
   /** Present only while subscribed - preferences are what an opt-in contains. */
   preferences?: NotificationPreferences;
