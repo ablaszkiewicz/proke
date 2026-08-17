@@ -55,6 +55,9 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
   [NotificationType.ReviewSubmitted]: () => ({ verb: 'reviewed' }),
   [NotificationType.PullRequestMerged]: () => ({ verb: 'merged' }),
   [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
+  // "replied to you", not "replied to your comment": the link goes straight to the reply, and
+  // which of your comments it was is one click away rather than something to word around.
+  [NotificationType.CommentReply]: () => ({ verb: 'replied to you', preposition: 'on' }),
   [NotificationType.PullRequestMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
   [NotificationType.IssueMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
   // Says the team: "mentioned you" would be a small lie, and why you got this is the one thing

@@ -1237,6 +1237,246 @@ describe('Webhooks (github)', () => {
   });
 
   /**
+   * The one poke whose recipient is not in the payload. A reply names the comment it answers by
+   * id, and who wrote that comment has to come from somewhere else - the webhook for the comment
+   * itself, if we saw it, and GitHub if we did not.
+   */
+  describe('replies to your comment', () => {
+    const PULL_REQUEST = {
+      number: 9,
+      title: 'Wire up webhooks',
+      html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+      user: { id: 4242, login: 'author' },
+    };
+
+    /** `inReplyTo` absent is a comment that opens a thread; present is an answer in one. */
+    const reviewCommentPayload = ({
+      id,
+      body = 'a note',
+      inReplyTo,
+      senderGithubId = 999,
+      senderLogin = 'reviewer',
+    }: {
+      id: number;
+      body?: string;
+      inReplyTo?: number;
+      senderGithubId?: number;
+      senderLogin?: string;
+    }) => ({
+      action: 'created',
+      installation: { id: Number(INSTALLATION_ID) },
+      repository: REPOSITORY,
+      sender: { id: senderGithubId, login: senderLogin },
+      comment: {
+        id,
+        user: { id: senderGithubId, login: senderLogin },
+        pull_request_review_id: 88001,
+        in_reply_to_id: inReplyTo,
+        html_url: `https://github.com/ablaszkiewicz/proke/pull/9#discussion_r${id}`,
+        body,
+      },
+      pull_request: PULL_REQUEST,
+    });
+
+    const mockToken = () =>
+      nock('https://api.github.com')
+        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+        .reply(201, {
+          token: 'ghs_installation',
+          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+
+    /** Every poke here is about a numbered pull request, so the size gets fetched regardless. */
+    const mockDiff = () => {
+      mockToken();
+      nock('https://api.github.com')
+        .get('/repos/ablaszkiewicz/proke/pulls/9')
+        .reply(200, { additions: 5, deletions: 1 });
+    };
+
+    /** Whoever wrote a comment, for the times we were never told. */
+    const mockCommentAuthor = (commentId: number, githubId: number | null) =>
+      nock('https://api.github.com')
+        .get(`/repos/ablaszkiewicz/proke/pulls/comments/${commentId}`)
+        .reply(githubId === null ? 404 : 200, githubId === null ? {} : { user: { id: githubId } });
+
+    /** A reviewer, who is not the pull request's author - so a poke can only be about the reply. */
+    const setupReviewer = async () => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '5555',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    const onlyNotification = async () => {
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await bootstrap.services.reviewBatchService.flushAll();
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+
+      return deliverSpy.mock.calls[0][1];
+    };
+
+    it('pokes the person whose thread was replied to', async () => {
+      // given - the comment being replied to was written by our user, and we watched it happen
+      await setupReviewer();
+      mockDiff();
+
+      // when
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 20, inReplyTo: 10, body: 'pushed a fix, take another look?' }),
+      );
+
+      // then - and nothing was asked of GitHub about the author: nock would have refused a call
+      // to an endpoint no test mocked, so a poke arriving at all is the write-through working.
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.CommentReply,
+        excerpt: 'pushed a fix, take another look?',
+      });
+    });
+
+    it('asks GitHub when it never saw the comment being replied to', async () => {
+      // given - a thread older than this process, or one a second replica handled
+      await setupReviewer();
+      mockDiff();
+      mockCommentAuthor(10, 5555);
+
+      // when - the reply arrives with no webhook for its parent ahead of it
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 20, inReplyTo: 10 }));
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.CommentReply });
+    });
+
+    it('resolves a thread started after an earlier comment was already cached', async () => {
+      // given - the regression this cache is keyed per comment to prevent. A cached *list* of a
+      // pull request's comments would not hold comment 30, and the reply to it would silently
+      // poke nobody - which is exactly the fast back-and-forth the feature exists for.
+      await setupReviewer();
+      mockDiff();
+
+      // when - an early comment warms the cache, then a brand new thread is opened and answered
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 10 }));
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 30, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 40, inReplyTo: 30 }));
+
+      // then - the newer thread resolves, with no call to GitHub about its author
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.CommentReply });
+    });
+
+    it('drops the reply poke when the parent cannot be resolved', async () => {
+      // given - a comment deleted mid-thread. The reply is real; who it answers is now unknowable.
+      await setupReviewer();
+      mockDiff();
+      mockCommentAuthor(10, null);
+
+      // when
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 20, inReplyTo: 10 }));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('does not poke you for replying in your own thread', async () => {
+      // given
+      await setupReviewer();
+      mockDiff();
+
+      // when - both the thread and the answer are our user's
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 20,
+          inReplyTo: 10,
+          senderGithubId: 5555,
+          senderLogin: 'ablaszkiewicz',
+        }),
+      );
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('says replied rather than commented when it is both', async () => {
+      // given - the pull request's author, answered in a thread on their own pull request. Two
+      // candidates for one person, and the more specific of the two is the one worth sending.
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+      mockDiff();
+
+      // when
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 4242, senderLogin: 'author' }),
+      );
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 20, inReplyTo: 10 }));
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.CommentReply });
+    });
+
+    it('ignores a bot replying in your thread', async () => {
+      // given
+      await setupReviewer();
+
+      // when
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 20,
+          inReplyTo: 10,
+          senderGithubId: 111,
+          senderLogin: 'coverage-bot[bot]',
+        }),
+      );
+
+      // then - and no diff was mocked, because a suppressed poke must not have cost a call
+      await expectNoPoke();
+    });
+
+    it('honours the preference being switched off', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '5555',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id, {
+        notificationTypes: [NotificationType.ReviewRequested],
+      });
+
+      // when
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 20, inReplyTo: 10 }));
+
+      // then
+      await expectNoPoke();
+    });
+  });
+
+  /**
    * What a poke carries besides the sentence: whose repository it is, and how big the change is.
    * Neither is in every payload, and the size of a pull request is the one thing here worth a
    * GitHub call of its own.

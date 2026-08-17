@@ -3,6 +3,7 @@ import { InMemoryCacheModule } from '../shared/cache/in-memory-cache.module';
 import { GithubAppInstallationsService } from './github-app-installations.service';
 import { GithubAppJwtService } from './github-app-jwt.service';
 import { GithubAppTokenService } from './github-app-token.service';
+import { GithubCommentAuthorDataService } from './github-comment-author-data.service';
 import { GithubPullRequestDataService } from './github-pull-request-data.service';
 import { GithubTeamMembersDataService } from './github-team-members-data.service';
 
@@ -14,6 +15,7 @@ import { GithubTeamMembersDataService } from './github-team-members-data.service
     GithubAppTokenService,
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
+    GithubCommentAuthorDataService,
   ],
   exports: [
     GithubAppJwtService,
@@ -21,6 +23,7 @@ import { GithubTeamMembersDataService } from './github-team-members-data.service
     GithubAppTokenService,
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
+    GithubCommentAuthorDataService,
   ],
 })
 export class GithubAppModule {}

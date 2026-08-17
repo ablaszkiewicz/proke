@@ -7,6 +7,7 @@ export type NotificationType =
   | "review_submitted"
   | "pull_request_merged"
   | "pull_request_comment"
+  | "comment_reply"
   | "pull_request_mention"
   | "issue_mention"
   | "team_mention";

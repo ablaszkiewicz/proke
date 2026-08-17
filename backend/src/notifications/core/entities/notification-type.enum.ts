@@ -14,6 +14,12 @@ export enum NotificationType {
   ReviewSubmitted = 'review_submitted',
   PullRequestMerged = 'pull_request_merged',
   PullRequestComment = 'pull_request_comment',
+  /**
+   * Somebody answered in a review thread you started. GitHub points every reply in a thread at
+   * the comment that opened it, so this is "in your thread" rather than "to your last word" -
+   * there is no pointer to the comment immediately above.
+   */
+  CommentReply = 'comment_reply',
   PullRequestMention = 'pull_request_mention',
   IssueMention = 'issue_mention',
   /** `@org/team`, on a pull request or an issue alike - the link says which it was. */
@@ -31,6 +37,10 @@ const PRIORITY: NotificationType[] = [
   NotificationType.ReviewRequested,
   NotificationType.PullRequestMerged,
   NotificationType.ReviewSubmitted,
+  // Above both the comment and the mention: being answered in your own thread is a more specific
+  // reason to be poked than somebody having commented on your pull request, and more useful to
+  // be told than that they also happened to write your handle.
+  NotificationType.CommentReply,
   NotificationType.PullRequestComment,
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,

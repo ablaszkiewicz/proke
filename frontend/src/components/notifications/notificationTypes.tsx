@@ -52,6 +52,8 @@ export const ICON = {
     "M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z",
   mention:
     "M4.75 2.37a6.5 6.5 0 0 0 6.5 11.26.75.75 0 0 1 .75 1.298 8 8 0 1 1 4-6.93v.5a2.75 2.75 0 0 1-5.072 1.475A4 4 0 1 1 12 8v.5a1.25 1.25 0 0 0 2.5 0V8a6.5 6.5 0 0 0-9.75-5.63ZM10.5 8a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
+  reply:
+    "M6.78 1.97a.75.75 0 0 1 0 1.06L3.81 6h6.44A4.75 4.75 0 0 1 15 10.75v2.5a.75.75 0 0 1-1.5 0v-2.5a3.25 3.25 0 0 0-3.25-3.25H3.81l2.97 2.97a.749.749 0 1 1-1.06 1.06L1.47 7.28a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z",
   commit:
     "M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
   people:
@@ -188,6 +190,25 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
           </>
         }
         body="Looks good — one thought about the retry loop."
+      />
+    ),
+  },
+  {
+    type: "comment_reply",
+    title: "Someone replies in a thread you started",
+    short: "Reply",
+    icon: ICON.reply,
+    // The indent is the whole point: what makes this different from a PR comment is that it sits
+    // under something you wrote, so the preview shows both halves rather than just the reply.
+    preview: () => (
+      <Preview
+        icon={<Octicon path={ICON.reply} className="text-muted-foreground" />}
+        header={
+          <>
+            <Who>octocat</Who> replied to you
+          </>
+        }
+        body="Good catch — pushed a fix, mind taking another look?"
       />
     ),
   },
