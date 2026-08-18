@@ -65,6 +65,17 @@ export function Dashboard() {
       onAddClick={() =>
         captureEvent("org_install_clicked", { already_on: connections.length })
       }
+      onManageClick={(installationId) =>
+        captureEvent("org_manage_clicked", {
+          installation_id: installationId,
+          // An owner leaves for the repository picker; anyone else leaves for the install flow,
+          // which turns into a request to the owners. Same click, two different journeys, and
+          // only the second one has somebody else at the end of it.
+          viewer_role: connections.find(
+            (connection) => connection.installationId === installationId
+          )?.viewerRole,
+        })
+      }
       slack={{
         connection: slackConnection,
         loading: slackLoading,
