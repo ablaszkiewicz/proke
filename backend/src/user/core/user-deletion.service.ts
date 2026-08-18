@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AnalyticsService } from '../../analytics/analytics.service';
+import { PokeMessageWriteService } from '../../notifications/messages/write/poke-message-write.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
 import { SubscriptionWriteService } from '../../subscriptions/write/subscription-write.service';
@@ -25,6 +26,7 @@ export class UserDeletionService {
     private readonly subscriptionWriteService: SubscriptionWriteService,
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
+    private readonly pokeMessageWriteService: PokeMessageWriteService,
     private readonly analytics: AnalyticsService,
   ) {}
 
@@ -36,6 +38,10 @@ export class UserDeletionService {
 
     // Which organisations they asked to hear about.
     await this.subscriptionWriteService.deleteForUser(userId);
+
+    // Pokes we were holding open in case a review settled them - which also means the
+    // repository names and pull request titles denormalised onto those rows.
+    await this.pokeMessageWriteService.deleteForUser(userId);
 
     // Who they are inside every Slack workspace, and the cached DM channel with them.
     await this.slackLinkWriteService.deleteForUser(userId);

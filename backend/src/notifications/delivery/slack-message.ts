@@ -4,6 +4,8 @@ import {
   GithubNotificationNormalized,
   GithubReviewVerdict,
   isReviewVerdict,
+  PokeResolution,
+  PokeResolutionKind,
 } from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 
@@ -78,7 +80,39 @@ const REVIEW: Record<GithubReviewVerdict, Clause & { icon: string }> = {
   changes_requested: { icon: '❌', verb: 'requested changes', preposition: 'on' },
 };
 
-export function buildPokeMessage(notification: GithubNotificationNormalized): SlackMessage {
+/**
+ * How a struck-through review request explains itself.
+ *
+ * Second person where the reader did it themselves: "you approved this" is what happened, and
+ * "approved by @you" is a sentence nobody writes. Everyone else is named, because who took it
+ * off your plate is the one thing the edit adds that the strikethrough does not.
+ */
+const RESOLUTION: Record<
+  PokeResolutionKind,
+  { icon: string; self: string; other: (who: string) => string }
+> = {
+  approved: { icon: '✅', self: 'you approved this', other: (who) => `approved by ${who}` },
+  changes_requested: {
+    icon: '❌',
+    self: 'you requested changes',
+    other: (who) => `changes requested by ${who}`,
+  },
+  merged: { icon: '✅', self: 'you merged this', other: (who) => `merged by ${who}` },
+  closed: { icon: '🚫', self: 'you closed this', other: (who) => `closed by ${who}` },
+};
+
+/**
+ * The poke, and - where one is given - the news that has since made it moot.
+ *
+ * A resolution does not produce a different message. It produces the same message with its
+ * first line struck through and a line saying who settled it, because the point of editing
+ * rather than sending a second poke is that the reader recognises what they are looking at
+ * without reading it again.
+ */
+export function buildPokeMessage(
+  notification: GithubNotificationNormalized,
+  resolution?: PokeResolution,
+): SlackMessage {
   const actor = notification.actorLogin ? `@${notification.actorLogin}` : 'Someone';
   const review = verdict(notification);
 
@@ -88,20 +122,33 @@ export function buildPokeMessage(notification: GithubNotificationNormalized): Sl
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
   const avatar = avatarUrl(notification.ownerAvatarUrl);
   const diff = notification.diff ? diffLabel(notification.diff) : undefined;
+  const settled = resolution ? settledLabel(resolution) : undefined;
+  // Unbolded once it is struck through: bold under a strikethrough is heavier than the live
+  // messages around it, which is backwards for the one message that no longer needs doing.
+  const linked = link(notification.htmlUrl, label);
+  const headline = `${icon}${escape(lead)} ${settled ? linked : `*${linked}*`}`;
 
   return {
     // Slack shows this, not the blocks, in the notification banner and the sidebar preview -
     // so it says the whole thing rather than being a "this message has no text" placeholder.
     // The size rides along: deciding whether to open a review request now or later is mostly a
     // question of how big it is, and the banner is where that decision gets made.
+    //
+    // The resolution goes in front rather than being struck through: this string is read in
+    // places that render no formatting at all, where tildes are just tildes.
     text:
-      `${icon}${lead} ${label} · ${notification.repositoryFullName}` + (diff ? ` (${diff})` : ''),
+      (settled ? `${settled} · ` : '') +
+      `${icon}${lead} ${label} · ${notification.repositoryFullName}` +
+      (diff ? ` (${diff})` : ''),
     blocks: [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${icon}${escape(lead)} *${link(notification.htmlUrl, label)}*`,
+          // Tildes around the whole line, link included. Slack strikes a span that contains a
+          // link along with the text either side of it - what it will not do is format the
+          // label from inside, which is why this wraps rather than reaching into the link.
+          text: settled ? `~${headline}~` : headline,
         },
       },
       // Only when there are words. A review request and a merge have none, and a quote block
@@ -117,10 +164,21 @@ export function buildPokeMessage(notification: GithubNotificationNormalized): Sl
           // Its own element, so Slack sets it apart from the name rather than running the two
           // together, and in backticks, which is what makes Slack colour it.
           ...(diff ? [{ type: 'mrkdwn', text: `\`${diff}\`` }] : []),
+          // Last, so it reads as the outcome of everything above it rather than as a label on
+          // the repository. Unstruck: it is the one part of this message that is still news.
+          ...(settled ? [{ type: 'mrkdwn', text: escape(settled) }] : []),
         ],
       },
     ],
   };
+}
+
+/** `✅ approved by @ada`. The half-line an edited poke gains. */
+function settledLabel(resolution: PokeResolution): string {
+  const wording = RESOLUTION[resolution.kind];
+  const who = resolution.actorLogin ? `@${resolution.actorLogin}` : 'someone';
+
+  return `${wording.icon} ${resolution.bySelf ? wording.self : wording.other(who)}`;
 }
 
 /** The message the Send a test poke button produces. Deliberately not a fake notification. */

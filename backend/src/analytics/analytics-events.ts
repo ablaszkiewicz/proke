@@ -44,6 +44,12 @@ export type AnalyticsEvent =
    */
   | 'poke_sent'
   | 'poke_failed'
+  /*
+   * A review request poke struck through because the pull request moved past it. Only fires
+   * once Slack has confirmed the edit, so it counts messages that actually changed rather than
+   * events that should have changed one.
+   */
+  | 'poke_resolved'
   | 'account_deleted';
 
 /**

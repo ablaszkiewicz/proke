@@ -8,11 +8,16 @@ import {
 import {
   GithubDiffStat,
   GithubNotificationNormalized,
+  isReviewVerdict,
 } from '../../notifications/core/entities/github-notification.interface';
 import {
   comparePriority,
   NotificationType,
 } from '../../notifications/core/entities/notification-type.enum';
+import {
+  PokeResolutionEvent,
+  PokeResolutionService,
+} from '../../notifications/delivery/poke-resolution.service';
 import { ReviewBatchService } from '../../notifications/delivery/review-batch.service';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
@@ -100,6 +105,7 @@ export class GithubWebhookRouterService {
     private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
     private readonly pullRequestDataService: GithubPullRequestDataService,
     private readonly commentAuthorDataService: GithubCommentAuthorDataService,
+    private readonly pokeResolutionService: PokeResolutionService,
   ) {}
 
   /**
@@ -176,11 +182,35 @@ export class GithubWebhookRouterService {
     return resolved;
   }
 
+  /**
+   * Strikes through review requests this event has settled.
+   *
+   * Above the early returns, like remembering a comment's author, and for a sharper version of
+   * the same reason: the events that settle a review request usually poke nobody at all. The
+   * reviewer is the sender, and the sender is never poked - so gating this on there being
+   * candidates would miss precisely the case it exists for.
+   *
+   * This is also why it is not folded into `resolve`: that maps an event onto people it
+   * concerns, and the people concerned here are the ones who are now off the hook.
+   */
+  private async resolveSettledPokes(event: string, payload: any): Promise<void> {
+    const repositoryFullName = payload?.repository?.full_name;
+    const number = payload?.pull_request?.number;
+    const settled = readResolution(event, payload);
+
+    if (!settled || !repositoryFullName || !Number.isFinite(number)) {
+      return;
+    }
+
+    await this.pokeResolutionService.resolve(repositoryFullName, Number(number), settled);
+  }
+
   public async route(event: string, payload: any): Promise<void> {
     // Before everything, including the early returns. This event may poke nobody and still be
     // the only time we are told who wrote this comment - the reply that makes it matter can
     // arrive hours later, and asking GitHub then costs a call this line just saved.
     this.rememberCommentAuthor(event, payload);
+    await this.resolveSettledPokes(event, payload);
 
     const candidates = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
 
@@ -754,6 +784,49 @@ export class GithubWebhookRouterService {
  */
 function identifier(value: unknown): string | undefined {
   return value === undefined || value === null ? undefined : String(value);
+}
+
+/**
+ * What, if anything, this event did to make an outstanding review request untrue.
+ *
+ * Any verdict counts, and from anybody - not only from the person a given request was addressed
+ * to. A pull request somebody has already looked at is one the rest of the queue can stop
+ * worrying about, and being told four times over that four people were asked is the pestering
+ * this whole product exists to stop. The edit names who did it, so nobody has to guess whether
+ * it was them.
+ *
+ * A review that reached no verdict settles nothing. GitHub leaves the request pending when
+ * somebody comments without deciding, and a message that says otherwise would be ahead of the
+ * pull request it describes.
+ */
+function readResolution(event: string, payload: any): PokeResolutionEvent | undefined {
+  const state = payload?.review?.state;
+
+  if (
+    event === 'pull_request_review' &&
+    payload?.action === 'submitted' &&
+    isReviewVerdict(state)
+  ) {
+    return {
+      kind: state,
+      // The review's own author rather than the sender. They are the same person on every
+      // payload GitHub sends today, and only one of them is what the field means.
+      actorGithubId: identifier(payload.review?.user?.id),
+      actorLogin: payload.review?.user?.login,
+    };
+  }
+
+  // Merged or abandoned, the request is moot either way - unlike the poke to the author, which
+  // only a merge is worth sending.
+  if (event === 'pull_request' && payload?.action === 'closed') {
+    return {
+      kind: payload.pull_request?.merged ? 'merged' : 'closed',
+      actorGithubId: identifier(payload.sender?.id),
+      actorLogin: payload.sender?.login,
+    };
+  }
+
+  return undefined;
 }
 
 /**

@@ -6,6 +6,7 @@ import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
+import { PokeMessageEntity } from '../../src/notifications/messages/core/entities/poke-message.entity';
 import { NotificationDeliveryService } from '../../src/notifications/delivery/notification-delivery.service';
 import { ReviewBatchService } from '../../src/notifications/delivery/review-batch.service';
 import { SlackNotificationDeliveryService } from '../../src/notifications/delivery/slack-notification-delivery.service';
@@ -83,6 +84,9 @@ export async function createTestApp() {
     getModelToken(SlackWorkspaceEntity.name),
   );
   const slackLinkModel: Model<SlackLinkEntity> = module.get(getModelToken(SlackLinkEntity.name));
+  const pokeMessageModel: Model<PokeMessageEntity> = module.get(
+    getModelToken(PokeMessageEntity.name),
+  );
   const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
@@ -91,6 +95,7 @@ export async function createTestApp() {
     await subscriptionModel.deleteMany({});
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
+    await pokeMessageModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -114,6 +119,7 @@ export async function createTestApp() {
       subscriptionModel,
       slackWorkspaceModel,
       slackLinkModel,
+      pokeMessageModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),

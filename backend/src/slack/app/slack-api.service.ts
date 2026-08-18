@@ -34,6 +34,15 @@ export interface SlackMessage {
   blocks?: unknown[];
 }
 
+/**
+ * Where a posted message ended up. The only address chat.update accepts, and the whole reason
+ * postMessage hands anything back at all.
+ */
+export interface SlackMessageRef {
+  channelId: string;
+  messageTs: string;
+}
+
 @Injectable()
 export class SlackApiService {
   private readonly logger = new Logger(SlackApiService.name);
@@ -79,12 +88,19 @@ export class SlackApiService {
     return value;
   }
 
+  /**
+   * Undefined where Slack answered `ok: true` without saying where it put the message.
+   *
+   * Not treated as a failure, unlike the missing ids above: the poke arrived, and all that is
+   * lost is the ability to edit it later. Refusing a delivery that succeeded, to protect a
+   * strikethrough that may never be needed, would be the wrong way round.
+   */
   public async postMessage(
     botToken: string,
     channel: string,
     message: SlackMessage,
-  ): Promise<void> {
-    await this.call('chat.postMessage', botToken, {
+  ): Promise<SlackMessageRef | undefined> {
+    const data = await this.call('chat.postMessage', botToken, {
       channel,
       text: message.text,
       blocks: message.blocks,
@@ -92,6 +108,32 @@ export class SlackApiService {
       // one-line poke into half a screen.
       unfurl_links: false,
       unfurl_media: false,
+    });
+
+    return data.channel && data.ts ? { channelId: data.channel, messageTs: data.ts } : undefined;
+  }
+
+  /**
+   * Rewrites a message proke already sent. A bot may edit its own messages for as long as they
+   * exist, so an old review request is as editable as one from a minute ago.
+   *
+   * The whole message goes, blocks included, because chat.update replaces rather than merges -
+   * omitting `blocks` would strip the message down to its fallback text.
+   *
+   * No unfurl flags: chat.update does not take them, and editing does not re-unfurl a link the
+   * original message already declined to expand.
+   */
+  public async updateMessage(
+    botToken: string,
+    channelId: string,
+    messageTs: string,
+    message: SlackMessage,
+  ): Promise<void> {
+    await this.call('chat.update', botToken, {
+      channel: channelId,
+      ts: messageTs,
+      text: message.text,
+      blocks: message.blocks,
     });
   }
 

@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PokeTrigger } from '../../analytics/analytics-events';
 import { AnalyticsService } from '../../analytics/analytics.service';
-import { SlackApiError, SlackApiService, SlackMessage } from '../../slack/app/slack-api.service';
+import {
+  SlackApiError,
+  SlackApiService,
+  SlackMessage,
+  SlackMessageRef,
+} from '../../slack/app/slack-api.service';
 import { SlackLinkNormalized } from '../../slack/links/core/entities/slack-link.interface';
 import { SlackLinkReadService } from '../../slack/links/read/slack-link-read.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
@@ -9,6 +14,8 @@ import { SlackWorkspaceReadService } from '../../slack/workspaces/read/slack-wor
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
 import { GithubNotificationNormalized } from '../core/entities/github-notification.interface';
+import { NotificationType } from '../core/entities/notification-type.enum';
+import { PokeMessageWriteService } from '../messages/write/poke-message-write.service';
 import { buildPokeMessage, buildTestMessage } from './slack-message';
 
 /**
@@ -50,6 +57,15 @@ interface PokeContext {
 }
 
 /**
+ * What one attempt came to. The address is present only on a message that actually landed and
+ * that Slack told us where it put - it is what makes going back and editing the message possible.
+ */
+interface SendResult {
+  outcome: SlackDeliveryOutcome;
+  sent?: SlackMessageRef & { teamId: string };
+}
+
+/**
  * Puts a poke in front of somebody in Slack.
  *
  * Needs both halves of the model to line up: the link says who this person is inside a
@@ -69,6 +85,7 @@ export class SlackNotificationDeliveryService {
     private readonly workspaceReadService: SlackWorkspaceReadService,
     private readonly workspaceWriteService: SlackWorkspaceWriteService,
     private readonly slackApiService: SlackApiService,
+    private readonly messageWriteService: PokeMessageWriteService,
     private readonly analytics: AnalyticsService,
   ) {}
 
@@ -76,7 +93,7 @@ export class SlackNotificationDeliveryService {
     user: UserNormalized,
     notification: GithubNotificationNormalized,
   ): Promise<SlackDeliveryOutcome> {
-    return this.send(user.id, buildPokeMessage(notification), {
+    const { outcome, sent } = await this.send(user.id, buildPokeMessage(notification), {
       trigger: 'github_webhook',
       pokeType: notification.type,
       repository: notification.repositoryFullName,
@@ -85,6 +102,48 @@ export class SlackNotificationDeliveryService {
       hasExcerpt: Boolean(notification.excerpt),
       commentCount: notification.comments?.count,
     });
+
+    if (sent) {
+      await this.remember(user, notification, sent);
+    }
+
+    return outcome;
+  }
+
+  /**
+   * Files away where a review request landed, so that the review being done can go back and
+   * strike it through.
+   *
+   * Review requests only. Every other poke is news about something that has already happened,
+   * and nothing later makes a merge or a comment untrue - a row for one would be something
+   * nothing ever reads, kept about somebody's private repository for two days.
+   *
+   * Failures are swallowed on purpose. The poke arrived; the caller has already been told so,
+   * and could do nothing with this anyway.
+   */
+  private async remember(
+    user: UserNormalized,
+    notification: GithubNotificationNormalized,
+    sent: SlackMessageRef & { teamId: string },
+  ): Promise<void> {
+    if (notification.type !== NotificationType.ReviewRequested || !notification.number) {
+      return;
+    }
+
+    try {
+      await this.messageWriteService.remember({
+        userId: user.id,
+        userGithubId: user.githubId,
+        teamId: sent.teamId,
+        channelId: sent.channelId,
+        messageTs: sent.messageTs,
+        repositoryFullName: notification.repositoryFullName,
+        pullRequestNumber: notification.number,
+        notification,
+      });
+    } catch (error) {
+      this.logger.warn(`Could not remember the poke sent to ${user.id}: ${error}`);
+    }
   }
 
   /**
@@ -92,12 +151,14 @@ export class SlackNotificationDeliveryService {
    * point is to find out before a real notification is riding on it.
    */
   public async deliverTest(user: UserNormalized): Promise<SlackDeliveryOutcome> {
-    return this.send(
+    const { outcome } = await this.send(
       user.id,
       buildTestMessage(user.githubLogin),
       { trigger: 'test', pokeType: 'test' },
       { rethrow: true },
     );
+
+    return outcome;
   }
 
   /**
@@ -106,10 +167,12 @@ export class SlackNotificationDeliveryService {
    * outcome to log and move past - the connection itself is stored and fine either way.
    */
   public async deliverWelcome(user: UserNormalized): Promise<SlackDeliveryOutcome> {
-    return this.send(user.id, buildTestMessage(user.githubLogin), {
+    const { outcome } = await this.send(user.id, buildTestMessage(user.githubLogin), {
       trigger: 'welcome',
       pokeType: 'welcome',
     });
+
+    return outcome;
   }
 
   private async send(
@@ -117,7 +180,7 @@ export class SlackNotificationDeliveryService {
     message: SlackMessage,
     context: PokeContext,
     options: { rethrow?: boolean } = {},
-  ): Promise<SlackDeliveryOutcome> {
+  ): Promise<SendResult> {
     const link = await this.linkReadService.readForUser(userId);
 
     // Nothing captured on either of these. They are not failures, they are people who have not
@@ -125,20 +188,23 @@ export class SlackNotificationDeliveryService {
     // time it happens, once per event in every repository they are subscribed to. Whether
     // somebody has connected Slack is a fact about the person, not about each poke.
     if (!link) {
-      return 'no-link';
+      return { outcome: 'no-link' };
     }
 
     const workspace = await this.workspaceReadService.readLiveWithToken(link.teamId);
 
     if (!workspace) {
-      return 'workspace-missing';
+      return { outcome: 'workspace-missing' };
     }
 
     try {
-      await this.post(link, workspace.botToken, message);
+      const reference = await this.post(link, workspace.botToken, message);
       this.record(userId, context, 'poke_sent');
 
-      return 'sent';
+      return {
+        outcome: 'sent',
+        sent: reference ? { ...reference, teamId: link.teamId } : undefined,
+      };
     } catch (error) {
       const outcome = await this.handleFailure(link, error);
 
@@ -155,7 +221,7 @@ export class SlackNotificationDeliveryService {
         throw error;
       }
 
-      return outcome;
+      return { outcome };
     }
   }
 
@@ -198,11 +264,10 @@ export class SlackNotificationDeliveryService {
     link: SlackLinkNormalized,
     botToken: string,
     message: SlackMessage,
-  ): Promise<void> {
+  ): Promise<SlackMessageRef | undefined> {
     if (link.dmChannelId) {
       try {
-        await this.slackApiService.postMessage(botToken, link.dmChannelId, message);
-        return;
+        return await this.slackApiService.postMessage(botToken, link.dmChannelId, message);
       } catch (error) {
         if (!(error instanceof SlackApiError) || error.code !== 'channel_not_found') {
           throw error;
@@ -213,8 +278,10 @@ export class SlackNotificationDeliveryService {
     }
 
     const channel = await this.slackApiService.openDirectMessage(botToken, link.slackUserId);
-    await this.slackApiService.postMessage(botToken, channel, message);
+    const reference = await this.slackApiService.postMessage(botToken, channel, message);
     await this.linkWriteService.cacheDmChannel(link.userId, link.teamId, channel);
+
+    return reference;
   }
 
   private async handleFailure(

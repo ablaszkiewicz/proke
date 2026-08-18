@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PokeMessageWriteModule } from '../../notifications/messages/write/poke-message-write.module';
 import { SlackLinkWriteModule } from '../../slack/links/write/slack-link-write.module';
 import { SlackWorkspaceWriteModule } from '../../slack/workspaces/write/slack-workspace-write.module';
 import { SubscriptionWriteModule } from '../../subscriptions/write/subscription-write.module';
@@ -16,6 +17,7 @@ import { UserDeletionService } from './user-deletion.service';
     SubscriptionWriteModule,
     SlackLinkWriteModule,
     SlackWorkspaceWriteModule,
+    PokeMessageWriteModule,
   ],
   controllers: [UserCoreController],
   providers: [UserDeletionService],

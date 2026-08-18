@@ -97,3 +97,26 @@ export interface GithubNotificationNormalized {
    */
   comments?: GithubNotificationComments;
 }
+
+/**
+ * What can make a review request stop being true.
+ *
+ * A superset of the verdicts: a review settles a request, and so does the pull request going
+ * away underneath it. A comment-only review is deliberately absent - GitHub leaves the request
+ * pending when somebody reviews without deciding, and so should the message.
+ */
+export const POKE_RESOLUTIONS = [...REVIEW_VERDICTS, 'merged', 'closed'] as const;
+
+export type PokeResolutionKind = (typeof POKE_RESOLUTIONS)[number];
+
+/** Why a review request poke is being struck through, and by whom. */
+export interface PokeResolution {
+  kind: PokeResolutionKind;
+  /** Whoever did it. Absent only if GitHub sent us an event with no actor on it. */
+  actorLogin?: string;
+  /**
+   * Whether that was the person reading the message. "you approved this" and "approved by @ada"
+   * are the same fact, and only one of them is worth reading about yourself.
+   */
+  bySelf: boolean;
+}
