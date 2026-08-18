@@ -211,6 +211,11 @@ const POKE_TEXT: Record<NotificationType, ReactNode> = {
       <Ref>cryptly-dev/api#42</Ref>
     </>
   ),
+  comment_reply: (
+    <>
+      <Who>octocat</Who> replied to your comment on <Ref>cryptly-dev/api#42</Ref>
+    </>
+  ),
   pull_request_mention: (
     <>
       <Who>octocat</Who> mentioned you on <Ref>cryptly-dev/api#42</Ref>
