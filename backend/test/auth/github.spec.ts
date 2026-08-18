@@ -1,16 +1,13 @@
 import * as nock from 'nock';
 import * as request from 'supertest';
-import { ALLOWED_GITHUB_LOGINS } from '../../src/auth/github/github-auth-login.service';
 import { AuthMethod } from '../../src/user/core/enum/auth-method.enum';
 import { createTestApp } from '../utils/bootstrap';
 
 describe('Auth (github)', () => {
   let bootstrap: Awaited<ReturnType<typeof createTestApp>>;
 
-  // While proke is closed, every login that is meant to succeed has to come from a handle on the
-  // allowlist. Taken from the constant rather than repeated, so editing the list moves the suite
-  // with it instead of turning every happy path red.
-  const allowedLogin = ALLOWED_GITHUB_LOGINS[0];
+  // Any handle gets in, so the happy paths only need one to be consistent about.
+  const githubLogin = 'some-handle';
 
   beforeAll(async () => {
     process.env.GH_APP_CLIENT_ID = 'Iv-test';
@@ -26,11 +23,7 @@ describe('Auth (github)', () => {
     await bootstrap.methods.afterAll();
   });
 
-  const mockGithubOauth = (overrides?: {
-    githubId?: number;
-    login?: string;
-    email?: string;
-  }) => {
+  const mockGithubOauth = (overrides?: { githubId?: number; email?: string }) => {
     nock('https://github.com')
       .post('/login/oauth/access_token')
       .query(true)
@@ -40,7 +33,7 @@ describe('Auth (github)', () => {
       .get('/user')
       .reply(200, {
         id: overrides?.githubId ?? 4242,
-        login: overrides?.login ?? allowedLogin,
+        login: githubLogin,
         avatar_url: 'https://some-avatar.com',
       });
 
@@ -103,7 +96,7 @@ describe('Auth (github)', () => {
     expect(await bootstrap.models.userModel.countDocuments()).toEqual(1);
     expect(await bootstrap.models.userModel.findOne()).toMatchObject({
       githubId: '4242',
-      githubLogin: allowedLogin,
+      githubLogin,
       email: 'brand-new@test.com',
     });
   });
@@ -144,59 +137,11 @@ describe('Auth (github)', () => {
     expect(loginResponse.body.token).toBeDefined();
     expect(await bootstrap.models.userModel.findOne()).toMatchObject({
       githubId: '4242',
-      githubLogin: allowedLogin,
+      githubLogin,
       email: 'primary@test.com',
       authMethod: AuthMethod.Github,
       avatarUrl: 'https://some-avatar.com',
     });
-  });
-
-  it('rejects a login from a handle that is not on the allowlist', async () => {
-    // given
-    mockGithubOauth({ githubId: 7777, login: 'a-stranger' });
-
-    // when
-    const loginResponse = await request(bootstrap.app.getHttpServer())
-      .post('/auth/github/login')
-      .send({ githubCode: 'whatever' });
-
-    // then - and no half-made account left behind by the attempt
-    expect(loginResponse.status).toEqual(403);
-    expect(loginResponse.body.token).toBeUndefined();
-    expect(await bootstrap.models.userModel.countDocuments()).toEqual(0);
-  });
-
-  it('matches the allowlist regardless of how github cases the handle', async () => {
-    // given
-    mockGithubOauth({ login: allowedLogin.toUpperCase() });
-
-    // when
-    const loginResponse = await request(bootstrap.app.getHttpServer())
-      .post('/auth/github/login')
-      .send({ githubCode: 'whatever' });
-
-    // then
-    expect(loginResponse.status).toEqual(201);
-    expect(loginResponse.body.token).toBeDefined();
-  });
-
-  it('refuses to let an existing user back in once they are off the allowlist', async () => {
-    // given - an account made before the list existed
-    mockGithubOauth({ githubId: 4242, login: 'grandfathered' });
-
-    await bootstrap.utils.authUtils.setupUser({
-      githubId: '4242',
-      githubLogin: 'grandfathered',
-    });
-
-    // when
-    const loginResponse = await request(bootstrap.app.getHttpServer())
-      .post('/auth/github/login')
-      .send({ githubCode: 'whatever' });
-
-    // then - the list gates every login, not just the first one
-    expect(loginResponse.status).toEqual(403);
-    expect(loginResponse.body.token).toBeUndefined();
   });
 
   it('logs a user in even when github will not hand over their email', async () => {
@@ -207,7 +152,7 @@ describe('Auth (github)', () => {
       .reply(200, { access_token: 'some-token', token_type: 'bearer' });
     nock('https://api.github.com')
       .get('/user')
-      .reply(200, { id: 4242, login: allowedLogin, avatar_url: 'https://some-avatar.com' });
+      .reply(200, { id: 4242, login: githubLogin, avatar_url: 'https://some-avatar.com' });
     nock('https://api.github.com').get('/user/emails').reply(403);
 
     // when
@@ -215,13 +160,12 @@ describe('Auth (github)', () => {
       .post('/auth/github/login')
       .send({ githubCode: 'whatever' });
 
-    // then - the allowlist is checked against the handle, which /user always returns, so a
-    // missing email is no more of a blocker than it was before the list existed
+    // then - the email is a nice-to-have on the account, not something the login turns on
     expect(loginResponse.status).toEqual(201);
     expect(loginResponse.body.token).toBeDefined();
     expect(await bootstrap.models.userModel.findOne()).toMatchObject({
       githubId: '4242',
-      githubLogin: allowedLogin,
+      githubLogin,
     });
   });
 

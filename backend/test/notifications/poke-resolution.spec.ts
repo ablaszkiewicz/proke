@@ -201,10 +201,10 @@ describe('Poke resolution', () => {
       expect(updates[0].ts).toEqual('1700000000.000100');
       // The same message, struck through - not a new one, and not a different sentence.
       expect(lead(updates[0])).toEqual(
-        '~@author requested your review on ' +
+        '~👀 @author requested your review on ' +
           '<https://github.com/ablaszkiewicz/proke/pull/9|Wire up webhooks #9>~',
       );
-      expect(footer(updates[0])).toEqual('✅ approved by @grace');
+      expect(footer(updates[0])).toEqual('*Reviewed by*: @grace ✅');
       // Everything the original said about the change survives the edit.
       // No avatar on this payload, so the context row is the name, the size, and the verdict.
       expect(updates[0].blocks[1].elements[0].text).toEqual('ablaszkiewicz/proke');
@@ -227,7 +227,7 @@ describe('Poke resolution', () => {
       // then
       await waitFor(() => updates.length > 0);
       expect(updates[0].text).toEqual(
-        '✅ approved by @grace · @author requested your review on Wire up webhooks #9 · ' +
+        'Reviewed by: @grace ✅ · 👀 @author requested your review on Wire up webhooks #9 · ' +
           'ablaszkiewicz/proke (+163/-23)',
       );
     });
@@ -273,7 +273,9 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length === 2);
-      expect(updates.every((update) => footer(update) === '✅ approved by @linus')).toEqual(true);
+      expect(updates.every((update) => footer(update) === '*Reviewed by*: @linus ✅')).toEqual(
+        true,
+      );
     });
   });
 
@@ -293,10 +295,10 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('✅ you approved this');
+      expect(footer(updates[0])).toEqual('*Reviewed by*: you ✅');
     });
 
-    it('strikes through a request for changes too - it is answered either way', async () => {
+    it('reads the same when they asked for changes - the request is answered either way', async () => {
       // given
       await setupReviewer({ githubId: '1234' });
       capturePosts();
@@ -311,7 +313,9 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('❌ you requested changes');
+      // Deliberately not distinguished from an approval. What this line reports is that the
+      // request is discharged; whether the reviewer was happy is the author's poke to carry.
+      expect(footer(updates[0])).toEqual('*Reviewed by*: you ✅');
     });
   });
 
@@ -328,7 +332,7 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('✅ merged by @maintainer');
+      expect(footer(updates[0])).toEqual('*Merged by*: @maintainer ✅');
     });
 
     it('strikes it through as closed when it was abandoned', async () => {
@@ -343,7 +347,7 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('🚫 closed by @maintainer');
+      expect(footer(updates[0])).toEqual('*Closed by*: @maintainer 🚫');
     });
   });
 

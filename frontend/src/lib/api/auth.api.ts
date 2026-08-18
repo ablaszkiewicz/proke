@@ -11,10 +11,9 @@ export class AuthApi {
 
       return { token: response.data.token };
     } catch (error) {
-      // Some logins are refused on purpose - an account that is not on the allowlist, an
-      // expired code - and the backend says which. Axios' own "Request failed with status
-      // code 403" would throw that away and leave the screen showing something the reader
-      // cannot act on.
+      // Some logins are refused on purpose - an expired code, missing app credentials - and
+      // the backend says which. Axios' own "Request failed with status code 400" would throw
+      // that away and leave the screen showing something the reader cannot act on.
       throw new Error(readLoginError(error));
     }
   }

@@ -71,9 +71,8 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
 };
 
 /**
- * A submitted review is the one poke whose news can be good or bad, so it is the one that gets
- * a marker. Everything else stays unadorned - an emoji on every line is decoration, and stops
- * meaning anything.
+ * A submitted review is the one poke whose news can be good or bad, so it is the one whose
+ * marker says which way it went.
  */
 const REVIEW: Record<GithubReviewVerdict, Clause & { icon: string }> = {
   approved: { icon: '✅', verb: 'approved' },
@@ -81,24 +80,42 @@ const REVIEW: Record<GithubReviewVerdict, Clause & { icon: string }> = {
 };
 
 /**
- * How a struck-through review request explains itself.
+ * The marker a poke opens with, where its type alone decides it. A review's marker depends on
+ * its verdict and comes from REVIEW instead.
  *
- * Second person where the reader did it themselves: "you approved this" is what happened, and
- * "approved by @you" is a sentence nobody writes. Everyone else is named, because who took it
- * off your plate is the one thing the edit adds that the strikethrough does not.
+ * What it separates is what a poke asks of you: something waiting on you, somebody talking, or
+ * news that is simply good. That is what a morning's Slack gets triaged on, and it is why the
+ * three are worth telling apart before the sentence beside them is read.
+ *
+ * Being mentioned is deliberately unmarked. It arrives in a comment but it is not one - the
+ * sentence already says you were named, and the same 💬 as a plain comment would flatten the
+ * very difference the poke exists to draw.
  */
-const RESOLUTION: Record<
-  PokeResolutionKind,
-  { icon: string; self: string; other: (who: string) => string }
-> = {
-  approved: { icon: '✅', self: 'you approved this', other: (who) => `approved by ${who}` },
-  changes_requested: {
-    icon: '❌',
-    self: 'you requested changes',
-    other: (who) => `changes requested by ${who}`,
-  },
-  merged: { icon: '✅', self: 'you merged this', other: (who) => `merged by ${who}` },
-  closed: { icon: '🚫', self: 'you closed this', other: (who) => `closed by ${who}` },
+const LEAD_ICON: Partial<Record<NotificationType, string>> = {
+  // Eyes: the one poke that is a request rather than a report.
+  [NotificationType.ReviewRequested]: '👀',
+  // A review that reached no verdict is somebody talking, and reads as one.
+  [NotificationType.ReviewSubmitted]: '💬',
+  [NotificationType.PullRequestComment]: '💬',
+  [NotificationType.CommentReply]: '💬',
+  [NotificationType.PullRequestMerged]: '🎉',
+};
+
+/**
+ * How a struck-through review request explains itself. Always the same shape - a bold label,
+ * who, and a mark - so it is read at a glance rather than parsed.
+ *
+ * One label for both verdicts on purpose. What the struck-through message reports is that the
+ * request is discharged, and it is discharged either way; whether the reviewer was happy is
+ * news about the pull request, and the author has their own poke carrying it.
+ *
+ * A merge is not a review, so it does not claim to be one. The shape holds, the noun changes.
+ */
+const RESOLUTION: Record<PokeResolutionKind, { label: string; icon: string }> = {
+  approved: { label: 'Reviewed by', icon: '✅' },
+  changes_requested: { label: 'Reviewed by', icon: '✅' },
+  merged: { label: 'Merged by', icon: '✅' },
+  closed: { label: 'Closed by', icon: '🚫' },
 };
 
 /**
@@ -117,7 +134,7 @@ export function buildPokeMessage(
   const review = verdict(notification);
 
   const lead = `${actor} ${sentence(leadClauses(notification, review))}`;
-  const icon = review ? `${review.icon} ` : '';
+  const icon = leadIcon(notification, review);
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
   const avatar = avatarUrl(notification.ownerAvatarUrl);
@@ -137,7 +154,7 @@ export function buildPokeMessage(
     // The resolution goes in front rather than being struck through: this string is read in
     // places that render no formatting at all, where tildes are just tildes.
     text:
-      (settled ? `${settled} · ` : '') +
+      (settled ? `${settled.plain} · ` : '') +
       `${icon}${lead} ${label} · ${notification.repositoryFullName}` +
       (diff ? ` (${diff})` : ''),
     blocks: [
@@ -166,19 +183,46 @@ export function buildPokeMessage(
           ...(diff ? [{ type: 'mrkdwn', text: `\`${diff}\`` }] : []),
           // Last, so it reads as the outcome of everything above it rather than as a label on
           // the repository. Unstruck: it is the one part of this message that is still news.
-          ...(settled ? [{ type: 'mrkdwn', text: escape(settled) }] : []),
+          ...(settled ? [{ type: 'mrkdwn', text: escape(settled.markup) }] : []),
         ],
       },
     ],
   };
 }
 
-/** `✅ approved by @ada`. The half-line an edited poke gains. */
-function settledLabel(resolution: PokeResolution): string {
-  const wording = RESOLUTION[resolution.kind];
-  const who = resolution.actorLogin ? `@${resolution.actorLogin}` : 'someone';
+/**
+ * The marker the line opens with, with the trailing space that separates it from the words -
+ * empty for the pokes that carry none, so the line starts at the actor's handle.
+ */
+function leadIcon(
+  notification: GithubNotificationNormalized,
+  review: (Clause & { icon: string }) | undefined,
+): string {
+  // The verdict wins where there is one: an approval that came with notes on it is an approval
+  // first, and ✅ says more than 💬 about whether to open it now.
+  const marker = review?.icon ?? LEAD_ICON[notification.type];
 
-  return `${wording.icon} ${resolution.bySelf ? wording.self : wording.other(who)}`;
+  return marker ? `${marker} ` : '';
+}
+
+/**
+ * `*Reviewed by*: @ada ✅`. The half-line an edited poke gains.
+ *
+ * Twice, because it is read in two places: the block, where Slack renders the bold, and the
+ * fallback text, where an asterisk is only ever an asterisk.
+ *
+ * Second person where the reader did it themselves - "Reviewed by: you", because "@you" is not
+ * how anybody refers to themselves.
+ */
+function settledLabel(resolution: PokeResolution): { markup: string; plain: string } {
+  const { label, icon } = RESOLUTION[resolution.kind];
+  const who = resolution.bySelf
+    ? 'you'
+    : resolution.actorLogin
+      ? `@${resolution.actorLogin}`
+      : 'someone';
+
+  return { markup: `*${label}*: ${who} ${icon}`, plain: `${label}: ${who} ${icon}` };
 }
 
 /** The message the Send a test poke button produces. Deliberately not a fake notification. */

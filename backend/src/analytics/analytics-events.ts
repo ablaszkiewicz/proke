@@ -10,10 +10,8 @@
  * compile error rather than a second event nobody notices for a month.
  */
 export type AnalyticsEvent =
-  // Sign-in. The failure is the allowlist turning somebody away, which is worth counting while
-  // proke is closed - it is the only measure of demand there is.
+  // Sign-in.
   | 'github_login_succeeded'
-  | 'github_login_failed'
 
   // Organisations. `installed` and `removed` arrive from GitHub's webhook rather than from a
   // request, so they are the only ones here that can land with nobody signed in.

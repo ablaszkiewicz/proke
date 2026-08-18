@@ -100,7 +100,7 @@ describe('Slack delivery', () => {
       expect(posts[0].channel).toEqual('D0ADA');
       // The push banner shows this line and nothing else, so it carries the whole poke.
       expect(posts[0].text).toEqual(
-        '@ada requested your review on Make the reel blur honest #42 · ablaszkiewicz/proke',
+        '👀 @ada requested your review on Make the reel blur honest #42 · ablaszkiewicz/proke',
       );
       expect(posts[0].unfurl_links).toEqual(false);
 
@@ -131,7 +131,7 @@ describe('Slack delivery', () => {
 
       // then - the link finishes the sentence, and carries the number people quote at you
       expect(lead(posts)).toEqual(
-        '@ada commented on *<https://github.com/ablaszkiewicz/proke/pull/42|Make the reel blur honest #42>*',
+        '💬 @ada commented on *<https://github.com/ablaszkiewicz/proke/pull/42|Make the reel blur honest #42>*',
       );
     });
 
@@ -433,7 +433,7 @@ describe('Slack delivery', () => {
 
       // then
       expect(posts[0].text).toEqual(
-        '@ada requested your review on Make the reel blur honest #42 · ablaszkiewicz/proke ' +
+        '👀 @ada requested your review on Make the reel blur honest #42 · ablaszkiewicz/proke ' +
           '(+163/-23)',
       );
     });
