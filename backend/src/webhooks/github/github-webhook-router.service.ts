@@ -252,7 +252,10 @@ export class GithubWebhookRouterService {
     // diff and the access check it cannot wait until after preferences. It is the one lookup in
     // this method that is not merely presentation, and the write-through above means it usually
     // resolves out of the cache without a call.
-    const pokes = await this.resolveReplyTargets(expanded, installationId, payload?.repository);
+    const pokes = withoutAuthorReviewRequests(
+      await this.resolveReplyTargets(expanded, installationId, payload?.repository),
+      payload?.pull_request,
+    );
 
     if (pokes.length === 0) {
       return;
@@ -587,6 +590,10 @@ export class GithubWebhookRouterService {
     // It stays a review request rather than becoming a team mention, because that is what it is
     // to everyone in the team - something waiting on them, not somebody talking. The handle
     // rides along so the poke can say which team was asked rather than implying it was personal.
+    //
+    // A team with review assignment on is followed, a second later, by GitHub asking some of its
+    // members by name through the branch above. The batch downstream folds the two into one
+    // poke for anybody who was reached both ways.
     if (payload.action === 'review_requested' && payload.requested_team?.slug) {
       // Teams belong to organisations and only this half of the payload names one. A repository
       // owned by a person has no teams, so it cannot produce this event in the first place.
@@ -833,6 +840,31 @@ export class GithubWebhookRouterService {
       commentId: subject.commentId,
     };
   }
+}
+
+/**
+ * Nobody reviews their own pull request, so nobody is asked to.
+ *
+ * GitHub enforces this for a person - the author cannot be requested by name - but not for a
+ * team: ask the author's own team and the author is in it, which is the ordinary case wherever
+ * a team owns the code it changes. Nor does the sender rule catch it, because the asking is
+ * usually done by a bot on the author's behalf the moment the pull request opens.
+ *
+ * After team expansion, which is the only place this can arise, and by id, which is what the
+ * expansion hands back.
+ */
+function withoutAuthorReviewRequests(pokes: Poke[], pullRequest: any): Poke[] {
+  const authorGithubId = identifier(pullRequest?.user?.id);
+
+  if (!authorGithubId) {
+    return pokes;
+  }
+
+  return pokes.filter(
+    (poke) =>
+      poke.notification.type !== NotificationType.ReviewRequested ||
+      poke.recipient.githubId !== authorGithubId,
+  );
 }
 
 /**

@@ -1151,20 +1151,45 @@ describe('Webhooks (github)', () => {
    * no reviewer in it at all, and used to route to nobody.
    */
   describe('team review requests', () => {
+    const ORG_PULL_REQUEST = {
+      title: 'Wire up webhooks',
+      html_url: 'https://github.com/acme/proke/pull/9',
+      number: 9,
+      user: { id: 7000, login: 'author' },
+    };
+
     const teamReviewRequestPayload = (slug: string, senderGithubId = 999) => ({
       action: 'review_requested',
       installation: { id: Number(INSTALLATION_ID) },
       organization: { login: ORG },
       requested_team: { id: 77, name: 'Reviewers', slug },
-      pull_request: {
-        title: 'Wire up webhooks',
-        html_url: 'https://github.com/acme/proke/pull/9',
-        number: 9,
-        user: { id: 7000, login: 'author' },
-      },
+      pull_request: ORG_PULL_REQUEST,
       repository: ORG_REPOSITORY,
       sender: { id: senderGithubId, login: 'author' },
     });
+
+    /** The same ask, of one person by name - what GitHub sends next when the team assigns. */
+    const memberReviewRequestPayload = (member: { id: number; login: string }) => ({
+      action: 'review_requested',
+      installation: { id: Number(INSTALLATION_ID) },
+      organization: { login: ORG },
+      requested_reviewer: member,
+      pull_request: ORG_PULL_REQUEST,
+      repository: ORG_REPOSITORY,
+      sender: { id: 999, login: 'author' },
+    });
+
+    /**
+     * Exactly this many, once every window has closed on its own. A quiet interval afterwards
+     * is what turns "at least this many so far" into "this many".
+     */
+    const allNotifications = async (count: number) => {
+      await waitFor(() => deliverSpy.mock.calls.length >= count);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(count);
+
+      return deliverSpy.mock.calls.map((call) => ({ user: call[0], notification: call[1] }));
+    };
 
     it('pokes everybody in a team asked for review', async () => {
       // given - two of the three members have proke accounts
@@ -1282,6 +1307,94 @@ describe('Webhooks (github)', () => {
 
       // then
       await expectNoPoke();
+    });
+
+    /**
+     * A team with review assignment switched on is asked, and then GitHub asks some of its
+     * members by name - two webhooks a second apart, to one of which each member is both the
+     * group and the person. Sent straight through, that is the same request twice.
+     */
+    describe('followed by the members being asked by name', () => {
+      const ADA = { id: 4242, login: 'ada' };
+      const ROB = { id: 4243, login: 'rob' };
+
+      beforeEach(async () => {
+        await setupMember('4242', 'ada');
+        await setupMember('4243', 'rob');
+        mockInstallationToken();
+        mockTeamMembers('reviewers', [ADA, ROB]);
+      });
+
+      it('tells a member asked both ways once, as the direct ask', async () => {
+        // when - the team, then ada by name; rob is only ever reached as part of the team
+        await send('pull_request', teamReviewRequestPayload('reviewers'));
+        await send('pull_request', memberReviewRequestPayload(ADA));
+
+        // then
+        const pokes = await allNotifications(2);
+        const ada = pokes.find((poke) => poke.user.githubLogin === 'ada');
+        const rob = pokes.find((poke) => poke.user.githubLogin === 'rob');
+
+        expect(ada?.notification).toMatchObject({ type: NotificationType.ReviewRequested });
+        expect(ada?.notification.teamHandle).toBeUndefined();
+        expect(rob?.notification).toMatchObject({
+          type: NotificationType.ReviewRequested,
+          teamHandle: 'acme/reviewers',
+        });
+      });
+
+      it('picks the direct ask whichever of the two lands first', async () => {
+        // when - webhooks carry no ordering guarantee, and this is the order seen in the wild
+        await send('pull_request', memberReviewRequestPayload(ADA));
+        await send('pull_request', teamReviewRequestPayload('reviewers'));
+
+        // then
+        const pokes = await allNotifications(2);
+        const ada = pokes.find((poke) => poke.user.githubLogin === 'ada');
+
+        expect(ada?.notification.teamHandle).toBeUndefined();
+      });
+
+      it('keeps requests about different pull requests apart', async () => {
+        // when - rob is asked by name on another pull request entirely
+        await send('pull_request', teamReviewRequestPayload('reviewers'));
+        await send('pull_request', {
+          ...memberReviewRequestPayload(ROB),
+          pull_request: {
+            ...ORG_PULL_REQUEST,
+            number: 10,
+            html_url: 'https://github.com/acme/proke/pull/10',
+          },
+        });
+
+        // then - three pokes: ada for the team, rob for the team, rob for the other one
+        const pokes = await allNotifications(3);
+        const robs = pokes.filter((poke) => poke.user.githubLogin === 'rob');
+
+        expect(robs.map((poke) => poke.notification.number).sort((a, b) => a - b)).toEqual([9, 10]);
+      });
+    });
+
+    it('does not ask the author to review their own pull request', async () => {
+      // given - the author is in the team, and a bot did the asking, so the author is neither
+      // the sender nor somebody GitHub would ever have requested by name
+      await setupMember('7000', 'author');
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [
+        { id: 7000, login: 'author' },
+        { id: 4242, login: 'ada' },
+      ]);
+
+      // when
+      await send('pull_request', {
+        ...teamReviewRequestPayload('reviewers'),
+        sender: { id: 555, login: 'pr-assigner[bot]', type: 'Bot' },
+      });
+
+      // then
+      const [poke] = await allNotifications(1);
+      expect(poke.user.githubLogin).toEqual('ada');
     });
   });
 

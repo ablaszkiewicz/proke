@@ -9,6 +9,15 @@ import {
 import { comparePriority, NotificationType } from '../core/entities/notification-type.enum';
 import { NotificationDeliveryService } from './notification-delivery.service';
 
+/**
+ * The two things GitHub delivers in pieces.
+ *
+ * A review is the submission plus one webhook per inline comment. A review request is the team
+ * being asked plus, where the team has review assignment switched on, one webhook per member
+ * GitHub then asks by name - and a member of the team hears about both.
+ */
+type BatchKind = 'review' | 'request';
+
 /** The types that are somebody saying something, as opposed to a verdict on the whole review. */
 const MENTION_TYPES: NotificationType[] = [
   NotificationType.PullRequestMention,
@@ -17,6 +26,7 @@ const MENTION_TYPES: NotificationType[] = [
 ];
 
 interface Batch {
+  kind: BatchKind;
   user: UserNormalized;
   /**
    * Bounded by the size of one review for the length of the window, and no longer. A review with
@@ -27,12 +37,17 @@ interface Batch {
 }
 
 /**
- * Holds the pieces of one review open long enough to send them as one poke.
+ * Holds the pieces of one review, or of one review request, open long enough to send them as
+ * one poke.
  *
  * GitHub delivers a review as several webhooks - one per inline comment, plus one for the
  * submission - with no ordering guarantee between them. Routed straight through, approving a
  * pull request with three notes on it costs the author four separate Slack messages, which is
  * precisely the pestering this product exists to stop.
+ *
+ * A review request asked of a team arrives the same way: the team, and then whichever of its
+ * members GitHub picked out to ask by name, a second or so apart. To a person who is both, that
+ * is one request told twice, and they should hear it once - as the direct one.
  *
  * The window opens on the first arrival and is never extended, so the wait is bounded no matter
  * how long a reviewer keeps typing: anything later is a second poke rather than an indefinitely
@@ -59,16 +74,17 @@ export class ReviewBatchService implements OnModuleDestroy {
     user: UserNormalized,
     notification: GithubNotificationNormalized,
   ): Promise<void> {
-    // Everything that is not part of a review: a merge, a review request, a conversation
-    // comment. There is nothing for these to be batched with, and holding them would only
-    // make them late.
-    if (!notification.reviewId) {
+    const piece = pieceOf(notification);
+
+    // Everything that arrives whole: a merge, a conversation comment, a mention. There is
+    // nothing for these to be batched with, and holding them would only make them late.
+    if (!piece) {
       return this.deliveryService.deliver(user, notification);
     }
 
     // One per person: two people on the same review are two different messages, and only the
     // recipient decides which of its pieces they were allowed to hear about.
-    const key = `${user.id}:${notification.reviewId}`;
+    const key = `${user.id}:${piece.kind}:${piece.id}`;
     const batch = this.batches.get(key);
 
     // Synchronous from here to the end, and it has to be. Webhooks for one review are handled
@@ -80,6 +96,7 @@ export class ReviewBatchService implements OnModuleDestroy {
     }
 
     this.batches.set(key, {
+      kind: piece.kind,
       user,
       notifications: [notification],
       timer: setTimeout(() => void this.flush(key), this.windowMs),
@@ -109,7 +126,7 @@ export class ReviewBatchService implements OnModuleDestroy {
     clearTimeout(batch.timer);
 
     try {
-      await this.deliveryService.deliver(batch.user, merge(batch.notifications));
+      await this.deliveryService.deliver(batch.user, merge(batch));
     } catch (error) {
       // Nothing above this is awaiting: the window closed on a timer, long after the webhook
       // was acknowledged. An error escaping here would be an unhandled rejection.
@@ -119,17 +136,57 @@ export class ReviewBatchService implements OnModuleDestroy {
 }
 
 /**
+ * Which batch a poke belongs in, and nothing for the pokes that belong in none.
+ *
+ * A review is known by its id, which GitHub puts on the submission and on every inline comment
+ * alike. A review request has no such id - the team and the person are asked in two unrelated
+ * webhooks - so it is known by the pull request it is about, which is the one thing the two
+ * share.
+ */
+function pieceOf(
+  notification: GithubNotificationNormalized,
+): { kind: BatchKind; id: string } | undefined {
+  if (notification.reviewId) {
+    return { kind: 'review', id: notification.reviewId };
+  }
+
+  if (notification.type === NotificationType.ReviewRequested && notification.number) {
+    return { kind: 'request', id: `${notification.repositoryFullName}#${notification.number}` };
+  }
+
+  return undefined;
+}
+
+function merge(batch: Batch): GithubNotificationNormalized {
+  if (batch.notifications.length === 1) {
+    return batch.notifications[0];
+  }
+
+  return batch.kind === 'review'
+    ? mergeReview(batch.notifications)
+    : pickRequest(batch.notifications);
+}
+
+/**
+ * The one request out of several for the same pull request.
+ *
+ * The direct one, where there is one. "Requested your review" is what the request is to the
+ * person reading it; the team's name on the other is a fact about how GitHub got to them, and
+ * not one worth a second message. Failing that, the first to arrive - which is the poke they
+ * would have got had nothing been held at all.
+ */
+function pickRequest(notifications: GithubNotificationNormalized[]): GithubNotificationNormalized {
+  return notifications.find((notification) => !notification.teamHandle) ?? notifications[0];
+}
+
+/**
  * One poke out of everything the review turned out to be.
  *
  * The highest-priority arrival supplies everything factual - which pull request, whose
  * repository, how big the change is - because the pieces only ever differ in what they were
  * about, never in what they were about it. What the batch adds is the count, and the words.
  */
-function merge(notifications: GithubNotificationNormalized[]): GithubNotificationNormalized {
-  if (notifications.length === 1) {
-    return notifications[0];
-  }
-
+function mergeReview(notifications: GithubNotificationNormalized[]): GithubNotificationNormalized {
   // The submission carries no comment id; every inline note does. Which is the distinction that
   // matters here, and it holds whatever type each of them ended up being.
   const submission = notifications.find((notification) => !notification.commentId);

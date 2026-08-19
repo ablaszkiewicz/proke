@@ -52,7 +52,9 @@ interface EnvConfig {
     /**
      * How long a review's pokes are held open so the rest of it can arrive. GitHub delivers a
      * review as one webhook per inline comment plus one for the submission, in no particular
-     * order, so this is the price of them landing as a single message.
+     * order, so this is the price of them landing as a single message. The same window holds a
+     * review request, which a team with review assignment on delivers twice - once as the team
+     * and once per member it picks out by name.
      */
     reviewBatchWindowMs: number;
   };
