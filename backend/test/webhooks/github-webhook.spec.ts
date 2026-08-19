@@ -309,6 +309,108 @@ describe('Webhooks (github)', () => {
       });
     });
 
+    it('pokes the author when somebody enables auto-merge on their pull request', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request', {
+        action: 'auto_merge_enabled',
+        installation: { id: Number(INSTALLATION_ID) },
+        pull_request: {
+          title: 'Wire up webhooks',
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+          user: { id: 4242, login: 'author' },
+        },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'maintainer' },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.AutoMergeEnabled,
+        title: 'Wire up webhooks',
+      });
+    });
+
+    it('pokes the author when a bot enables auto-merge on their pull request', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request', {
+        action: 'auto_merge_enabled',
+        installation: { id: Number(INSTALLATION_ID) },
+        pull_request: {
+          title: 'Wire up webhooks',
+          user: { id: 4242, login: 'author' },
+        },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'mergify[bot]', type: 'Bot' },
+      });
+
+      // then - what a bot says is noise; what it does to your branch is not
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.AutoMergeEnabled,
+      });
+    });
+
+    it('says nothing when authors enable auto-merge on their own pull request', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request', {
+        action: 'auto_merge_enabled',
+        installation: { id: Number(INSTALLATION_ID) },
+        pull_request: {
+          title: 'Wire up webhooks',
+          user: { id: 4242, login: 'author' },
+        },
+        repository: REPOSITORY,
+        sender: { id: 4242, login: 'author' },
+      });
+
+      // then - the common case by far, and nobody needs telling what they just did themselves
+      await expectNoPoke();
+    });
+
+    it('says nothing when auto-merge is turned back off', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('pull_request', {
+        action: 'auto_merge_disabled',
+        installation: { id: Number(INSTALLATION_ID) },
+        pull_request: {
+          title: 'Wire up webhooks',
+          user: { id: 4242, login: 'author' },
+        },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'maintainer' },
+      });
+
+      // then - a plan called off is not news the way the plan itself was
+      await expectNoPoke();
+    });
+
     it('says nothing when a pull request is closed without merging', async () => {
       // given
       const { user } = await bootstrap.utils.authUtils.setupUser({

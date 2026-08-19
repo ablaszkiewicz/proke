@@ -56,6 +56,9 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
   }),
   [NotificationType.ReviewSubmitted]: () => ({ verb: 'reviewed' }),
   [NotificationType.PullRequestMerged]: () => ({ verb: 'merged' }),
+  // "enabled auto-merge on", never "is merging": the checks have not finished, and a poke that
+  // promises an outcome they could still refuse is one that gets to be wrong.
+  [NotificationType.AutoMergeEnabled]: () => ({ verb: 'enabled auto-merge', preposition: 'on' }),
   [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
   // "replied to you", not "replied to your comment": the link goes straight to the reply, and
   // which of your comments it was is one click away rather than something to word around.
@@ -99,6 +102,10 @@ const LEAD_ICON: Partial<Record<NotificationType, string>> = {
   [NotificationType.PullRequestComment]: '💬',
   [NotificationType.CommentReply]: '💬',
   [NotificationType.PullRequestMerged]: '🎉',
+  // Read against the 🎉 that usually follows it minutes later: armed, then landed. An hourglass
+  // says queued-behind-checks without claiming the merge has happened, which is the one thing
+  // 🚀 or ✅ would get wrong. Distinct from 👀 too - that is pending on you, this is pending on CI.
+  [NotificationType.AutoMergeEnabled]: '⏳',
 };
 
 /**

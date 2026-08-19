@@ -13,6 +13,12 @@ export enum NotificationType {
   ReviewRequested = 'review_requested',
   ReviewSubmitted = 'review_submitted',
   PullRequestMerged = 'pull_request_merged',
+  /**
+   * Somebody armed the pull request to merge itself the moment its checks go green. Its own
+   * type rather than a flavour of the merge: what it reports is a decision that has been taken
+   * but not yet acted on, and the window to object to it closes with the last check.
+   */
+  AutoMergeEnabled = 'auto_merge_enabled',
   PullRequestComment = 'pull_request_comment',
   /**
    * Somebody answered in a review thread you started. GitHub points every reply in a thread at
@@ -36,6 +42,10 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = Object.values(Notifica
 const PRIORITY: NotificationType[] = [
   NotificationType.ReviewRequested,
   NotificationType.PullRequestMerged,
+  // Under the merge, which is the same news arrived at its end. The two never compete in
+  // practice - one payload carries one action - so this is ordering for whoever reads the list
+  // rather than a collapse that happens.
+  NotificationType.AutoMergeEnabled,
   NotificationType.ReviewSubmitted,
   // Above both the comment and the mention: being answered in your own thread is a more specific
   // reason to be poked than somebody having commented on your pull request, and more useful to

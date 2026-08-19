@@ -576,6 +576,21 @@ export class GithubWebhookRouterService {
       ];
     }
 
+    // Armed, not landed: GitHub does the merge itself once the last check goes green, so the
+    // author's window to object opens here and the merge poke is the news that it has shut.
+    // Both arriving for one pull request is intended - they are two different facts about it.
+    //
+    // Bots are deliberately left unsuppressed. Mergify and its kind arming somebody's branch is
+    // precisely the sort of thing its author wants to hear about, however routine it is.
+    if (payload.action === 'auto_merge_enabled' && pullRequest.user) {
+      return [
+        {
+          recipient: { githubId: String(pullRequest.user.id) },
+          notification: this.build(NotificationType.AutoMergeEnabled, subject, context),
+        },
+      ];
+    }
+
     // Only on open. `edited` fires on every description tweak and would re-poke everyone
     // already named in it.
     if (payload.action === 'opened') {

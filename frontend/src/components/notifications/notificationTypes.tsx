@@ -46,6 +46,8 @@ export const ICON = {
     "M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z",
   merge:
     "M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z",
+  clock:
+    "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z",
   comment:
     "M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z",
   issue:
@@ -173,6 +175,30 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
           </>
         }
         body="Retry webhook deliveries with backoff #42"
+      />
+    ),
+  },
+  {
+    type: "auto_merge_enabled",
+    title: "Someone enables auto-merge on your pull request",
+    short: "Auto-merge",
+    icon: ICON.clock,
+    // Green pill and all: this is GitHub's own auto-merge banner, which is what the person
+    // reading the setting is being asked to recognise.
+    preview: () => (
+      <Preview
+        icon={
+          <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-emerald-500/15 px-1.5 py-px text-[10px] leading-none text-emerald-600 dark:text-emerald-400">
+            <Octicon path={ICON.clock} />
+            Auto-merge
+          </span>
+        }
+        header={
+          <>
+            <Who>octocat</Who> enabled auto-merge
+          </>
+        }
+        body="Merges automatically when all checks pass."
       />
     ),
   },

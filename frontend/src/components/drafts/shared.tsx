@@ -205,6 +205,11 @@ const POKE_TEXT: Record<NotificationType, ReactNode> = {
       Your pull request <Ref>cryptly-dev/api#42</Ref> was merged
     </>
   ),
+  auto_merge_enabled: (
+    <>
+      <Who>octocat</Who> enabled auto-merge on <Ref>cryptly-dev/api#42</Ref>
+    </>
+  ),
   pull_request_comment: (
     <>
       <Who>octocat</Who> commented on your pull request{" "}
