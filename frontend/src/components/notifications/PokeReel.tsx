@@ -47,6 +47,15 @@ const prefersReducedMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
+ * The motion blur is an SVG reference filter, and phones rasterise that in software on every
+ * frame - under it the reel visibly stutters on a touch device, where the bare spring scroll is
+ * perfectly smooth. So the blur is a desktop thing: on a coarse pointer the reel moves exactly
+ * the same way, just pin-sharp throughout.
+ */
+const canAffordBlur = () =>
+  typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches;
+
+/**
  * Every poke stacked in a column behind a window one poke tall, with a run of others above the
  * real ones. Position is a row index: 0 to 5 are the six kinds, negative is the run-up. The reel
  * starts at the top of that run-up and, as soon as the page is up, flies down through it to row
@@ -110,7 +119,7 @@ export function PokeReel({
 
     const win = windowRef.current;
     const viewport = viewportRef.current;
-    const blur = blurRef.current;
+    const blur = canAffordBlur() ? blurRef.current : null;
     if (!win || !viewport) return;
 
     /**
