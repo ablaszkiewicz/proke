@@ -50,8 +50,13 @@ interface Clause {
  * being mentioned, and the link says which it was.
  */
 const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized) => Clause> = {
-  [NotificationType.ReviewRequested]: () => ({
-    verb: 'requested your review',
+  // Says the team where the ask went to a group. "requested your review" is a small lie when
+  // nineteen other people got the same poke, and which team it came through is the one thing
+  // that explains why it arrived on a pull request you have never seen.
+  [NotificationType.ReviewRequested]: (notification) => ({
+    verb: notification.teamHandle
+      ? `requested @${notification.teamHandle}'s review`
+      : 'requested your review',
     preposition: 'on',
   }),
   [NotificationType.ReviewSubmitted]: () => ({ verb: 'reviewed' }),

@@ -124,6 +124,45 @@ describe('Webhooks (github)', () => {
     sender: { id: 999, login: 'commenter' },
   });
 
+  // Shared by every test about a team, whether the team was named in a sentence or asked for a
+  // review: both end up in the same expansion, and so need the same org-owned repository, the
+  // same installation token, and the same answer from GitHub about who is in the team.
+  const ORG = 'acme';
+  const ORG_REPOSITORY = { id: 314, full_name: 'acme/proke', private: false };
+
+  const mockInstallationToken = () =>
+    nock('https://api.github.com')
+      .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
+      .reply(201, {
+        token: 'ghs_installation',
+        expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+      });
+
+  /** `overCap` is how GitHub says there is more: a Link header offering a second page. */
+  const mockTeamMembers = (
+    slug: string,
+    members: { id: number; login: string }[],
+    { overCap = false, org = ORG }: { overCap?: boolean; org?: string } = {},
+  ) =>
+    nock('https://api.github.com')
+      .get(`/orgs/${org}/teams/${slug}/members`)
+      .query({ per_page: '100' })
+      .reply(
+        200,
+        members,
+        overCap
+          ? {
+              link: `<https://api.github.com/orgs/${org}/teams/${slug}/members?page=2>; rel="next"`,
+            }
+          : {},
+      );
+
+  const setupMember = async (githubId: string, githubLogin: string) => {
+    const { user } = await bootstrap.utils.authUtils.setupUser({ githubId, githubLogin });
+    await subscribe(user.id);
+    return user;
+  };
+
   describe('signature verification', () => {
     it('rejects a wrong signature', async () => {
       // when
@@ -916,9 +955,6 @@ describe('Webhooks (github)', () => {
   });
 
   describe('team mentions', () => {
-    const ORG = 'acme';
-    const ORG_REPOSITORY = { id: 314, full_name: 'acme/proke', private: false };
-
     /**
      * An org-owned repository: `organization` is the only thing saying which org the comment
      * happened in. The author is nobody in particular, so the only pokes in play are the team's.
@@ -936,39 +972,6 @@ describe('Webhooks (github)', () => {
       repository: ORG_REPOSITORY,
       sender: { id: senderGithubId, login: 'commenter' },
     });
-
-    const mockInstallationToken = () =>
-      nock('https://api.github.com')
-        .post(`/app/installations/${INSTALLATION_ID}/access_tokens`)
-        .reply(201, {
-          token: 'ghs_installation',
-          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-        });
-
-    /** `overCap` is how GitHub says there is more: a Link header offering a second page. */
-    const mockTeamMembers = (
-      slug: string,
-      members: { id: number; login: string }[],
-      { overCap = false, org = ORG }: { overCap?: boolean; org?: string } = {},
-    ) =>
-      nock('https://api.github.com')
-        .get(`/orgs/${org}/teams/${slug}/members`)
-        .query({ per_page: '100' })
-        .reply(
-          200,
-          members,
-          overCap
-            ? {
-                link: `<https://api.github.com/orgs/${org}/teams/${slug}/members?page=2>; rel="next"`,
-              }
-            : {},
-        );
-
-    const setupMember = async (githubId: string, githubLogin: string) => {
-      const { user } = await bootstrap.utils.authUtils.setupUser({ githubId, githubLogin });
-      await subscribe(user.id);
-      return user;
-    };
 
     it('pokes everybody in a mentioned team', async () => {
       // given - two of the three members have proke accounts
@@ -1136,6 +1139,146 @@ describe('Webhooks (github)', () => {
 
       // when
       await send('issue_comment', teamCommentPayload('ping @acme/reviewers'));
+
+      // then
+      await expectNoPoke();
+    });
+  });
+
+  /**
+   * The other half of `review_requested`. GitHub names a person in `requested_reviewer` and a
+   * group in `requested_team`, never both - so a team asked for review arrives as a payload with
+   * no reviewer in it at all, and used to route to nobody.
+   */
+  describe('team review requests', () => {
+    const teamReviewRequestPayload = (slug: string, senderGithubId = 999) => ({
+      action: 'review_requested',
+      installation: { id: Number(INSTALLATION_ID) },
+      organization: { login: ORG },
+      requested_team: { id: 77, name: 'Reviewers', slug },
+      pull_request: {
+        title: 'Wire up webhooks',
+        html_url: 'https://github.com/acme/proke/pull/9',
+        number: 9,
+        user: { id: 7000, login: 'author' },
+      },
+      repository: ORG_REPOSITORY,
+      sender: { id: senderGithubId, login: 'author' },
+    });
+
+    it('pokes everybody in a team asked for review', async () => {
+      // given - two of the three members have proke accounts
+      await setupMember('4242', 'ada');
+      await setupMember('4243', 'rob');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [
+        { id: 4242, login: 'ada' },
+        { id: 4243, login: 'rob' },
+        { id: 4244, login: 'nina' },
+      ]);
+
+      // when
+      await send('pull_request', teamReviewRequestPayload('reviewers'));
+
+      // then - a review request rather than a mention: it is something waiting on them
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      const recipients = deliverSpy.mock.calls.map((call) => call[0].githubLogin).sort();
+      expect(recipients).toEqual(['ada', 'rob']);
+      expect(deliverSpy.mock.calls[0][1]).toMatchObject({
+        type: NotificationType.ReviewRequested,
+        teamHandle: 'acme/reviewers',
+        title: 'Wire up webhooks',
+        htmlUrl: 'https://github.com/acme/proke/pull/9',
+        repositoryFullName: 'acme/proke',
+        actorLogin: 'author',
+      });
+    });
+
+    it('still pokes when a bot did the asking', async () => {
+      // given - most team assignment is done by a resolver bot, so suppressing it would suppress
+      // the feature. Being asked for a review is a request either way, unlike a bot's chatter.
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when
+      await send('pull_request', {
+        ...teamReviewRequestPayload('reviewers'),
+        sender: { id: 555, login: 'pr-assigner[bot]', type: 'Bot' },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewRequested,
+        teamHandle: 'acme/reviewers',
+      });
+    });
+
+    it('does not poke whoever asked for the review', async () => {
+      // given - the person assigning the team is in it
+      await setupMember('999', 'author');
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [
+        { id: 999, login: 'author' },
+        { id: 4242, login: 'ada' },
+      ]);
+
+      // when
+      await send('pull_request', teamReviewRequestPayload('reviewers'));
+
+      // then
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+      expect(deliverSpy.mock.calls[0][0].githubLogin).toEqual('ada');
+    });
+
+    it('skips a team with more members than the cap', async () => {
+      // given - asking a hundred-plus people is a broadcast, not a review request
+      await setupMember('4242', 'ada');
+      mockInstallationToken();
+      mockTeamMembers(
+        'everyone',
+        Array.from({ length: 100 }, (_, index) => ({ id: 4242 + index, login: `member${index}` })),
+        { overCap: true },
+      );
+
+      // when
+      await send('pull_request', teamReviewRequestPayload('everyone'));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('ignores a request with no organisation to resolve the team against', async () => {
+      // given - teams belong to orgs, and without one there is nothing to ask GitHub about
+      await setupMember('4242', 'ada');
+      const { organization, ...withoutOrganization } = teamReviewRequestPayload('reviewers');
+
+      // when
+      await send('pull_request', withoutOrganization);
+
+      // then - and no GitHub call was made to find that out
+      await expectNoPoke();
+      expect(nock.pendingMocks()).toHaveLength(0);
+    });
+
+    it('does not poke a member who has switched review requests off', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ada',
+      });
+      await subscribe(user.id, {
+        repositoryScope: RepositoryScope.All,
+        notificationTypes: [NotificationType.PullRequestMention],
+      });
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
+
+      // when
+      await send('pull_request', teamReviewRequestPayload('reviewers'));
 
       // then
       await expectNoPoke();

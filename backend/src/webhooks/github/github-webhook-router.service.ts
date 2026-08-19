@@ -229,7 +229,7 @@ export class GithubWebhookRouterService {
 
     // After suppression so a bot naming a team costs no API call, and before grouping so a team
     // is just several more candidates by the time preferences are consulted.
-    const expanded = await this.expandTeamMentions(
+    const expanded = await this.expandTeamRecipients(
       candidates,
       installationId,
       payload?.organization?.login,
@@ -395,11 +395,12 @@ export class GithubWebhookRouterService {
   }
 
   /**
-   * Turns `@org/team` into the people in it - one candidate each, all carrying the notification
-   * built from the sentence that named them. A team we cannot resolve pokes nobody, deliberately:
-   * the alternative is guessing at who was meant.
+   * Turns a team into the people in it - one candidate each, all carrying the notification built
+   * from whatever named the team, whether that was an `@org/team` in a sentence or GitHub asking
+   * the group for a review. A team we cannot resolve pokes nobody, deliberately: the alternative
+   * is guessing at who was meant.
    */
-  private async expandTeamMentions(
+  private async expandTeamRecipients(
     pokes: Poke[],
     installationId: string,
     organizationLogin: string | undefined,
@@ -562,6 +563,36 @@ export class GithubWebhookRouterService {
         {
           recipient: { githubId: String(payload.requested_reviewer.id) },
           notification: this.build(NotificationType.ReviewRequested, subject, context),
+        },
+      ];
+    }
+
+    // The same action told the other way round: GitHub names a person in `requested_reviewer`
+    // and a group in `requested_team`, never both, so a team asked for review arrives with the
+    // reviewer half of the payload simply absent.
+    //
+    // It stays a review request rather than becoming a team mention, because that is what it is
+    // to everyone in the team - something waiting on them, not somebody talking. The handle
+    // rides along so the poke can say which team was asked rather than implying it was personal.
+    if (payload.action === 'review_requested' && payload.requested_team?.slug) {
+      // Teams belong to organisations and only this half of the payload names one. A repository
+      // owned by a person has no teams, so it cannot produce this event in the first place.
+      const org = payload.organization?.login;
+
+      if (!org) {
+        return [];
+      }
+
+      const team: MentionedTeam = {
+        org,
+        slug: payload.requested_team.slug,
+        handle: `${org}/${payload.requested_team.slug}`,
+      };
+
+      return [
+        {
+          recipient: { team },
+          notification: this.build(NotificationType.ReviewRequested, subject, context, team.handle),
         },
       ];
     }

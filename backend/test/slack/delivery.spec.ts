@@ -205,6 +205,24 @@ describe('Slack delivery', () => {
       expect(lead(posts)).toContain('@ada mentioned @acme/reviewers on *<');
     });
 
+    it('names the team rather than claiming the review was asked of you personally', async () => {
+      // given
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({
+          type: NotificationType.ReviewRequested,
+          teamHandle: 'acme/reviewers',
+        }),
+      );
+
+      // then
+      expect(lead(posts)).toContain("@ada requested @acme/reviewers's review on *<");
+    });
+
     it('drops the number when the payload had none', async () => {
       // given
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
