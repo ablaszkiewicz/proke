@@ -13,6 +13,7 @@ export class PokeMessageSerializer {
       repositoryFullName: entity.repositoryFullName,
       pullRequestNumber: entity.pullRequestNumber,
       notification: entity.notification,
+      reviewers: entity.reviewers ?? [],
     };
   }
 }

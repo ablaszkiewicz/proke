@@ -48,6 +48,12 @@ export type AnalyticsEvent =
    * events that should have changed one.
    */
   | 'poke_resolved'
+  /*
+   * A review request poke edited to name somebody who reviewed without deciding. The request
+   * stands and the row with it, so one poke can fire this several times - once per reviewer -
+   * and then poke_resolved once. Same rule as poke_resolved: only once Slack confirmed the edit.
+   */
+  | 'poke_annotated'
   | 'account_deleted';
 
 /**

@@ -109,6 +109,23 @@ export const POKE_RESOLUTIONS = [...REVIEW_VERDICTS, 'merged', 'closed'] as cons
 
 export type PokeResolutionKind = (typeof POKE_RESOLUTIONS)[number];
 
+/**
+ * Somebody who has reviewed the pull request without deciding anything about it, as a review
+ * request poke names them.
+ *
+ * Deliberately not a resolution. GitHub leaves the request pending when a reviewer only
+ * comments, and so does the message - but a poke that says "this is waiting on you" is worth a
+ * line saying somebody is already there, because that is the difference between a pull request
+ * nobody has opened and one that wants a second opinion.
+ *
+ * No `bySelf`, unlike a resolution: the line exists to tell the reader about other people, and
+ * their own comments are not news to them, so they are never put on it.
+ */
+export interface PokeReviewer {
+  /** Absent only if GitHub sent us a review with no user on it. */
+  login?: string;
+}
+
 /** Why a review request poke is being struck through, and by whom. */
 export interface PokeResolution {
   kind: PokeResolutionKind;

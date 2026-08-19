@@ -98,7 +98,11 @@ describe('Poke resolution', () => {
     sender: AUTHOR,
   });
 
-  const reviewSubmitted = (reviewer: { id: number; login: string }, state: string, number = 9) => ({
+  const reviewSubmitted = (
+    reviewer: { id: number; login: string; type?: string },
+    state: string,
+    number = 9,
+  ) => ({
     action: 'submitted',
     installation: { id: Number(INSTALLATION_ID) },
     review: {
@@ -351,14 +355,14 @@ describe('Poke resolution', () => {
     });
   });
 
-  describe('what does not settle a review request', () => {
-    /**
-     * Nothing to wait for, so the assertion is a quiet interval. Long enough that the detached
-     * handler has comfortably run by the time it ends.
-     */
-    const quietly = async () => new Promise((resolve) => setTimeout(resolve, 200));
+  /**
+   * Nothing to wait for, so the assertion is a quiet interval. Long enough that the detached
+   * handler has comfortably run by the time it ends.
+   */
+  const quietly = async () => new Promise((resolve) => setTimeout(resolve, 200));
 
-    it('leaves it alone when the review reached no verdict', async () => {
+  describe('when somebody else reviews without deciding', () => {
+    it('names them under the request without striking it through', async () => {
       // given
       await setupReviewer({ githubId: '1234' });
       capturePosts();
@@ -370,13 +374,171 @@ describe('Poke resolution', () => {
         'pull_request_review',
         reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
       ).expect(202);
+
+      // then - the same live message, with one more line on it
+      await waitFor(() => updates.length > 0);
+      expect(updates[0].channel).toEqual('D0ADA');
+      expect(updates[0].ts).toEqual('1700000000.000100');
+      expect(lead(updates[0])).toEqual(
+        '👀 @author requested your review on ' +
+          '*<https://github.com/ablaszkiewicz/proke/pull/9|Wire up webhooks #9>*',
+      );
+      expect(footer(updates[0])).toEqual('*Reviewed by*: @grace 💬');
+      // A footnote to the request, so it trails the fallback rather than leading it.
+      expect(updates[0].text).toEqual(
+        '👀 @author requested your review on Wire up webhooks #9 · ablaszkiewicz/proke ' +
+          '(+163/-23) · Reviewed by: @grace 💬',
+      );
+      // Still outstanding, so still editable.
+      expect(await rows()).toHaveLength(1);
+    });
+
+    it('adds the next reviewer to the line rather than replacing the first', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
+      ).expect(202);
+      await waitFor(() => updates.length === 1);
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 777, login: 'linus' }, 'commented'),
+      ).expect(202);
+
+      // then - in the order they reviewed
+      await waitFor(() => updates.length === 2);
+      expect(footer(updates[1])).toEqual('*Reviewed by*: @grace 💬, @linus 💬');
+    });
+
+    it('names the same person once however many times they comment', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
+      ).expect(202);
+      await waitFor(() => updates.length === 1);
+
+      // when - another round of inline comments from the same reviewer
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
+      ).expect(202);
       await quietly();
 
+      // then - nothing new to say, so nothing is edited
+      expect(updates).toHaveLength(1);
+      expect((await rows())[0].reviewers).toEqual([{ githubId: '4242', login: 'grace' }]);
+    });
+
+    it('still strikes the request through when a verdict follows', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
+      ).expect(202);
+      await waitFor(() => updates.length === 1);
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 777, login: 'linus' }, 'approved'),
+      ).expect(202);
+
+      // then - the verdict takes the line; who commented before it is no longer the news
+      await waitFor(() => updates.length === 2);
+      expect(lead(updates[1])).toMatch(/^~.*~$/);
+      expect(footer(updates[1])).toEqual('*Reviewed by*: @linus ✅');
+      await waitFor(async () => (await rows()).length === 0);
+    });
+
+    it('forgets who reviewed once the request is made again', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'commented'),
+      ).expect(202);
+      await waitFor(() => updates.length === 1);
+
+      // when - a fresh request, and so a fresh message that names nobody
+      await send('pull_request', reviewRequested('1234')).expect(202);
+      await waitFor(async () => (await rows())[0]?.reviewers === undefined);
+
       // then
+      expect(await rows()).toHaveLength(1);
+    });
+
+    it('says nothing about the reader commenting on it themselves', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+
+      // when - the person who was asked leaves notes without deciding
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 1234, login: 'ablaszkiewicz' }, 'commented'),
+      ).expect(202);
+      await quietly();
+
+      // then - they know; the request is still theirs
       expect(updates).toEqual([]);
       expect(await rows()).toHaveLength(1);
     });
 
+    it('says nothing about the author replying in their own threads', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+
+      // when - GitHub wraps an author's inline reply in a commented review too
+      await send('pull_request_review', reviewSubmitted(AUTHOR, 'commented')).expect(202);
+      await quietly();
+
+      // then
+      expect(updates).toEqual([]);
+    });
+
+    it('says nothing about a bot leaving notes', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      const updates = captureUpdates();
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 31337, login: 'linter[bot]', type: 'Bot' }, 'commented'),
+      ).expect(202);
+      await quietly();
+
+      // then - the line says a person is on it, and a linter is not a person
+      expect(updates).toEqual([]);
+    });
+  });
+
+  describe('what does not settle a review request', () => {
     it('says nothing about a pull request nobody was asked to review', async () => {
       // given - connected, but never poked about this pull request
       await setupReviewer({ githubId: '1234' });

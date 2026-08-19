@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { GithubNotificationNormalized } from '../../../core/entities/github-notification.interface';
+import { PokeMessageReviewer } from './poke-message.interface';
 
 /**
  * How long a review request stays editable.
@@ -21,7 +22,9 @@ const RESOLVABLE_SECONDS = 48 * 60 * 60;
  *
  * The row exists to answer one question - which Slack message was that, and whose - so it holds
  * the message's address and enough of the original notification to render it a second time.
- * Rows are deleted the moment they are used; the TTL only catches the ones nothing ever settled.
+ * Rows are deleted the moment the request is settled; the TTL only catches the ones nothing
+ * ever settled. A review that reached no verdict is written onto the row rather than ending it,
+ * because it leaves the request standing.
  */
 @Schema({ collection: 'poke-messages', timestamps: true })
 export class PokeMessageEntity {
@@ -64,6 +67,17 @@ export class PokeMessageEntity {
    */
   @Prop({ type: Object })
   notification: GithubNotificationNormalized;
+
+  /**
+   * Whoever has reviewed without deciding since the poke went out, in the order they did. The
+   * message names all of them, so the second one has to be added to the first rather than
+   * written over them - and the row is the only place the first one is still known.
+   *
+   * Absent rather than empty until somebody has, like every other optional thing on a row that
+   * predates the field.
+   */
+  @Prop({ type: [Object], default: undefined })
+  reviewers?: PokeMessageReviewer[];
 
   @Prop()
   createdAt: Date;

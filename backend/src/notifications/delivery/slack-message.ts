@@ -6,6 +6,7 @@ import {
   isReviewVerdict,
   PokeResolution,
   PokeResolutionKind,
+  PokeReviewer,
 } from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 
@@ -131,16 +132,31 @@ const RESOLUTION: Record<PokeResolutionKind, { label: string; icon: string }> = 
 };
 
 /**
- * The poke, and - where one is given - the news that has since made it moot.
+ * What has happened to a review request since it was sent, where the message is being edited
+ * rather than sent for the first time.
  *
- * A resolution does not produce a different message. It produces the same message with its
- * first line struck through and a line saying who settled it, because the point of editing
- * rather than sending a second poke is that the reader recognises what they are looking at
- * without reading it again.
+ * Two fields rather than one, because they are two different kinds of news. A resolution makes
+ * the request moot and strikes the message through; reviewers leave it standing and put a line
+ * under it. Where both are given the resolution wins outright - a struck-through message is
+ * explaining why it is struck through, not keeping a roster.
+ */
+export interface PokeMessageState {
+  resolution?: PokeResolution;
+  /** In the order they reviewed. */
+  reviewers?: PokeReviewer[];
+}
+
+/**
+ * The poke, and - where any is given - the news that has arrived since.
+ *
+ * Neither kind of news produces a different message. A resolution produces the same message
+ * with its first line struck through and a line saying who settled it; a reviewer produces the
+ * same message with a line saying who has been here. The point of editing rather than sending
+ * a second poke is that the reader recognises what they are looking at without reading it again.
  */
 export function buildPokeMessage(
   notification: GithubNotificationNormalized,
-  resolution?: PokeResolution,
+  state: PokeMessageState = {},
 ): SlackMessage {
   const actor = notification.actorLogin ? `@${notification.actorLogin}` : 'Someone';
   const review = verdict(notification);
@@ -151,7 +167,8 @@ export function buildPokeMessage(
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
   const avatar = avatarUrl(notification.ownerAvatarUrl);
   const diff = notification.diff ? diffLabel(notification.diff) : undefined;
-  const settled = resolution ? settledLabel(resolution) : undefined;
+  const settled = state.resolution ? settledLabel(state.resolution) : undefined;
+  const footer = settled ?? (state.reviewers?.length ? reviewedLabel(state.reviewers) : undefined);
   // Unbolded once it is struck through: bold under a strikethrough is heavier than the live
   // messages around it, which is backwards for the one message that no longer needs doing.
   const linked = link(notification.htmlUrl, label);
@@ -163,12 +180,14 @@ export function buildPokeMessage(
     // The size rides along: deciding whether to open a review request now or later is mostly a
     // question of how big it is, and the banner is where that decision gets made.
     //
-    // The resolution goes in front rather than being struck through: this string is read in
-    // places that render no formatting at all, where tildes are just tildes.
+    // A resolution goes in front rather than being struck through: this string is read in
+    // places that render no formatting at all, where tildes are just tildes. Reviewers go at
+    // the end, because the request is still the news and they are a footnote to it.
     text:
       (settled ? `${settled.plain} · ` : '') +
       `${icon}${lead} ${label} · ${notification.repositoryFullName}` +
-      (diff ? ` (${diff})` : ''),
+      (diff ? ` (${diff})` : '') +
+      (footer && !settled ? ` · ${footer.plain}` : ''),
     blocks: [
       {
         type: 'section',
@@ -195,7 +214,9 @@ export function buildPokeMessage(
           ...(diff ? [{ type: 'mrkdwn', text: `\`${diff}\`` }] : []),
           // Last, so it reads as the outcome of everything above it rather than as a label on
           // the repository. Unstruck: it is the one part of this message that is still news.
-          ...(settled ? [{ type: 'mrkdwn', text: escape(settled.markup) }] : []),
+          // Reviewers take the same seat, so that when a verdict finally lands the line the
+          // reader already knows changes its mark rather than moving.
+          ...(footer ? [{ type: 'mrkdwn', text: escape(footer.markup) }] : []),
         ],
       },
     ],
@@ -228,13 +249,34 @@ function leadIcon(
  */
 function settledLabel(resolution: PokeResolution): { markup: string; plain: string } {
   const { label, icon } = RESOLUTION[resolution.kind];
-  const who = resolution.bySelf
-    ? 'you'
-    : resolution.actorLogin
-      ? `@${resolution.actorLogin}`
-      : 'someone';
+  const who = resolution.bySelf ? 'you' : handle(resolution.actorLogin);
 
-  return { markup: `*${label}*: ${who} ${icon}`, plain: `${label}: ${who} ${icon}` };
+  return footerLabel(label, `${who} ${icon}`);
+}
+
+/**
+ * `*Reviewed by*: @ada 💬, @grace 💬`. The same half-line, while the request still stands.
+ *
+ * The same label as a verdict and a different mark, on purpose: the reader learns one shape
+ * and reads the mark. A speech bubble is somebody talking, which is exactly what a review
+ * with no verdict is, and it is the same mark a comment poke opens with.
+ *
+ * One mark per person rather than one for the line, so that the line stays readable as a list
+ * of people rather than needing to be parsed as a sentence.
+ */
+function reviewedLabel(reviewers: PokeReviewer[]): { markup: string; plain: string } {
+  const who = reviewers.map((reviewer) => `${handle(reviewer.login)} 💬`).join(', ');
+
+  return footerLabel('Reviewed by', who);
+}
+
+function footerLabel(label: string, rest: string): { markup: string; plain: string } {
+  return { markup: `*${label}*: ${rest}`, plain: `${label}: ${rest}` };
+}
+
+/** How a person is named where GitHub told us who they are, and how where it did not. */
+function handle(login: string | undefined): string {
+  return login ? `@${login}` : 'someone';
 }
 
 /** The message the Send a test poke button produces. Deliberately not a fake notification. */

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PostHogInterceptor } from 'posthog-node/nestjs';
 import { AnalyticsService } from './analytics/analytics.service';
@@ -18,7 +19,15 @@ async function bootstrap() {
 
   // rawBody keeps the exact bytes GitHub signed. Re-serializing the parsed JSON changes key
   // order and whitespace, which changes the HMAC, so webhook verification needs the original.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+
+  // Express defaults to 100kb, and an ordinary GitHub `pull_request` delivery is bigger than
+  // that: the repository object appears three times (top level, head.repo, base.repo), plus
+  // installation, sender, organization and the whole PR body. Those deliveries were getting a
+  // 413, which GitHub records as failed and never retries, so the poke was silently lost.
+  // useBodyParser replaces Nest's default json parser but keeps the rawBody verify hook, so
+  // webhook HMAC verification still sees the exact bytes GitHub signed.
+  app.useBodyParser('json', { limit: '1mb' });
 
   app.enableShutdownHooks();
   app.enableCors({ origin: '*' });

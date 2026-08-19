@@ -17,6 +17,7 @@ import {
 import {
   PokeResolutionEvent,
   PokeResolutionService,
+  PokeReviewerEvent,
 } from '../../notifications/delivery/poke-resolution.service';
 import { ReviewBatchService } from '../../notifications/delivery/review-batch.service';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
@@ -183,7 +184,8 @@ export class GithubWebhookRouterService {
   }
 
   /**
-   * Strikes through review requests this event has settled.
+   * Edits review requests this event has moved on from: struck through where it settled them,
+   * annotated where somebody merely reviewed without deciding.
    *
    * Above the early returns, like remembering a comment's author, and for a sharper version of
    * the same reason: the events that settle a review request usually poke nobody at all. The
@@ -191,18 +193,29 @@ export class GithubWebhookRouterService {
    * candidates would miss precisely the case it exists for.
    *
    * This is also why it is not folded into `resolve`: that maps an event onto people it
-   * concerns, and the people concerned here are the ones who are now off the hook.
+   * concerns, and the people concerned here are the ones who are now off the hook - or who can
+   * see somebody else is already on it.
    */
-  private async resolveSettledPokes(event: string, payload: any): Promise<void> {
+  private async editOutstandingPokes(event: string, payload: any): Promise<void> {
     const repositoryFullName = payload?.repository?.full_name;
     const number = payload?.pull_request?.number;
-    const settled = readResolution(event, payload);
 
-    if (!settled || !repositoryFullName || !Number.isFinite(number)) {
+    if (!repositoryFullName || !Number.isFinite(number)) {
       return;
     }
 
-    await this.pokeResolutionService.resolve(repositoryFullName, Number(number), settled);
+    const settled = readResolution(event, payload);
+
+    if (settled) {
+      await this.pokeResolutionService.resolve(repositoryFullName, Number(number), settled);
+      return;
+    }
+
+    const reviewer = readReviewer(event, payload);
+
+    if (reviewer) {
+      await this.pokeResolutionService.annotate(repositoryFullName, Number(number), reviewer);
+    }
   }
 
   public async route(event: string, payload: any): Promise<void> {
@@ -210,7 +223,7 @@ export class GithubWebhookRouterService {
     // the only time we are told who wrote this comment - the reply that makes it matter can
     // arrive hours later, and asking GitHub then costs a call this line just saved.
     this.rememberCommentAuthor(event, payload);
-    await this.resolveSettledPokes(event, payload);
+    await this.editOutstandingPokes(event, payload);
 
     const candidates = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
 
@@ -873,6 +886,41 @@ function readResolution(event: string, payload: any): PokeResolutionEvent | unde
   }
 
   return undefined;
+}
+
+/**
+ * Who, if anybody, this event says has reviewed the pull request without deciding about it.
+ *
+ * A submitted review with no verdict, and nothing else. A comment in the conversation is
+ * somebody talking, not somebody reviewing, and "Reviewed by" would claim more than happened;
+ * the inline comments, by contrast, already arrive inside one of these, because GitHub opens a
+ * commented review around every one.
+ *
+ * Which is also why the author is left out: replying in a thread on your own pull request opens
+ * one of these too, and the author answering their reviewers is not a review. Bots are left out
+ * because the line exists to say a person is already on this, and a linter is not a person -
+ * unlike a verdict, where what a bot does to a pull request counts as much as anybody's.
+ */
+function readReviewer(event: string, payload: any): PokeReviewerEvent | undefined {
+  if (event !== 'pull_request_review' || payload?.action !== 'submitted') {
+    return undefined;
+  }
+
+  // The state is checked by name rather than as "not a verdict": GitHub has more states than
+  // the three a submission carries, and a review that is none of them should annotate nothing.
+  const reviewer = payload.review?.user;
+
+  if (payload.review?.state !== 'commented' || !reviewer || isBot(reviewer)) {
+    return undefined;
+  }
+
+  const reviewerId = identifier(reviewer.id);
+
+  if (reviewerId !== undefined && reviewerId === identifier(payload.pull_request?.user?.id)) {
+    return undefined;
+  }
+
+  return { actorGithubId: reviewerId, actorLogin: reviewer.login };
 }
 
 /**
