@@ -793,10 +793,29 @@ describe('Webhooks (github)', () => {
         sender: { id: 1234, login: 'reviewer-lottery[bot]', type: 'Bot' },
       });
 
-      // then
+      // then - in the author's name, not the bot's: whose work is waiting is the point of the line
       expect(await firstNotification()).toMatchObject({
         type: NotificationType.ReviewRequested,
+        actorLogin: 'author',
       });
+    });
+
+    it('names the person who asked when a person asked', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'ablaszkiewicz',
+      });
+      await subscribe(user.id);
+
+      // when - a colleague, not the author, pulls you in
+      await send('pull_request', {
+        ...reviewRequestedPayload(4242),
+        sender: { id: 1234, login: 'grace' },
+      });
+
+      // then
+      expect(await firstNotification()).toMatchObject({ actorLogin: 'grace' });
     });
 
     it('matches a handle regardless of case', async () => {
@@ -1232,10 +1251,11 @@ describe('Webhooks (github)', () => {
         sender: { id: 555, login: 'pr-assigner[bot]', type: 'Bot' },
       });
 
-      // then
+      // then - and in the author's name, same as when a bot asks a person
       expect(await firstNotification()).toMatchObject({
         type: NotificationType.ReviewRequested,
         teamHandle: 'acme/reviewers',
+        actorLogin: 'author',
       });
     });
 

@@ -578,7 +578,11 @@ export class GithubWebhookRouterService {
       return [
         {
           recipient: { githubId: String(payload.requested_reviewer.id) },
-          notification: this.build(NotificationType.ReviewRequested, subject, context),
+          notification: this.build(
+            NotificationType.ReviewRequested,
+            subject,
+            requester(payload, context),
+          ),
         },
       ];
     }
@@ -612,7 +616,12 @@ export class GithubWebhookRouterService {
       return [
         {
           recipient: { team },
-          notification: this.build(NotificationType.ReviewRequested, subject, context, team.handle),
+          notification: this.build(
+            NotificationType.ReviewRequested,
+            subject,
+            requester(payload, context),
+            team.handle,
+          ),
         },
       ];
     }
@@ -840,6 +849,29 @@ export class GithubWebhookRouterService {
       commentId: subject.commentId,
     };
   }
+}
+
+/**
+ * Whose name goes on a review request.
+ *
+ * In a busy repository most requests are made by a bot - a CODEOWNERS resolver, an assignment
+ * action - on the author's behalf, seconds after the pull request opens. "pr-assigner[bot]
+ * requested your review" is true and useless: what the reader wants from the line is whose
+ * work is waiting on them, and that is the author. So a bot's ask is put in the author's name,
+ * and a person's left in theirs - somebody asking you to look at a colleague's pull request is
+ * news in itself.
+ *
+ * The sender itself is untouched: the rule that nobody is poked about their own action still
+ * goes by who actually did it.
+ */
+function requester(payload: any, context: EventContext): EventContext {
+  const author = payload?.pull_request?.user?.login;
+
+  if (!isBot(payload?.sender) || !author) {
+    return context;
+  }
+
+  return { ...context, actorLogin: author };
 }
 
 /**
