@@ -190,7 +190,7 @@ export const slackLogic = kea<slackLogicType>([
       } catch (error: any) {
         actions.setTestState("idle");
         actions.setActionError(
-          error?.response?.data?.message ?? "Could not send a test poke"
+          error?.response?.data?.message ?? "Could not send a test proke"
         );
 
         return;

@@ -88,7 +88,7 @@ export function SplitDraft() {
 
         <section className="flex min-h-0 flex-col gap-3">
           <div className="flex items-center justify-between">
-            <Eyebrow>What pokes you</Eyebrow>
+            <Eyebrow>What prokes you</Eyebrow>
             <label className="flex cursor-not-allowed items-center gap-2 text-xs text-muted-foreground">
               <LockedCheckbox className="size-3.5" />
               All repos

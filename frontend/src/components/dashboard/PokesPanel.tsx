@@ -18,7 +18,7 @@ export function PokesPanel() {
   return (
     <section className="flex flex-col rounded-xl border p-5">
       <header className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-sm font-medium">What pokes you</h2>
+        <h2 className="text-sm font-medium">What prokes you</h2>
         <span className="text-xs text-muted-foreground">All repos · every kind</span>
       </header>
 

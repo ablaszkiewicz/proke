@@ -73,7 +73,7 @@ export function SlackPanel({
           <p key={mode} className="animate-fade-in truncate text-xs text-muted-foreground">
             {mode === "loading" ? "Loading…" : null}
             {mode === "unconfigured" ? "Not set up on this server yet." : null}
-            {mode === "unlinked" ? "Not connected, so pokes have nowhere to go." : null}
+            {mode === "unlinked" ? "Not connected, so prokes have nowhere to go." : null}
             {/*
               Two steps, and this is the second one - so it says so. Naming the state as
               progress rather than as a contradiction ("you're here, but proke isn't") keeps
@@ -120,7 +120,7 @@ export function SlackPanel({
                 onClick={onTest}
               >
                 <span key={testState} className="animate-fade-in">
-                  {testState === "sent" ? "Sent" : "Send a test poke"}
+                  {testState === "sent" ? "Sent" : "Send a test proke"}
                 </span>
               </Button>
             </>

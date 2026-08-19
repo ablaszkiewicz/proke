@@ -179,7 +179,7 @@ export function PipelineDraft() {
           }
         />
 
-        <Stage column="col-start-3" title="Events" hint="What is worth a poke — all on">
+        <Stage column="col-start-3" title="Events" hint="What is worth a proke — all on">
           <ul className="space-y-1.5">
             {NOTIFICATION_TYPES.map((descriptor) => {
               const isActive = descriptor.type === active.type;

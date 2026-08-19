@@ -159,7 +159,7 @@ export const POKE_INTRO_PREVIEWS: PokePreview[] = [
   {
     actor: "ada",
     lead: "merged",
-    subject: "Send pokes as blocks #479",
+    subject: "Send prokes as blocks #479",
     repository: "acme/api",
   },
   {

@@ -82,7 +82,7 @@ export function FeedDraft() {
       <main className="flex min-h-0 flex-col">
         <div className="flex items-center justify-between border-b px-5 py-3">
           <div>
-            <p className="text-sm font-medium"># pokes</p>
+            <p className="text-sm font-medium"># prokes</p>
             <p className="text-xs text-muted-foreground">
               Six kinds, all on. This is what lands in Slack.
             </p>

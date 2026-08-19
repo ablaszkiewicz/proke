@@ -284,13 +284,13 @@ export function buildTestMessage(githubLogin?: string): SlackMessage {
   const who = githubLogin ? `@${githubLogin}` : 'you';
 
   return {
-    text: 'proke is connected — this is where your pokes will arrive.',
+    text: 'proke is connected — this is where your prokes will arrive.',
     blocks: [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `*proke is connected.* This is where GitHub pokes for ${escape(who)} will arrive.`,
+          text: `*proke is connected.* This is where GitHub prokes for ${escape(who)} will arrive.`,
         },
       },
     ],

@@ -152,7 +152,7 @@ export function MatrixDraft() {
             All repos, every kind — locked for now
           </label>
           <p>
-            Hover a column to see the poke it produces. Each cell becomes a real
+            Hover a column to see the proke it produces. Each cell becomes a real
             switch when the repo picker lands.
           </p>
         </div>
