@@ -1,0 +1,155 @@
+name: Deploy host monitoring
+
+# Puts CPU load, memory, disk and network usage for the VPS itself into PostHog Metrics,
+# alongside the application metrics proke already sends from inside the backend.
+#
+# Two containers, because the two halves speak opposite protocols:
+#
+#   node-exporter  --(Prometheus text on 127.0.0.1:9100)-->  metrics-agent  --(OTLP)-->  PostHog
+#
+# node-exporter publishes and waits to be scraped; PostHog ingests OTLP pushed at it. Nothing
+# connects those directly, so the agent - PostHog's own image, an OpenTelemetry Collector with
+# a rendered config - sits in the middle and turns one into the other. This is also why the
+# application's own metrics do not go through any of this: posthog-node pushes OTLP itself, so
+# for proke's own code there is nothing to scrape.
+#
+# Deployed the same way as Caddy: pre-built images pulled on the VPS over SSH, config copied
+# up beside them. No new secrets - reuses the SSH_* secrets and the same PostHog credentials
+# the backend deploy already uses.
+#
+# One-time prerequisites: none. Neither container publishes a port, so no firewall change is
+# needed - see the loopback bind below.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'monitoring/**'
+      - '.github/workflows/monitoring-deploy.yml'
+
+env:
+  # Pinned rather than :latest, like caddy-deploy.yml. An exporter that changes what it emits
+  # under you is a cardinality change nobody reviewed.
+  NODE_EXPORTER_IMAGE: prom/node-exporter:v1.9.1
+  # Published by PostHog's CD to Docker Hub and ghcr.io alike; 0.2.0 is the chart's appVersion.
+  AGENT_IMAGE: posthog/metrics-agent:0.2.0
+  NODE_EXPORTER_NAME: proke-node-exporter
+  AGENT_NAME: proke-metrics-agent
+  REMOTE_DIR: proke/monitoring
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy scrape config to server
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: monitoring/scrape_configs.yaml
+          target: ${{ env.REMOTE_DIR }}
+          strip_components: 1
+
+      - name: Deploy monitoring containers over SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          # Read from both namespaces because they are separate in GitHub and this repo has
+          # only ever referenced the variable (backend-deploy.yml). An empty string is falsy in
+          # an Actions expression, so whichever one is actually set wins and neither has to be
+          # renamed. The script refuses to deploy if that still comes out blank.
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST || vars.POSTHOG_HOST }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          USERNAME: ${{ secrets.SSH_USERNAME }}
+          PORT: ${{ secrets.SSH_PORT }}
+          KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: NODE_EXPORTER_IMAGE,AGENT_IMAGE,NODE_EXPORTER_NAME,AGENT_NAME,REMOTE_DIR,POSTHOG_API_KEY,POSTHOG_HOST
+          script: |
+            set -e
+
+            # Both are fatal rather than defaulted, and the host one especially. The agent falls
+            # back to the US ingestion origin when POSTHOG_HOST is unset, and proke's project is
+            # in the EU - so the failure would not be an error anywhere. It would be a container
+            # that looks healthy, pushes happily, and puts every host metric somewhere this
+            # project cannot see. A deploy that stops here is far cheaper to diagnose.
+            if [ -z "$POSTHOG_API_KEY" ]; then
+              echo "POSTHOG_API_KEY is empty - refusing to deploy the metrics agent" >&2
+              exit 1
+            fi
+            if [ -z "$POSTHOG_HOST" ]; then
+              echo "POSTHOG_HOST is empty - refusing to deploy rather than defaulting to US" >&2
+              exit 1
+            fi
+
+            docker pull "$NODE_EXPORTER_IMAGE"
+            docker pull "$AGENT_IMAGE"
+
+            # --- node-exporter -------------------------------------------------------------
+            #
+            # --network host and --pid host with the host root bind-mounted at /host is
+            # node-exporter's own documented shape, and it is not optional here: on a bridge
+            # network the netdev collector reports the container's virtual interface and the
+            # filesystem collector reports the container's overlay, so the numbers would be
+            # real, self-consistent, and about the wrong machine.
+            #
+            # --web.listen-address binds loopback rather than 0.0.0.0. Docker writes its own
+            # iptables rules that most host firewalls never see, so a published port here would
+            # put a complete inventory of this box - kernel version, mount points, interface
+            # names - on the public IP whatever ufw thinks. The agent reaches it because the
+            # two share a network namespace.
+            #
+            # --collector.disable-defaults turns everything off, then four collectors come back
+            # on. The exclusions drop Docker's own overlay mounts and virtual interfaces, which
+            # otherwise dominate the series count on a machine whose whole job is containers.
+            docker rm -f "$NODE_EXPORTER_NAME" || true
+            docker run -d \
+              --name "$NODE_EXPORTER_NAME" \
+              --restart=always \
+              --network host \
+              --pid host \
+              -v /:/host:ro,rslave \
+              "$NODE_EXPORTER_IMAGE" \
+              --path.rootfs=/host \
+              --web.listen-address=127.0.0.1:9100 \
+              --collector.disable-defaults \
+              --collector.cpu \
+              --collector.loadavg \
+              --collector.meminfo \
+              --collector.filesystem \
+              --collector.netdev \
+              --collector.filesystem.mount-points-exclude='^/(dev|proc|sys|run|var/lib/docker/.+|host/(dev|proc|sys|run|var/lib/docker/.+))($|/)' \
+              --collector.filesystem.fs-types-exclude='^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$' \
+              --collector.netdev.device-exclude='^(lo|docker[0-9]+|br-.+|veth.+)$'
+
+            # --- PostHog metrics agent -----------------------------------------------------
+            #
+            # SCRAPE_TARGETS is deliberately unset: mounting scrape_configs.yaml replaces the
+            # job the agent would render from it, which is the only way to attach the
+            # metric_relabel_configs that keep this inside the series budget. The agent needs
+            # one or the other and refuses to start with neither.
+            #
+            # --network host so 127.0.0.1:9100 resolves to node-exporter above. Nothing is
+            # published; the only traffic out of this container is HTTPS to PostHog.
+            #
+            # PERSIST_QUEUE with a named volume means a restart during a PostHog outage
+            # delivers on recovery instead of losing the window - the same reasoning as
+            # flushing analytics on SIGTERM in the backend.
+            docker rm -f "$AGENT_NAME" || true
+            docker run -d \
+              --name "$AGENT_NAME" \
+              --restart=always \
+              --network host \
+              -e POSTHOG_API_KEY="$POSTHOG_API_KEY" \
+              -e POSTHOG_HOST="$POSTHOG_HOST" \
+              -e PERSIST_QUEUE=1 \
+              -v "$HOME/${REMOTE_DIR}/scrape_configs.yaml:/etc/posthog/scrape_configs.yaml:ro" \
+              -v proke-metrics-agent-queue:/var/lib/posthog-agent \
+              "$AGENT_IMAGE"

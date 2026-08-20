@@ -1,0 +1,64 @@
+# What the PostHog metrics agent scrapes, and - more to the point - what it throws away.
+#
+# Mounted at /etc/posthog/scrape_configs.yaml, which is the agent's documented escape hatch:
+# a bare list of Prometheus scrape_configs that replaces the job it would otherwise render
+# from SCRAPE_TARGETS, while keeping its PostHog exporter wiring. The entrypoint re-indents
+# this file under its prometheus receiver, so it has to stay a top-level list.
+#
+# ## Why the filtering is the important half of this file
+#
+# A metric series is its name plus every label value, and the SDK flush window holds a
+# thousand series across the whole process before it starts dropping new ones - silently,
+# past a single warning. proke's own ten metrics already sit at roughly 200. node-exporter
+# with its defaults on emits several thousand, so pointing the agent at an unfiltered
+# exporter would not look like a mistake: it would look like the application metrics
+# quietly going missing a few days later.
+#
+# So this is filtered twice, and deliberately. node-exporter itself runs with
+# --collector.disable-defaults and four collectors turned back on (see the deploy workflow),
+# which is what keeps the scrape cheap. The keep rule below is the backstop that decides what
+# actually becomes a series, and it is the one to edit when this list needs to change.
+#
+# Budget at the time of writing: ~3 load + ~4N cpu + 2 memory + 2 per real filesystem +
+# 2 per real interface. On a small VPS that is well under 40 series.
+
+  # The job name becomes `service_name` on every metric in PostHog, and target labels cannot
+  # override it. Deliberately not `proke-backend` - that name belongs to the application's own
+  # metrics and logs, and folding the host into it would make the service filter useless for
+  # telling "the box is busy" apart from "the app is busy".
+- job_name: proke-host
+
+  # Host metrics move slowly and this is a single small server. 30s halves the points on the
+  # wire against the agent's 15s default while staying far finer than the per-minute charts
+  # anything here is read through.
+  scrape_interval: 30s
+
+  static_configs:
+    # node-exporter binds loopback only (see the workflow), so this is reachable because both
+    # containers share the host network namespace - and unreachable from anywhere else.
+    - targets: ['127.0.0.1:9100']
+
+  metric_relabel_configs:
+    # The allowlist. Anything not named here never becomes a series, whatever a future
+    # node-exporter version decides to start exposing.
+    #
+    #   node_load{1,5,15}                     - CPU load, the thing actually asked for
+    #   node_cpu_seconds_total                - per-core counter, for utilisation as a rate
+    #   node_memory_MemTotal/MemAvailable     - RAM: used = total - available
+    #   node_filesystem_size/avail_bytes      - disk space per mount
+    #   node_network_receive/transmit_bytes   - network throughput per interface
+    - source_labels: [__name__]
+      action: keep
+      regex: >-
+        node_load(1|5|15)|node_cpu_seconds_total|node_memory_(MemTotal|MemAvailable)_bytes|node_filesystem_(size|avail)_bytes|node_network_(receive|transmit)_bytes_total
+
+    # node_cpu_seconds_total is one series per core per mode, so the mode list is a
+    # multiplier on core count - eight modes on a four-core box is 32 series for a number
+    # three of them answer. Kept: idle (utilisation is 1 - its rate), plus the three that say
+    # what the busy time went on. Dropped: nice, irq, softirq, steal, guest, guest_nice.
+    #
+    # Metrics with no `mode` label present an empty value here, which matches nothing in the
+    # regex, so this rule only ever touches the CPU series.
+    - source_labels: [mode]
+      action: drop
+      regex: (nice|irq|softirq|steal|guest|guest_nice)
