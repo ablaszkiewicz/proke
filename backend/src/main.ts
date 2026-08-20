@@ -10,6 +10,7 @@ import {
   getEnvConfig,
   isAnalyticsConfigured,
 } from './shared/configs/env-configs';
+import { PosthogLogger } from './shared/logging/posthog-logger';
 import { buildValidationPipe } from './shared/validation/validation-pipe';
 
 async function bootstrap() {
@@ -19,7 +20,18 @@ async function bootstrap() {
 
   // rawBody keeps the exact bytes GitHub signed. Re-serializing the parsed JSON changes key
   // order and whitespace, which changes the HMAC, so webhook verification needs the original.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  //
+  // bufferLogs holds Nest's own bootstrap lines until useLogger below swaps in the logger that
+  // also ships to PostHog, so startup is in the log too. A boot that dies before then still
+  // prints: Nest's exceptions zone flushes the buffer through the default logger.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+    bufferLogs: true,
+  });
+
+  // From here on, every `new Logger(...)` in the codebase writes to the console as before and
+  // is copied to PostHog Logs - one logger, resolved through the injector so shutdown flushes it.
+  app.useLogger(app.get(PosthogLogger));
 
   // Express defaults to 100kb, and an ordinary GitHub `pull_request` delivery is bigger than
   // that: the repository object appears three times (top level, head.repo, base.repo), plus
@@ -69,7 +81,7 @@ function installAnalyticsInterceptor(app: Awaited<ReturnType<typeof NestFactory.
     // is the intended state, but on a deployed box it means events are going nowhere and the
     // only symptom is an empty dashboard nobody thinks to distrust.
     if (process.env.NODE_ENV === 'production') {
-      logger.warn('POSTHOG_API_KEY is not set - no analytics will be captured.');
+      logger.warn('POSTHOG_API_KEY is not set - no analytics or logs will be captured.');
     }
 
     return;
