@@ -205,10 +205,10 @@ describe('Poke resolution', () => {
       expect(updates[0].ts).toEqual('1700000000.000100');
       // The same message, struck through - not a new one, and not a different sentence.
       expect(lead(updates[0])).toEqual(
-        '~👀 @author requested your review on ' +
+        '~👀 <https://github.com/author|@author> requested your review on ' +
           '<https://github.com/ablaszkiewicz/proke/pull/9|Wire up webhooks #9>~',
       );
-      expect(footer(updates[0])).toEqual('*Reviewed by*: @grace ✅');
+      expect(footer(updates[0])).toEqual('*Reviewed by*: <https://github.com/grace|@grace> ✅');
       // Everything the original said about the change survives the edit.
       // No avatar on this payload, so the context row is the name, the size, and the verdict.
       expect(updates[0].blocks[1].elements[0].text).toEqual('ablaszkiewicz/proke');
@@ -277,9 +277,11 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length === 2);
-      expect(updates.every((update) => footer(update) === '*Reviewed by*: @linus ✅')).toEqual(
-        true,
-      );
+      expect(
+        updates.every(
+          (update) => footer(update) === '*Reviewed by*: <https://github.com/linus|@linus> ✅',
+        ),
+      ).toEqual(true);
     });
   });
 
@@ -336,7 +338,9 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('*Merged by*: @maintainer ✅');
+      expect(footer(updates[0])).toEqual(
+        '*Merged by*: <https://github.com/maintainer|@maintainer> ✅',
+      );
     });
 
     it('strikes it through as closed when it was abandoned', async () => {
@@ -351,7 +355,9 @@ describe('Poke resolution', () => {
 
       // then
       await waitFor(() => updates.length > 0);
-      expect(footer(updates[0])).toEqual('*Closed by*: @maintainer 🚫');
+      expect(footer(updates[0])).toEqual(
+        '*Closed by*: <https://github.com/maintainer|@maintainer> 🚫',
+      );
     });
   });
 
@@ -380,10 +386,10 @@ describe('Poke resolution', () => {
       expect(updates[0].channel).toEqual('D0ADA');
       expect(updates[0].ts).toEqual('1700000000.000100');
       expect(lead(updates[0])).toEqual(
-        '👀 @author requested your review on ' +
+        '👀 <https://github.com/author|@author> requested your review on ' +
           '*<https://github.com/ablaszkiewicz/proke/pull/9|Wire up webhooks #9>*',
       );
-      expect(footer(updates[0])).toEqual('*Reviewed by*: @grace 💬');
+      expect(footer(updates[0])).toEqual('*Reviewed by*: <https://github.com/grace|@grace> 💬');
       // A footnote to the request, so it trails the fallback rather than leading it.
       expect(updates[0].text).toEqual(
         '👀 @author requested your review on Wire up webhooks #9 · ablaszkiewicz/proke ' +
@@ -413,7 +419,9 @@ describe('Poke resolution', () => {
 
       // then - in the order they reviewed
       await waitFor(() => updates.length === 2);
-      expect(footer(updates[1])).toEqual('*Reviewed by*: @grace 💬, @linus 💬');
+      expect(footer(updates[1])).toEqual(
+        '*Reviewed by*: <https://github.com/grace|@grace> 💬, <https://github.com/linus|@linus> 💬',
+      );
     });
 
     it('names the same person once however many times they comment', async () => {
@@ -461,7 +469,7 @@ describe('Poke resolution', () => {
       // then - the verdict takes the line; who commented before it is no longer the news
       await waitFor(() => updates.length === 2);
       expect(lead(updates[1])).toMatch(/^~.*~$/);
-      expect(footer(updates[1])).toEqual('*Reviewed by*: @linus ✅');
+      expect(footer(updates[1])).toEqual('*Reviewed by*: <https://github.com/linus|@linus> ✅');
       await waitFor(async () => (await rows()).length === 0);
     });
 

@@ -129,10 +129,15 @@ describe('Slack delivery', () => {
       // when
       await delivery().deliver(user, notification({ type: NotificationType.PullRequestComment }));
 
-      // then - the link finishes the sentence, and carries the number people quote at you
+      // then - the link finishes the sentence, and carries the number people quote at you.
+      // The actor is a link too, to the GitHub profile: left bare, Slack matches @-tokens
+      // against workspace usernames and lights up the wrong person's long-dead handle.
       expect(lead(posts)).toEqual(
-        '💬 @ada commented on *<https://github.com/ablaszkiewicz/proke/pull/42|Make the reel blur honest #42>*',
+        '💬 <https://github.com/ada|@ada> commented on ' +
+          '*<https://github.com/ablaszkiewicz/proke/pull/42|Make the reel blur honest #42>*',
       );
+      // The banner renders no markup, so there the handle stays bare.
+      expect(posts[0].text).toContain('💬 @ada commented on');
     });
 
     it('marks an approval and a request for changes differently', async () => {
@@ -154,8 +159,10 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('✅ @ada approved *<');
-      expect(posts[1].blocks[0].text.text).toContain('❌ @ada requested changes on *<');
+      expect(lead(posts)).toContain('✅ <https://github.com/ada|@ada> approved *<');
+      expect(posts[1].blocks[0].text.text).toContain(
+        '❌ <https://github.com/ada|@ada> requested changes on *<',
+      );
       expect(posts[0].text).toContain('✅');
     });
 
@@ -171,7 +178,7 @@ describe('Slack delivery', () => {
       );
 
       // then - no marker, because there is no verdict to mark
-      expect(lead(posts)).toContain('@ada reviewed *<');
+      expect(lead(posts)).toContain('<https://github.com/ada|@ada> reviewed *<');
       expect(lead(posts)).not.toContain('✅');
       expect(lead(posts)).not.toContain('❌');
     });
@@ -186,8 +193,10 @@ describe('Slack delivery', () => {
       await delivery().deliver(user, notification({ type: NotificationType.PullRequestMention }));
 
       // then
-      expect(lead(posts)).toContain('@ada mentioned you on *<');
-      expect(posts[1].blocks[0].text.text).toContain('@ada mentioned you on *<');
+      expect(lead(posts)).toContain('<https://github.com/ada|@ada> mentioned you on *<');
+      expect(posts[1].blocks[0].text.text).toContain(
+        '<https://github.com/ada|@ada> mentioned you on *<',
+      );
     });
 
     it('names the team rather than claiming the person was named', async () => {
@@ -202,7 +211,9 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('@ada mentioned @acme/reviewers on *<');
+      expect(lead(posts)).toContain(
+        '<https://github.com/ada|@ada> mentioned @acme/reviewers on *<',
+      );
     });
 
     it('names the team rather than claiming the review was asked of you personally', async () => {
@@ -220,7 +231,9 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain("@ada requested @acme/reviewers's review on *<");
+      expect(lead(posts)).toContain(
+        "<https://github.com/ada|@ada> requested @acme/reviewers's review on *<",
+      );
     });
 
     it('drops the number when the payload had none', async () => {
@@ -314,7 +327,9 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('✅ @ada approved and left 3 comments on *<');
+      expect(lead(posts)).toContain(
+        '✅ <https://github.com/ada|@ada> approved and left 3 comments on *<',
+      );
     });
 
     it('counts a single comment as one', async () => {
@@ -333,7 +348,9 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('✅ @ada approved and left a comment on *<');
+      expect(lead(posts)).toContain(
+        '✅ <https://github.com/ada|@ada> approved and left a comment on *<',
+      );
     });
 
     it('stays grammatical when a verdict gains a second clause', async () => {
@@ -353,7 +370,9 @@ describe('Slack delivery', () => {
       );
 
       // then - not "requested changes on and left 2 comments on"
-      expect(lead(posts)).toContain('❌ @ada requested changes and left 2 comments on *<');
+      expect(lead(posts)).toContain(
+        '❌ <https://github.com/ada|@ada> requested changes and left 2 comments on *<',
+      );
     });
 
     it('counts comments that came with no verdict in front of them', async () => {
@@ -371,7 +390,7 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('@ada left 4 comments on *<');
+      expect(lead(posts)).toContain('<https://github.com/ada|@ada> left 4 comments on *<');
     });
 
     it('does not let being named collapse into being commented at', async () => {
@@ -389,7 +408,9 @@ describe('Slack delivery', () => {
       );
 
       // then
-      expect(lead(posts)).toContain('@ada mentioned you in 2 comments on *<');
+      expect(lead(posts)).toContain(
+        '<https://github.com/ada|@ada> mentioned you in 2 comments on *<',
+      );
     });
 
     it('quotes the one comment the batch chose, under the whole sentence', async () => {

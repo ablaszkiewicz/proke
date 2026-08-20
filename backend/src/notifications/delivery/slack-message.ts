@@ -158,10 +158,15 @@ export function buildPokeMessage(
   notification: GithubNotificationNormalized,
   state: PokeMessageState = {},
 ): SlackMessage {
-  const actor = notification.actorLogin ? `@${notification.actorLogin}` : 'Someone';
   const review = verdict(notification);
+  const deed = sentence(leadClauses(notification, review));
 
-  const lead = `${actor} ${sentence(leadClauses(notification, review))}`;
+  // The person twice over: linked to their GitHub profile in the blocks, bare in the fallback,
+  // which is read in banners that render no markup. Why a link at all is handleLink's story.
+  const actor = notification.actorLogin ? `@${notification.actorLogin}` : 'Someone';
+  const actorLinked = notification.actorLogin ? handleLink(notification.actorLogin) : 'Someone';
+
+  const lead = `${actor} ${deed}`;
   const icon = leadIcon(notification, review);
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
@@ -172,7 +177,7 @@ export function buildPokeMessage(
   // Unbolded once it is struck through: bold under a strikethrough is heavier than the live
   // messages around it, which is backwards for the one message that no longer needs doing.
   const linked = link(notification.htmlUrl, label);
-  const headline = `${icon}${escape(lead)} ${settled ? linked : `*${linked}*`}`;
+  const headline = `${icon}${actorLinked} ${escape(deed)} ${settled ? linked : `*${linked}*`}`;
 
   return {
     // Slack shows this, not the blocks, in the notification banner and the sidebar preview -
@@ -215,8 +220,9 @@ export function buildPokeMessage(
           // Last, so it reads as the outcome of everything above it rather than as a label on
           // the repository. Unstruck: it is the one part of this message that is still news.
           // Reviewers take the same seat, so that when a verdict finally lands the line the
-          // reader already knows changes its mark rather than moving.
-          ...(footer ? [{ type: 'mrkdwn', text: escape(footer.markup) }] : []),
+          // reader already knows changes its mark rather than moving. Not escaped here - the
+          // markup carries the reviewers' profile links, so the builders escape what needs it.
+          ...(footer ? [{ type: 'mrkdwn', text: footer.markup }] : []),
         ],
       },
     ],
@@ -249,9 +255,11 @@ function leadIcon(
  */
 function settledLabel(resolution: PokeResolution): { markup: string; plain: string } {
   const { label, icon } = RESOLUTION[resolution.kind];
-  const who = resolution.bySelf ? 'you' : handle(resolution.actorLogin);
+  const who = resolution.bySelf
+    ? { linked: 'you', plain: 'you' }
+    : { linked: handleLink(resolution.actorLogin), plain: handle(resolution.actorLogin) };
 
-  return footerLabel(label, `${who} ${icon}`);
+  return footerLabel(label, `${who.linked} ${icon}`, `${who.plain} ${icon}`);
 }
 
 /**
@@ -265,13 +273,18 @@ function settledLabel(resolution: PokeResolution): { markup: string; plain: stri
  * of people rather than needing to be parsed as a sentence.
  */
 function reviewedLabel(reviewers: PokeReviewer[]): { markup: string; plain: string } {
-  const who = reviewers.map((reviewer) => `${handle(reviewer.login)} 💬`).join(', ');
+  const linked = reviewers.map((reviewer) => `${handleLink(reviewer.login)} 💬`).join(', ');
+  const plain = reviewers.map((reviewer) => `${handle(reviewer.login)} 💬`).join(', ');
 
-  return footerLabel('Reviewed by', who);
+  return footerLabel('Reviewed by', linked, plain);
 }
 
-function footerLabel(label: string, rest: string): { markup: string; plain: string } {
-  return { markup: `*${label}*: ${rest}`, plain: `${label}: ${rest}` };
+function footerLabel(
+  label: string,
+  markup: string,
+  plain: string,
+): { markup: string; plain: string } {
+  return { markup: `*${label}*: ${markup}`, plain: `${label}: ${plain}` };
 }
 
 /** How a person is named where GitHub told us who they are, and how where it did not. */
@@ -279,9 +292,21 @@ function handle(login: string | undefined): string {
   return login ? `@${login}` : 'someone';
 }
 
+/**
+ * The same name, linked to the GitHub profile it belongs to - for the mrkdwn half of a message.
+ *
+ * The link does two jobs. It puts the right person one click away, and it stops Slack guessing:
+ * left bare, an @-token gets matched against workspace usernames, which are frozen at signup
+ * and outlive their accounts, so `@jsmith` routinely lights up a colleague's long-dead handle
+ * instead of the GitHub user who actually acted.
+ */
+function handleLink(login: string | undefined): string {
+  return login ? link(`https://github.com/${encodeURIComponent(login)}`, `@${login}`) : 'someone';
+}
+
 /** The message the Send a test poke button produces. Deliberately not a fake notification. */
 export function buildTestMessage(githubLogin?: string): SlackMessage {
-  const who = githubLogin ? `@${githubLogin}` : 'you';
+  const who = githubLogin ? handleLink(githubLogin) : 'you';
 
   return {
     text: 'proke is connected — this is where your prokes will arrive.',
@@ -290,7 +315,7 @@ export function buildTestMessage(githubLogin?: string): SlackMessage {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `*proke is connected.* This is where GitHub prokes for ${escape(who)} will arrive.`,
+          text: `*proke is connected.* This is where GitHub prokes for ${who} will arrive.`,
         },
       },
     ],
