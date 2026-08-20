@@ -96,6 +96,17 @@ export interface GithubNotificationNormalized {
    * batched with anything.
    */
   comments?: GithubNotificationComments;
+  /**
+   * When GitHub's webhook reached us, as epoch millis. Carried purely so delivery can measure
+   * how long the poke took to arrive, which is the one number that describes the promise this
+   * product makes and the one nothing else here could answer - the endpoint acknowledges in a
+   * millisecond and does the work detached, so response time says nothing about it.
+   *
+   * Absent on the two synthetic messages, which come from a button rather than from GitHub, and
+   * on any poke rebuilt from a stored row - by then the number would describe a webhook from
+   * hours ago rather than the edit being sent.
+   */
+  receivedAt?: number;
 }
 
 /**

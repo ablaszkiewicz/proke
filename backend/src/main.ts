@@ -51,7 +51,7 @@ async function bootstrap() {
 
   app.useGlobalPipes(buildValidationPipe());
 
-  installAnalyticsInterceptor(app);
+  installAnalyticsInterceptors(app);
 
   await app.init();
   await app.listen(getEnvConfig().app.port);
@@ -73,7 +73,7 @@ async function bootstrap() {
  * Exception capture is left off (the default). Error tracking is a separate decision from
  * product analytics and should be turned on deliberately, not inherited from this.
  */
-function installAnalyticsInterceptor(app: Awaited<ReturnType<typeof NestFactory.create>>): void {
+function installAnalyticsInterceptors(app: Awaited<ReturnType<typeof NestFactory.create>>): void {
   const logger = new Logger('Analytics');
 
   if (!isAnalyticsConfigured()) {
@@ -81,7 +81,7 @@ function installAnalyticsInterceptor(app: Awaited<ReturnType<typeof NestFactory.
     // is the intended state, but on a deployed box it means events are going nowhere and the
     // only symptom is an empty dashboard nobody thinks to distrust.
     if (process.env.NODE_ENV === 'production') {
-      logger.warn('POSTHOG_API_KEY is not set - no analytics or logs will be captured.');
+      logger.warn('POSTHOG_API_KEY is not set - no analytics, logs or metrics will be captured.');
     }
 
     return;

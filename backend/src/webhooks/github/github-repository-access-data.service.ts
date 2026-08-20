@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../../analytics/metrics.service';
 import { InMemoryCacheService } from '../../shared/cache/in-memory-cache.service';
+import { githubFetch } from '../../shared/http/github-fetch';
 import { UserNormalized } from '../../user/core/entities/user.interface';
 
 /**
@@ -22,7 +24,10 @@ const ANSWER_TTL_MS = 5 * 60_000;
 export class GithubRepositoryAccessDataService {
   private readonly logger = new Logger(GithubRepositoryAccessDataService.name);
 
-  constructor(private readonly cache: InMemoryCacheService) {}
+  constructor(
+    private readonly cache: InMemoryCacheService,
+    private readonly metrics: MetricsService,
+  ) {}
 
   /**
    * True yes, false no, null "could not establish" - and callers must treat that third one as a
@@ -62,7 +67,9 @@ export class GithubRepositoryAccessDataService {
     let response: Response;
 
     try {
-      response = await fetch(
+      response = await githubFetch(
+        this.metrics,
+        'repo',
         `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
         {
           headers: {

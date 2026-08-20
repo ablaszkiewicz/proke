@@ -4,6 +4,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { getEnvConfig } from './shared/configs/env-configs';
+import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
 import { PosthogLogger } from './shared/logging/posthog-logger';
 import { SlackModule } from './slack/slack.module';
 import { UserCoreModule } from './user/core/user-core.module';
@@ -15,6 +16,8 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     MongooseModule.forRoot(getEnvConfig().mongo.url),
     // Global, so everything below can capture without importing it. See analytics.module.ts.
     AnalyticsModule,
+    // Times every request. Brings its own middleware wiring, so this import is the whole of it.
+    HttpMetricsModule,
     AuthCoreModule,
     UserCoreModule,
     ConnectionsModule,

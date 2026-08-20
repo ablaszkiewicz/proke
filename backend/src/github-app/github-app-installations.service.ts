@@ -1,11 +1,16 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
+import { githubFetch } from '../shared/http/github-fetch';
 import { GithubAppJwtService } from './github-app-jwt.service';
 
 @Injectable()
 export class GithubAppInstallationsService {
   private readonly logger = new Logger(GithubAppInstallationsService.name);
 
-  constructor(private readonly jwtService: GithubAppJwtService) {}
+  constructor(
+    private readonly jwtService: GithubAppJwtService,
+    private readonly metrics: MetricsService,
+  ) {}
 
   /**
    * Removes the app from an account entirely - for everybody, not just the caller. Authorised
@@ -13,7 +18,9 @@ export class GithubAppInstallationsService {
    * calls this is responsible for having established that the user may do it.
    */
   public async uninstall(installationId: string): Promise<void> {
-    const response = await fetch(
+    const response = await githubFetch(
+      this.metrics,
+      'app_installation_delete',
       `https://api.github.com/app/installations/${encodeURIComponent(installationId)}`,
       {
         method: 'DELETE',

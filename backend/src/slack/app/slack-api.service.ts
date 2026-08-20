@@ -1,9 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SlackMethod, SlackOutcome, slackMethodLabel } from '../../analytics/metrics-catalog';
+import { MetricsService } from '../../analytics/metrics.service';
 
 const SLACK_API = 'https://slack.com/api';
 // One retry only, and never a long one: a webhook has already been acknowledged by the time we
 // get here, so a slow poke costs nothing, but an unbounded wait would pile up handlers.
 const MAX_RETRY_SECONDS = 30;
+
+/**
+ * Slack has told us the bot token is dead. Nothing else will work until a reinstall.
+ *
+ * Here rather than in the delivery service that acts on it, because two things now need the same
+ * reading of a Slack error code: delivery, which writes the workspace off, and the metric below,
+ * which counts what happened. Two copies of this list would drift, and the drift would show up
+ * as a chart that disagrees with the database about how many workspaces died.
+ */
+export const SLACK_DEAD_WORKSPACE_CODES = [
+  'token_revoked',
+  'account_inactive',
+  'invalid_auth',
+  'not_authed',
+];
+
+/** The person is not there any more. The workspace is fine; this one pairing is not. */
+export const SLACK_DEAD_LINK_CODES = [
+  'user_not_found',
+  'users_not_found',
+  'user_disabled',
+  'cannot_dm_bot',
+];
 
 /**
  * A Slack `ok: false`. The `code` is what makes this worth a class - delivery has to tell
@@ -46,6 +71,8 @@ export interface SlackMessageRef {
 @Injectable()
 export class SlackApiService {
   private readonly logger = new Logger(SlackApiService.name);
+
+  constructor(private readonly metrics: MetricsService) {}
 
   /** Who a user token belongs to. The only reason we ask for a user token at all. */
   public async readIdentity(userToken: string): Promise<SlackIdentity> {
@@ -141,6 +168,11 @@ export class SlackApiService {
    * Every Slack Web API call. Two things make it unlike a normal fetch wrapper: failures come
    * back as HTTP 200 with `ok: false`, and rate limits come back as a 429 that is worth
    * sitting out exactly once.
+   *
+   * Timed at every exit, one record per HTTP request rather than per logical call - so a
+   * rate-limited attempt and the retry behind it are two records, and the `rate_limited` count
+   * is a straight count of 429s. Which matters more than it sounds: that path sleeps for up to
+   * thirty seconds inside a handler and its only trace today is a warning in the log.
    */
   private async call(
     method: string,
@@ -148,33 +180,82 @@ export class SlackApiService {
     body: Record<string, unknown> = {},
     isRetry = false,
   ): Promise<any> {
-    const response = await fetch(`${SLACK_API}/${method}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=utf-8',
-      },
-      body: JSON.stringify(body),
-    });
+    const startedAt = Date.now();
+    const label = slackMethodLabel(method);
+    let response: Response;
 
-    if (response.status === 429 && !isRetry) {
-      const wait = Math.min(Number(response.headers.get('retry-after') ?? 1), MAX_RETRY_SECONDS);
-      this.logger.warn(`Rate limited on ${method}; retrying in ${wait}s`);
-      await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+    try {
+      response = await fetch(`${SLACK_API}/${method}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      // Slack unreachable. Recorded rather than left out: it is the one failure here that
+      // produces no code at all, and so the one that would otherwise vanish completely.
+      this.record(label, startedAt, 'error');
+      throw error;
+    }
 
-      return this.call(method, token, body, true);
+    if (response.status === 429) {
+      this.record(label, startedAt, 'rate_limited');
+
+      if (!isRetry) {
+        const wait = Math.min(Number(response.headers.get('retry-after') ?? 1), MAX_RETRY_SECONDS);
+        this.logger.warn(`Rate limited on ${method}; retrying in ${wait}s`);
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+
+        return this.call(method, token, body, true);
+      }
+
+      throw new SlackApiError(method, `http_${response.status}`);
     }
 
     if (!response.ok) {
+      this.record(label, startedAt, 'error');
       throw new SlackApiError(method, `http_${response.status}`);
     }
 
     const data = await response.json();
 
     if (!data?.ok) {
-      throw new SlackApiError(method, data?.error ?? 'unknown_error');
+      const code = data?.error ?? 'unknown_error';
+      this.record(label, startedAt, outcomeForCode(code));
+
+      throw new SlackApiError(method, code);
     }
+
+    this.record(label, startedAt, 'ok');
 
     return data;
   }
+
+  private record(method: SlackMethod, startedAt: number, outcome: SlackOutcome): void {
+    this.metrics.duration('proke.slack.request.duration', Date.now() - startedAt, {
+      method,
+      outcome,
+    });
+  }
+}
+
+/**
+ * A Slack error code as one of the few things it can mean.
+ *
+ * Deliberately not the code itself. Slack's list is long and open-ended, and every unfamiliar
+ * string it invents would otherwise become a permanent series - which is the same failure as
+ * putting a repository name on a metric, arriving by a route nobody expects.
+ */
+function outcomeForCode(code: string): SlackOutcome {
+  if (SLACK_DEAD_WORKSPACE_CODES.includes(code)) {
+    return 'dead_workspace';
+  }
+
+  if (SLACK_DEAD_LINK_CODES.includes(code)) {
+    return 'dead_link';
+  }
+
+  return 'error';
 }

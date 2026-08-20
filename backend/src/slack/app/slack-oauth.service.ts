@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { MetricsService } from '../../analytics/metrics.service';
 import { getEnvConfig } from '../../shared/configs/env-configs';
 
 const AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize';
@@ -25,6 +26,8 @@ export interface SlackOAuthResult {
 
 @Injectable()
 export class SlackOAuthService {
+  constructor(private readonly metrics: MetricsService) {}
+
   /**
    * Sign in with Slack. Identity only: it installs nothing, so any member can complete it
    * without an admin being involved.
@@ -52,6 +55,10 @@ export class SlackOAuthService {
       );
     }
 
+    // Timed like every other Slack call, though it does not go through SlackApiService: this is
+    // the one request in the connect flow that can leave somebody stuck on a callback page, and
+    // it is the only Slack call proke makes that no user is waiting on a poke for.
+    const startedAt = Date.now();
     const response = await fetch(ACCESS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -65,6 +72,11 @@ export class SlackOAuthService {
     });
 
     const data = await response.json().catch(() => null);
+
+    this.metrics.duration('proke.slack.request.duration', Date.now() - startedAt, {
+      method: 'oauth.access',
+      outcome: data?.ok ? 'ok' : 'error',
+    });
 
     // Like GitHub, Slack reports OAuth failures with a 200 and an error body.
     if (!data?.ok) {

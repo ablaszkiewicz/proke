@@ -38,6 +38,14 @@ describe('Analytics', () => {
     // mockImplementation, not a passthrough spy: nothing may reach the client's queue, or
     // shutting the app down at the end would try to flush it to the host above.
     capture = jest.spyOn(client, 'capture').mockImplementation(() => undefined);
+
+    // The same rule, for the other half of the client. Metrics aggregate in memory and are
+    // flushed by the same `shutdown()` that drains the event queue, so a single counter
+    // recorded here - and routing one webhook records several - turns afterAll into a wait for
+    // an unroutable host to time out.
+    for (const method of ['count', 'gauge', 'histogram'] as const) {
+      jest.spyOn(client.metrics, method).mockImplementation(() => undefined);
+    }
   });
 
   beforeEach(async () => {

@@ -36,7 +36,24 @@ export class AnalyticsService implements OnApplicationShutdown {
 
     const { apiKey, host } = getEnvConfig().posthog;
 
-    this.posthog = new PostHog(apiKey, { host });
+    this.posthog = new PostHog(apiKey, {
+      host,
+      /*
+       * Turns on the metrics half of this client, which MetricsService records through. Samples
+       * are aggregated in memory and flushed as one data point per series every ten seconds, so
+       * counting from the webhook hot path costs nothing on the wire.
+       *
+       * `serviceName` is the same string PosthogLogger sends as its OTel `service.name`, so a
+       * spike in a metric and the log lines behind it sit under one filter rather than under two
+       * names for the same process. `environment` matches the property every event carries, for
+       * the same reason it is on those: a developer pointed at the real project stays
+       * distinguishable instead of quietly moving production numbers.
+       */
+      metrics: {
+        serviceName: 'proke-backend',
+        environment: process.env.NODE_ENV ?? 'development',
+      },
+    });
 
     // The SDK swallows its own failures by design so it cannot take the process down with it.
     // That also means a wrong key or a blocked egress is invisible without this.
@@ -107,6 +124,9 @@ export class AnalyticsService implements OnApplicationShutdown {
    * main.ts calls enableShutdownHooks(), so this runs on SIGTERM - which is how a redeploy
    * ends. Without it every event captured inside the last flush interval dies with the
    * container, and the events lost are exactly the ones from the busiest moment.
+   *
+   * Covers metrics too: `shutdown()` drains the open metrics window alongside the event queue,
+   * which is why MetricsService rides on this client rather than holding its own.
    */
   public async onApplicationShutdown(): Promise<void> {
     await this.posthog?.shutdown();
