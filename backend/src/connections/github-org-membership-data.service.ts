@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
+import { githubFetch } from '../shared/http/github-fetch';
 
 export type OrgRole = 'admin' | 'member';
 
@@ -14,8 +16,12 @@ export type OrgRole = 'admin' | 'member';
 export class GithubOrgMembershipDataService {
   private readonly logger = new Logger(GithubOrgMembershipDataService.name);
 
+  constructor(private readonly metrics: MetricsService) {}
+
   public async readRole(accessToken: string, org: string): Promise<OrgRole | null> {
-    const response = await fetch(
+    const response = await githubFetch(
+      this.metrics,
+      'org_membership',
       `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
       {
         headers: {

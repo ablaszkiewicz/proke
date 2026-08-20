@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
+import { githubFetch } from '../shared/http/github-fetch';
 import { GithubAppTokenService } from './github-app-token.service';
 
 /**
@@ -47,6 +49,7 @@ export class GithubCommentAuthorDataService {
   constructor(
     private readonly tokenService: GithubAppTokenService,
     private readonly cache: InMemoryCacheService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -102,7 +105,9 @@ export class GithubCommentAuthorDataService {
       // common case, but this one is exact and unpaginated - a thread on a long-running pull
       // request can sit past the first page of a list, and a parent we failed to page to would
       // look identical to a parent that does not exist.
-      response = await fetch(
+      response = await githubFetch(
+        this.metrics,
+        'review_comment',
         `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
           `/pulls/comments/${encodeURIComponent(commentId)}`,
         {

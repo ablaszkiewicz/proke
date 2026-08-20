@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
+import { githubFetch } from '../shared/http/github-fetch';
 import { GithubAppJwtService } from './github-app-jwt.service';
 
 /** Renewed this far ahead of GitHub's expiry, to cover clock skew and a request that lands late. */
@@ -26,6 +28,7 @@ export class GithubAppTokenService {
   constructor(
     private readonly jwtService: GithubAppJwtService,
     private readonly cache: InMemoryCacheService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /** Null when GitHub would not give us one - "cannot answer", never "no". */
@@ -55,7 +58,9 @@ export class GithubAppTokenService {
     let response: Response;
 
     try {
-      response = await fetch(
+      response = await githubFetch(
+        this.metrics,
+        'app_installation_token',
         `https://api.github.com/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
         {
           method: 'POST',

@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
+import { githubFetch } from '../shared/http/github-fetch';
 import { GithubAppTokenService } from './github-app-token.service';
 
 /**
@@ -34,6 +36,7 @@ export class GithubTeamMembersDataService {
   constructor(
     private readonly tokenService: GithubAppTokenService,
     private readonly cache: InMemoryCacheService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -68,7 +71,9 @@ export class GithubTeamMembersDataService {
     let response: Response;
 
     try {
-      response = await fetch(
+      response = await githubFetch(
+        this.metrics,
+        'team_members',
         `https://api.github.com/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(slug)}` +
           `/members?per_page=${MAX_TEAM_MEMBERS}`,
         {

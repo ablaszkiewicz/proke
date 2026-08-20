@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PokeDropReason } from '../../analytics/metrics-catalog';
+import { MetricsService } from '../../analytics/metrics.service';
 import { GithubCommentAuthorDataService } from '../../github-app/github-comment-author-data.service';
 import { GithubPullRequestDataService } from '../../github-app/github-pull-request-data.service';
 import {
@@ -53,6 +55,12 @@ interface EventContext {
   actorLogin: string;
   /** The organisation's logo, or the owner's face on a repository belonging to a person. */
   ownerAvatarUrl?: string;
+  /**
+   * When the webhook arrived. Not part of the poke as anybody reads it - it rides here because
+   * this object is already the one thing every notification built from an event has in common,
+   * and threading a second argument through six resolvers would say less.
+   */
+  receivedAt: number;
 }
 
 /**
@@ -107,7 +115,23 @@ export class GithubWebhookRouterService {
     private readonly pullRequestDataService: GithubPullRequestDataService,
     private readonly commentAuthorDataService: GithubCommentAuthorDataService,
     private readonly pokeResolutionService: PokeResolutionService,
+    private readonly metrics: MetricsService,
   ) {}
+
+  /**
+   * One poke that a real person would have received, and did not.
+   *
+   * Every gate below drops candidates for a good reason and says nothing about it - a `continue`,
+   * a debug line, or a filter that leaves no trace. Counted here they add up, and they add up
+   * against `proke.poke.delivered`, which is the only way the funnel between "40,000 webhooks"
+   * and "300 pokes" becomes a thing anybody can look at.
+   *
+   * Takes a count because several of these drop a group at once: a bot comment suppressed for
+   * six people is one call rather than six.
+   */
+  private dropped(reason: PokeDropReason, count = 1): void {
+    this.metrics.count('proke.poke.dropped', { reason }, count);
+  }
 
   /**
    * Files away who wrote this comment, so a reply to it later need not ask GitHub.
@@ -162,6 +186,7 @@ export class GithubWebhookRouterService {
       }
 
       if (!owner || !name || rest.length > 0) {
+        this.dropped('reply_unresolved');
         continue;
       }
 
@@ -173,6 +198,7 @@ export class GithubWebhookRouterService {
       );
 
       if (!githubId) {
+        this.dropped('reply_unresolved');
         this.logger.debug(`Could not resolve the author of comment ${commentId}`);
         continue;
       }
@@ -218,15 +244,20 @@ export class GithubWebhookRouterService {
     }
   }
 
-  public async route(event: string, payload: any): Promise<void> {
+  public async route(event: string, payload: any, receivedAt = Date.now()): Promise<void> {
     // Before everything, including the early returns. This event may poke nobody and still be
     // the only time we are told who wrote this comment - the reply that makes it matter can
     // arrive hours later, and asking GitHub then costs a call this line just saved.
     this.rememberCommentAuthor(event, payload);
     await this.editOutstandingPokes(event, payload);
 
-    const candidates = this.suppressBotChatter(this.resolve(event, payload), payload?.sender);
+    const candidates = this.suppressBotChatter(
+      this.resolve(event, payload, receivedAt),
+      payload?.sender,
+    );
 
+    // Nothing is counted here. An event that concerned nobody has not dropped a poke, it never
+    // had one - and folding those into the same counter would make its total mean nothing.
     if (candidates.length === 0) {
       return;
     }
@@ -236,6 +267,7 @@ export class GithubWebhookRouterService {
     // Every app-delivered event carries its installation. Without one we cannot tell which
     // opt-in would authorise the poke, so we do not send it.
     if (!installationId) {
+      this.dropped('no_installation', candidates.length);
       this.logger.warn(`Dropping ${event} with no installation id`);
       return;
     }
@@ -252,10 +284,12 @@ export class GithubWebhookRouterService {
     // diff and the access check it cannot wait until after preferences. It is the one lookup in
     // this method that is not merely presentation, and the write-through above means it usually
     // resolves out of the cache without a call.
-    const pokes = withoutAuthorReviewRequests(
-      await this.resolveReplyTargets(expanded, installationId, payload?.repository),
-      payload?.pull_request,
-    );
+    const addressed = await this.resolveReplyTargets(expanded, installationId, payload?.repository);
+    const pokes = withoutAuthorReviewRequests(addressed, payload?.pull_request);
+
+    // Counted from the difference rather than inside the filter, which is a module-level
+    // function with nothing injected and is better left that way.
+    this.dropped('author_review_request', addressed.length - pokes.length);
 
     if (pokes.length === 0) {
       return;
@@ -270,6 +304,7 @@ export class GithubWebhookRouterService {
     for (const { user, notifications } of (await this.groupByUser(pokes)).values()) {
       // Nobody wants to be told about their own action - including mentioning themselves.
       if (user.githubId && user.githubId === senderGithubId) {
+        this.dropped('self');
         continue;
       }
 
@@ -281,6 +316,7 @@ export class GithubWebhookRouterService {
       );
 
       if (!preferences) {
+        this.dropped('not_subscribed');
         continue;
       }
 
@@ -290,7 +326,10 @@ export class GithubWebhookRouterService {
         )
         .sort((a, b) => comparePriority(a.type, b.type));
 
+      // One per person rather than per candidate, here and above: what is lost is the single
+      // poke this person would have got, whichever of their candidates would have won it.
       if (wanted.length === 0) {
+        this.dropped('muted');
         continue;
       }
 
@@ -361,6 +400,7 @@ export class GithubWebhookRouterService {
     // Nothing to ask about. Every event we route carries a repository, so this is a malformed
     // payload rather than a kind of event, and a poke naming no repository is no loss.
     if (!repositoryFullName) {
+      this.dropped('access_unknown');
       this.logger.warn('Dropping a poke for an event carrying no repository');
       return false;
     }
@@ -370,11 +410,20 @@ export class GithubWebhookRouterService {
     if (access === null) {
       // A revoked token, a rate limit, GitHub being down. Failing open here is the whole leak
       // this check exists to close, so a question we could not ask is a no.
+      //
+      // Counted apart from a plain refusal, and it is the one number in this metric worth an
+      // alert of its own: a refusal is the check working, while this is a poke lost to an
+      // unrelated failure that leaves no other trace anywhere.
+      this.dropped('access_unknown');
       this.logger.warn(
         `Dropping a poke for ${user.githubLogin ?? user.id}: could not confirm access to ` +
           repositoryFullName,
       );
       return false;
+    }
+
+    if (!access) {
+      this.dropped('no_repo_access');
     }
 
     return access;
@@ -402,6 +451,7 @@ export class GithubWebhookRouterService {
     const kept = pokes.filter((poke) => !BOT_SUPPRESSED_TYPES.includes(poke.notification.type));
 
     if (kept.length < pokes.length) {
+      this.dropped('bot_chatter', pokes.length - kept.length);
       this.logger.debug(
         `Suppressed ${pokes.length - kept.length} poke(s) from bot ${sender?.login}`,
       );
@@ -436,6 +486,13 @@ export class GithubWebhookRouterService {
       }
 
       const members = await this.readTeamMembers(team, installationId, organizationLogin);
+
+      // No such team, not visible, too big, or a token that would not answer. One count rather
+      // than one per member, because how many people it would have reached is exactly what we
+      // failed to find out.
+      if (members.length === 0) {
+        this.dropped('team_unresolved');
+      }
 
       for (const member of members) {
         expanded.push({
@@ -489,7 +546,16 @@ export class GithubWebhookRouterService {
         : `login:${poke.recipient.githubLogin?.toLowerCase()}`;
 
       if (!resolved.has(key)) {
-        resolved.set(key, await this.readRecipient(poke.recipient));
+        const found = await this.readRecipient(poke.recipient);
+        resolved.set(key, found);
+
+        // Counted on the lookup rather than per candidate, so somebody reached twice by one
+        // event - named in the body of their own pull request, say - is one poke that could not
+        // be delivered rather than two. Easily the largest bar on the chart, and worth having as
+        // the scale the rest is read against rather than as unmeasured background.
+        if (!found) {
+          this.dropped('not_a_user');
+        }
       }
 
       const user = resolved.get(key);
@@ -534,11 +600,12 @@ export class GithubWebhookRouterService {
     return null;
   }
 
-  private resolve(event: string, payload: any): Poke[] {
+  private resolve(event: string, payload: any, receivedAt: number): Poke[] {
     const context: EventContext = {
       repositoryFullName: payload?.repository?.full_name ?? '',
       actorLogin: payload?.sender?.login ?? '',
       ownerAvatarUrl: payload?.repository?.owner?.avatar_url,
+      receivedAt,
     };
 
     switch (event) {
@@ -847,6 +914,7 @@ export class GithubWebhookRouterService {
       diff: subject.diff,
       reviewId: subject.reviewId,
       commentId: subject.commentId,
+      receivedAt: context.receivedAt,
     };
   }
 }

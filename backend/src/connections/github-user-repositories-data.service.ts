@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
+import { githubFetch } from '../shared/http/github-fetch';
 
 // One page, deliberately. `total_count` is authoritative for the number whatever we ask for, so
 // a second request would only ever buy more names for a list nobody reads past the first dozen of.
@@ -33,11 +35,15 @@ export interface AccessibleRepositories {
 export class GithubUserRepositoriesDataService {
   private readonly logger = new Logger(GithubUserRepositoriesDataService.name);
 
+  constructor(private readonly metrics: MetricsService) {}
+
   public async listForInstallation(
     accessToken: string,
     installationId: string,
   ): Promise<AccessibleRepositories | null> {
-    const response = await fetch(
+    const response = await githubFetch(
+      this.metrics,
+      'user_installation_repositories',
       `https://api.github.com/user/installations/${encodeURIComponent(installationId)}` +
         `/repositories?per_page=${PER_PAGE}`,
       {

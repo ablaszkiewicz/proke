@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
 import { GithubDiffStat } from '../notifications/core/entities/github-notification.interface';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
+import { githubFetch } from '../shared/http/github-fetch';
 import { GithubAppTokenService } from './github-app-token.service';
 
 /**
@@ -30,6 +32,7 @@ export class GithubPullRequestDataService {
   constructor(
     private readonly tokenService: GithubAppTokenService,
     private readonly cache: InMemoryCacheService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /** Null where we could not establish it. Never zero: callers must not show it as an empty diff. */
@@ -61,7 +64,9 @@ export class GithubPullRequestDataService {
     let response: Response;
 
     try {
-      response = await fetch(
+      response = await githubFetch(
+        this.metrics,
+        'pull_request',
         `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}` +
           `/pulls/${encodeURIComponent(number)}`,
         {

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../analytics/metrics.service';
 import { InstallationNormalized } from '../installations/core/entities/installation.interface';
 import { InstallationSerializer } from '../installations/core/entities/installation.serializer';
+import { githubFetch } from '../shared/http/github-fetch';
 
 const PER_PAGE = 100;
 // A ceiling on the paging loop rather than a real limit. Ten pages is an account in a thousand
@@ -34,6 +36,8 @@ export class GithubTokenRejectedError extends Error {
 @Injectable()
 export class GithubUserInstallationsDataService {
   private readonly logger = new Logger(GithubUserInstallationsDataService.name);
+
+  constructor(private readonly metrics: MetricsService) {}
 
   /**
    * Every page, not just the first.
@@ -77,7 +81,9 @@ export class GithubUserInstallationsDataService {
   }
 
   private async readPage(accessToken: string, page: number): Promise<any> {
-    const response = await fetch(
+    const response = await githubFetch(
+      this.metrics,
+      'user_installations',
       `https://api.github.com/user/installations?per_page=${PER_PAGE}&page=${page}`,
       {
         headers: {

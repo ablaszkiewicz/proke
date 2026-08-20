@@ -1,4 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { CacheResult, cacheNamespaceLabel } from '../../analytics/metrics-catalog';
+import { MetricsService } from '../../analytics/metrics.service';
 
 /** A function where the answer depends on what was loaded - a failure is worth a shorter one. */
 export type CacheTtl<T> = number | ((value: T) => number);
@@ -25,7 +27,7 @@ export class InMemoryCacheService implements OnModuleDestroy {
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly sweeper: NodeJS.Timeout;
 
-  constructor() {
+  constructor(private readonly metrics: MetricsService) {
     this.sweeper = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
     // Or the timer alone keeps the process - and every jest run - alive.
     this.sweeper.unref?.();
@@ -46,14 +48,22 @@ export class InMemoryCacheService implements OnModuleDestroy {
     const hit = this.read<T>(key);
 
     if (hit) {
+      this.lookup(key, 'hit');
       return hit.value;
     }
 
     const pending = this.inFlight.get(key) as Promise<T> | undefined;
 
     if (pending) {
+      // Neither a hit nor a miss: a caller that arrived while the same key was already loading.
+      // Counted apart from both because deduplicating these is the entire reason this method
+      // exists rather than get-then-set, and a review thread being commented on is exactly when
+      // it pays - one GitHub call for everybody the event reaches instead of one each.
+      this.lookup(key, 'coalesced');
       return pending;
     }
+
+    this.lookup(key, 'miss');
 
     const loading = load()
       .then((value) => {
@@ -97,6 +107,24 @@ export class InMemoryCacheService implements OnModuleDestroy {
   public clear(): void {
     this.entries.clear();
     this.inFlight.clear();
+  }
+
+  /**
+   * The hit rate, by what was being cached.
+   *
+   * Reads as bookkeeping and is not: almost every key here stands for a GitHub API call, so this
+   * is the closest thing proke has to a measure of what it is costing its rate limit. When
+   * `proke.github.request.duration` starts showing more calls than the traffic explains, this is
+   * the metric that says which cache stopped working and why.
+   *
+   * The namespace is taken from the key and then checked against a known list, never trusted -
+   * the rest of every key is a user id, a repository or a comment id.
+   */
+  private lookup(key: string, result: CacheResult): void {
+    this.metrics.count('proke.cache.lookups', {
+      namespace: cacheNamespaceLabel(key),
+      result,
+    });
   }
 
   private read<T>(key: string): { value: T } | null {

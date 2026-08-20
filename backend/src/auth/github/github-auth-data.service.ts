@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../../analytics/metrics.service';
 import { getEnvConfig } from '../../shared/configs/env-configs';
+import { githubFetch } from '../../shared/http/github-fetch';
 
 export interface GithubProfile {
   // GitHub's numeric user id, stringified. Immutable and never reused - this is the identity.
@@ -12,6 +14,8 @@ export interface GithubProfile {
 @Injectable()
 export class GithubAuthDataService {
   private readonly logger = new Logger(GithubAuthDataService.name);
+
+  constructor(private readonly metrics: MetricsService) {}
 
   public async getAccessToken(code: string): Promise<string> {
     const { clientId, clientSecret } = getEnvConfig().githubApp;
@@ -26,20 +30,25 @@ export class GithubAuthDataService {
       );
     }
 
-    const response = await fetch(`https://github.com/login/oauth/access_token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Without this GitHub answers in form-encoded, including for errors, which is far
-        // easier to misparse as a valid token.
-        Accept: 'application/json',
+    const response = await githubFetch(
+      this.metrics,
+      'oauth_access_token',
+      `https://github.com/login/oauth/access_token`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Without this GitHub answers in form-encoded, including for errors, which is far
+          // easier to misparse as a valid token.
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+        }),
       },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-      }),
-    });
+    );
 
     const data = await this.parseTokenResponse(response);
 
@@ -54,7 +63,7 @@ export class GithubAuthDataService {
   }
 
   public async getGithubProfile(accessToken: string): Promise<GithubProfile> {
-    const response = await fetch(`https://api.github.com/user`, {
+    const response = await githubFetch(this.metrics, 'user', `https://api.github.com/user`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -78,11 +87,16 @@ export class GithubAuthDataService {
   }
 
   public async getGithubEmail(accessToken: string): Promise<string | undefined> {
-    const response = await fetch(`https://api.github.com/user/emails`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
+    const response = await githubFetch(
+      this.metrics,
+      'user_emails',
+      `https://api.github.com/user/emails`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       },
-    });
+    );
 
     // Email is a display attribute, not the identity - that is githubId. So an unreadable
     // address degrades to "no email" instead of blocking the login. A 403 here usually means

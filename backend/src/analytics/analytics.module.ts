@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
+import { EventLoopMonitorService } from './event-loop-monitor.service';
+import { MetricsService } from './metrics.service';
 
 /**
  * The one global module in proke, and deliberately so.
@@ -15,10 +17,18 @@ import { AnalyticsService } from './analytics.service';
  *
  * Note for whoever adds the next module: test/utils/bootstrap.ts builds its own testing module
  * from the feature modules rather than from AppModule, so this has to be listed there too.
+ *
+ * MetricsService lives here for the same reason and one more: it records through
+ * AnalyticsService's PostHog client, so the two share a queue and a shutdown. Being global is
+ * what lets the in-memory cache and ten GitHub call sites count things without any of them
+ * gaining a module import.
+ *
+ * EventLoopMonitorService is provided but exported by nobody - nothing injects it. It exists to
+ * be constructed, so that its lifecycle hooks run.
  */
 @Global()
 @Module({
-  providers: [AnalyticsService],
-  exports: [AnalyticsService],
+  providers: [AnalyticsService, MetricsService, EventLoopMonitorService],
+  exports: [AnalyticsService, MetricsService],
 })
 export class AnalyticsModule {}

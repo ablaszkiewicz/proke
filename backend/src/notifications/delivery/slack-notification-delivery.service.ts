@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PokeTrigger } from '../../analytics/analytics-events';
 import { AnalyticsService } from '../../analytics/analytics.service';
+import { MetricsService } from '../../analytics/metrics.service';
 import {
+  SLACK_DEAD_LINK_CODES,
+  SLACK_DEAD_WORKSPACE_CODES,
   SlackApiError,
   SlackApiService,
   SlackMessage,
@@ -25,11 +28,11 @@ import { buildPokeMessage, buildTestMessage } from './slack-message';
 export type SlackDeliveryOutcome =
   'sent' | 'no-link' | 'workspace-missing' | 'unreachable' | 'failed';
 
-/** Slack has told us the bot token is dead. Nothing else will work until a reinstall. */
-const DEAD_WORKSPACE = ['token_revoked', 'account_inactive', 'invalid_auth', 'not_authed'];
-
-/** The person is not there any more. The workspace is fine; this one pairing is not. */
-const DEAD_LINK = ['user_not_found', 'users_not_found', 'user_disabled', 'cannot_dm_bot'];
+/*
+ * Both lists now live beside SlackApiError, which is where the codes come from. They were here
+ * first; they moved because SlackApiService also has to read a code to record what happened, and
+ * a second copy would eventually disagree with this one about what a dead workspace is.
+ */
 
 /**
  * What a Slack message was, for analytics only.
@@ -87,6 +90,7 @@ export class SlackNotificationDeliveryService {
     private readonly slackApiService: SlackApiService,
     private readonly messageWriteService: PokeMessageWriteService,
     private readonly analytics: AnalyticsService,
+    private readonly metrics: MetricsService,
   ) {}
 
   public async deliver(
@@ -102,6 +106,18 @@ export class SlackNotificationDeliveryService {
       hasExcerpt: Boolean(notification.excerpt),
       commentCount: notification.comments?.count,
     });
+
+    // Only for a poke that actually landed, and only for one that came from a webhook - the two
+    // synthetic messages carry no arrival time because they did not arrive from anywhere.
+    //
+    // Expect two humps rather than one: a review is held open for the batching window before it
+    // goes, so those pokes are five seconds slower by design. That is worth seeing rather than
+    // averaging away, which is why this is a histogram and not a mean.
+    if (outcome === 'sent' && notification.receivedAt) {
+      this.metrics.duration('proke.poke.latency', Date.now() - notification.receivedAt, {
+        type: notification.type,
+      });
+    }
 
     if (sent) {
       await this.remember(user, notification, sent);
@@ -183,23 +199,31 @@ export class SlackNotificationDeliveryService {
   ): Promise<SendResult> {
     const link = await this.linkReadService.readForUser(userId);
 
-    // Nothing captured on either of these. They are not failures, they are people who have not
+    // No *event* on either of these. They are not failures, they are people who have not
     // finished connecting - and a poke that had nowhere to go says exactly the same thing every
     // time it happens, once per event in every repository they are subscribed to. Whether
     // somebody has connected Slack is a fact about the person, not about each poke.
+    //
+    // A count is the other half of that argument rather than a contradiction of it. The reason
+    // these are not worth an event each is exactly the reason they are worth counting: the
+    // question is how much of proke's routing work ends up reaching nobody, and only a number
+    // per hour answers it. Which is the whole difference between the two products.
     if (!link) {
+      this.delivered(context, 'no-link');
       return { outcome: 'no-link' };
     }
 
     const workspace = await this.workspaceReadService.readLiveWithToken(link.teamId);
 
     if (!workspace) {
+      this.delivered(context, 'workspace-missing');
       return { outcome: 'workspace-missing' };
     }
 
     try {
       const reference = await this.post(link, workspace.botToken, message);
       this.record(userId, context, 'poke_sent');
+      this.delivered(context, 'sent');
 
       return {
         outcome: 'sent',
@@ -216,6 +240,7 @@ export class SlackNotificationDeliveryService {
       // Recorded before the rethrow, so the test button's failures are counted like any other
       // rather than disappearing into the exception that reports them.
       this.record(userId, context, 'poke_failed', outcome);
+      this.delivered(context, outcome);
 
       if (options.rethrow) {
         throw error;
@@ -257,6 +282,22 @@ export class SlackNotificationDeliveryService {
   }
 
   /**
+   * Every attempt to put a message in front of somebody, counted by what came of it.
+   *
+   * The far end of `proke.poke.dropped`: between them they account for every candidate the
+   * router produced, which is what turns "40,000 webhooks and 300 pokes" from a mystery into a
+   * chart. One counter with an `outcome` rather than the two event names next door, because
+   * unlike an event these are read as proportions of one total and splitting them would mean
+   * adding series back together in every query.
+   *
+   * No `trigger` dimension: `type` already carries `test` and `welcome`, so the two synthetic
+   * messages are told apart without a second attribute multiplying the series count.
+   */
+  private delivered(context: PokeContext, outcome: SlackDeliveryOutcome): void {
+    this.metrics.count('proke.poke.delivered', { type: context.pokeType, outcome });
+  }
+
+  /**
    * One post, with a single reopen behind it. A cached DM channel is nearly always still good;
    * when it is not, opening a fresh one is cheaper than never noticing.
    */
@@ -293,7 +334,7 @@ export class SlackNotificationDeliveryService {
       return 'failed';
     }
 
-    if (DEAD_WORKSPACE.includes(error.code)) {
+    if (SLACK_DEAD_WORKSPACE_CODES.includes(error.code)) {
       this.logger.warn(
         `Slack workspace ${link.teamId} rejected our token (${error.code}); marking it revoked`,
       );
@@ -302,7 +343,7 @@ export class SlackNotificationDeliveryService {
       return 'workspace-missing';
     }
 
-    if (DEAD_LINK.includes(error.code)) {
+    if (SLACK_DEAD_LINK_CODES.includes(error.code)) {
       this.logger.warn(
         `Slack user ${link.slackUserId} is unreachable in ${link.teamId} (${error.code}); ` +
           'dropping the link',

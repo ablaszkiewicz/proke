@@ -14,6 +14,7 @@ import { SlackLinkEntity } from '../../src/slack/links/core/entities/slack-link.
 import { SlackModule } from '../../src/slack/slack.module';
 import { SlackWorkspaceEntity } from '../../src/slack/workspaces/core/entities/slack-workspace.entity';
 import { InMemoryCacheService } from '../../src/shared/cache/in-memory-cache.service';
+import { HttpMetricsModule } from '../../src/shared/http/http-metrics.middleware';
 import { buildValidationPipe } from '../../src/shared/validation/validation-pipe';
 import { SubscriptionEntity } from '../../src/subscriptions/core/entities/subscription.entity';
 import { UserEntity } from '../../src/user/core/entities/user.entity';
@@ -57,6 +58,11 @@ export async function createTestApp() {
       // captures fails to resolve. With no POSTHOG_API_KEY - which the suite never sets - it
       // provides a client that does nothing, so no spec makes a network call to PostHog.
       AnalyticsModule,
+      // Also in app.module.ts. Here so that `http.server.duration` is measured over the same
+      // routes the specs already exercise - the metric's whole premise is that it records a
+      // templated path rather than one with an installation id in it, and that is an assertion
+      // rather than something to take on trust.
+      HttpMetricsModule,
       AuthCoreModule,
       UserCoreModule,
       ConnectionsModule,
