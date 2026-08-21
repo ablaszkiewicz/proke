@@ -14,7 +14,7 @@ describe('Slack delivery', () => {
 
   beforeAll(async () => {
     process.env.SLACK_SIGNING_SECRET = SIGNING_SECRET;
-    process.env.SLACK_TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
     process.env.GH_APP_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
     bootstrap = await createTestApp();

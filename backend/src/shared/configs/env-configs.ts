@@ -17,6 +17,17 @@ interface EnvConfig {
     // of the two should not silently invalidate the other.
     stateSigningSecret: string;
   };
+  crypto: {
+    /**
+     * Guards every third-party token at rest: the Slack bot token and, for every user, the
+     * GitHub user-to-server token that proke asks GitHub with on that person's behalf.
+     *
+     * Not Slack-specific, and deliberately no longer named as if it were - see
+     * readTokenEncryptionKey. It is not the same thing as auth.stateSigningSecret: this one
+     * encrypts and can be reversed, that one only signs.
+     */
+    tokenEncryptionKey: string;
+  };
   // Read from GH_APP_* rather than GITHUB_APP_*: GitHub reserves the GITHUB_ prefix for Actions
   // secrets, so a deploy would otherwise have to rename them on the way in.
   githubApp: {
@@ -39,9 +50,6 @@ interface EnvConfig {
     // then posts the code here. Slack refuses plain http, localhost included, so local
     // development needs a tunnel rather than the dev server's own URL.
     redirectUri: string;
-    // Guards every third-party token at rest - Slack bot tokens and GitHub user tokens alike.
-    // Named for Slack because that is where it started; it is the app's one data-at-rest key.
-    tokenEncryptionKey: string;
   };
   posthog: {
     // Blank turns analytics off entirely rather than failing. See isAnalyticsConfigured.
@@ -99,8 +107,12 @@ export function getEnvConfig(): EnvConfig {
       clientSecret: process.env.SLACK_CLIENT_SECRET ?? '',
       signingSecret: process.env.SLACK_SIGNING_SECRET ?? '',
       redirectUri: process.env.SLACK_REDIRECT_URI ?? '',
-      tokenEncryptionKey:
-        process.env.SLACK_TOKEN_ENCRYPTION_KEY ?? DEVELOPMENT_SECRETS.tokenEncryptionKey,
+    },
+    crypto: {
+      // `||`, not `??`, for the same reason as posthog.host below: readTokenEncryptionKey
+      // returns an empty string when neither name is set, and an empty key must fall through
+      // to the development default rather than be handed to createHash as a real one.
+      tokenEncryptionKey: readTokenEncryptionKey() || DEVELOPMENT_SECRETS.tokenEncryptionKey,
     },
     posthog: {
       apiKey: process.env.POSTHOG_API_KEY ?? '',
@@ -146,8 +158,8 @@ export function assertProductionEnv(): void {
    * causes, so only one of them is ever reported - a list that names the same variable twice
    * reads like two separate things to fix.
    */
-  const requiredSecret = (name: string, developmentDefault: string) => {
-    const value = process.env[name] ?? '';
+  const requiredSecret = (name: string, rawValue: string, developmentDefault: string) => {
+    const value = rawValue;
 
     if (!value) {
       problems.push(`${name} is not set`);
@@ -162,8 +174,26 @@ export function assertProductionEnv(): void {
   required('MONGO_URL', process.env.MONGO_URL ?? '');
   required('APP_URL', process.env.APP_URL ?? '');
 
-  requiredSecret('AUTH_JWT_SECRET', DEVELOPMENT_SECRETS.jwtSecret);
-  requiredSecret('STATE_SIGNING_SECRET', DEVELOPMENT_SECRETS.stateSigningSecret);
+  requiredSecret(
+    'AUTH_JWT_SECRET',
+    process.env.AUTH_JWT_SECRET ?? '',
+    DEVELOPMENT_SECRETS.jwtSecret,
+  );
+  requiredSecret(
+    'STATE_SIGNING_SECRET',
+    process.env.STATE_SIGNING_SECRET ?? '',
+    DEVELOPMENT_SECRETS.stateSigningSecret,
+  );
+
+  // Unconditional, and that is the whole point of the name it now has. This key encrypts every
+  // user's GitHub token as well as the Slack bot token, so grouping it with the Slack checks
+  // below meant a deploy with Slack half-configured started anyway and wrote every GitHub token
+  // under the key printed in this file.
+  requiredSecret(
+    'TOKEN_ENCRYPTION_KEY',
+    readTokenEncryptionKey(),
+    DEVELOPMENT_SECRETS.tokenEncryptionKey,
+  );
 
   required('GH_APP_ID', config.githubApp.appId);
   required('GH_APP_SLUG', config.githubApp.slug);
@@ -174,10 +204,12 @@ export function assertProductionEnv(): void {
 
   // Slack stays optional as a whole - isSlackConfigured() exists so the dashboard can say "not
   // set up" instead of failing. But a half-configured Slack is worse than none: it would accept
-  // an install and then either reject every event or store the bot token under a public key.
+  // an install and then reject every event it was sent.
+  //
+  // The encryption key used to be checked here too. It is not Slack's - see the unconditional
+  // check above.
   if (isSlackConfigured()) {
     required('SLACK_SIGNING_SECRET', config.slack.signingSecret);
-    requiredSecret('SLACK_TOKEN_ENCRYPTION_KEY', DEVELOPMENT_SECRETS.tokenEncryptionKey);
   }
 
   if (problems.length > 0) {
@@ -206,6 +238,27 @@ export function isSlackConfigured(): boolean {
  */
 export function isAnalyticsConfigured(): boolean {
   return Boolean(getEnvConfig().posthog.apiKey);
+}
+
+/**
+ * The data-at-rest key, under either name.
+ *
+ * It was called SLACK_TOKEN_ENCRYPTION_KEY when Slack was the only thing it protected. It now
+ * also encrypts every user's GitHub token, and the Slack-shaped name is what made it look like
+ * a Slack concern - which is how its production check ended up inside `if (isSlackConfigured())`
+ * and let a Slack-less deploy write GitHub tokens under a public key.
+ *
+ * Both names are read so the rename does not have to be simultaneous with the secret being
+ * renamed in the deploy. Changing which value wins here would make every stored token
+ * undecryptable, so the old name must keep working until it is gone everywhere.
+ *
+ * TODO: delete the SLACK_TOKEN_ENCRYPTION_KEY fallback once the deploy secret is renamed.
+ *
+ * Returns an empty string when neither is set, so the caller decides what absence means -
+ * getEnvConfig falls back to the development default, assertProductionEnv refuses to start.
+ */
+function readTokenEncryptionKey(): string {
+  return process.env.TOKEN_ENCRYPTION_KEY ?? process.env.SLACK_TOKEN_ENCRYPTION_KEY ?? '';
 }
 
 /**

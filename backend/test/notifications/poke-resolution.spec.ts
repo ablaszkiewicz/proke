@@ -26,7 +26,7 @@ describe('Poke resolution', () => {
 
   beforeAll(async () => {
     process.env.GH_APP_WEBHOOK_SECRET = WEBHOOK_SECRET;
-    process.env.SLACK_TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
     bootstrap = await createTestApp();
   });

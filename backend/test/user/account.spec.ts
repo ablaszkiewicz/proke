@@ -7,7 +7,7 @@ describe('Account', () => {
   let bootstrap: Awaited<ReturnType<typeof createTestApp>>;
 
   beforeAll(async () => {
-    process.env.SLACK_TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
     bootstrap = await createTestApp();
   });

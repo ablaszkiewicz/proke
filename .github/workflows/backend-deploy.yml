@@ -103,7 +103,9 @@ jobs:
           slack-client-secret: ${{ secrets.SLACK_CLIENT_SECRET }}
           slack-signing-secret: ${{ secrets.SLACK_SIGNING_SECRET }}
           slack-redirect-uri: ${{ secrets.SLACK_REDIRECT_URI }}
-          slack-token-encryption-key: ${{ secrets.SLACK_TOKEN_ENCRYPTION_KEY }}
+          # Falls back to the old secret name so the rename does not have to happen in the
+          # same moment as this merge. Drop the fallback once TOKEN_ENCRYPTION_KEY is set.
+          token-encryption-key: ${{ secrets.TOKEN_ENCRYPTION_KEY || secrets.SLACK_TOKEN_ENCRYPTION_KEY }}
 
           # Same project token the frontend bundle carries, so both halves of proke land in one
           # project. Unset simply means no analytics - the app boots either way.

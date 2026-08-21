@@ -54,7 +54,7 @@ inputs:
     required: true
   slack-redirect-uri:
     required: true
-  slack-token-encryption-key:
+  token-encryption-key:
     required: true
 
   # Analytics. Optional, unlike everything above: the app boots and works without it, and a
@@ -106,7 +106,7 @@ runs:
           -e SLACK_CLIENT_SECRET="${{ inputs.slack-client-secret }}" \
           -e SLACK_SIGNING_SECRET="${{ inputs.slack-signing-secret }}" \
           -e SLACK_REDIRECT_URI="${{ inputs.slack-redirect-uri }}" \
-          -e SLACK_TOKEN_ENCRYPTION_KEY="${{ inputs.slack-token-encryption-key }}" \
+          -e TOKEN_ENCRYPTION_KEY="${{ inputs.token-encryption-key }}" \
           -e POSTHOG_API_KEY="${{ inputs.posthog-api-key }}" \
           -e POSTHOG_HOST="${{ inputs.posthog-host }}" \
           ${{ inputs.image-name }}

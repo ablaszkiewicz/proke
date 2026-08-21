@@ -59,12 +59,12 @@ export class TokenCipherService {
    * produce the 32 bytes AES-256 needs.
    */
   private key(): Buffer {
-    const configured = getEnvConfig().slack.tokenEncryptionKey;
+    const configured = getEnvConfig().crypto.tokenEncryptionKey;
 
     if (configured.startsWith('local-development') && !this.warned) {
       this.warned = true;
       this.logger.warn(
-        'SLACK_TOKEN_ENCRYPTION_KEY is unset - Slack bot tokens and GitHub user tokens are ' +
+        'TOKEN_ENCRYPTION_KEY is unset - Slack bot tokens and GitHub user tokens are ' +
           'being encrypted with a key that is in the source. Set it before storing anyone ' +
           'else’s credentials. Production refuses to start without it; see assertProductionEnv.',
       );

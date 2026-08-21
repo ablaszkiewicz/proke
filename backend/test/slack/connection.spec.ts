@@ -13,7 +13,7 @@ describe('Slack connection', () => {
     process.env.SLACK_CLIENT_SECRET = 'slack-client-secret';
     process.env.SLACK_SIGNING_SECRET = 'slack-signing-secret';
     process.env.SLACK_REDIRECT_URI = 'https://proke.test/app/callbacks/slack';
-    process.env.SLACK_TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
     bootstrap = await createTestApp();
   });

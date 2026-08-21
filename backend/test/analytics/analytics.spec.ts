@@ -25,7 +25,7 @@ describe('Analytics', () => {
     // fast rather than sending test events to a real project.
     process.env.POSTHOG_API_KEY = 'phc_test_key';
     process.env.POSTHOG_HOST = 'https://posthog.invalid';
-    process.env.SLACK_TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
     bootstrap = await createTestApp();
 
