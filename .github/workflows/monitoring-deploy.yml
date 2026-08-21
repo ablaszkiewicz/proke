@@ -26,7 +26,7 @@ on:
     branches:
       - main
     paths:
-      - 'monitoring/**'
+      - 'infrastructure/monitoring/**'
       - '.github/workflows/monitoring-deploy.yml'
 
 env:
@@ -53,19 +53,18 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: monitoring/scrape_configs.yaml
+          source: infrastructure/monitoring/scrape_configs.yaml
           target: ${{ env.REMOTE_DIR }}
-          strip_components: 1
+          # Strips `infrastructure/monitoring/`, so the file lands as
+          # $REMOTE_DIR/scrape_configs.yaml - which is what the agent's bind mount expects.
+          # Must match the depth of `source`.
+          strip_components: 2
 
       - name: Deploy monitoring containers over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-          # Read from both namespaces because they are separate in GitHub and this repo has
-          # only ever referenced the variable (backend-deploy.yml). An empty string is falsy in
-          # an Actions expression, so whichever one is actually set wins and neither has to be
-          # renamed. The script refuses to deploy if that still comes out blank.
-          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST || vars.POSTHOG_HOST }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         with:
           host: ${{ secrets.SSH_HOST }}
           USERNAME: ${{ secrets.SSH_USERNAME }}
@@ -80,6 +79,10 @@ jobs:
             # in the EU - so the failure would not be an error anywhere. It would be a container
             # that looks healthy, pushes happily, and puts every host metric somewhere this
             # project cannot see. A deploy that stops here is far cheaper to diagnose.
+            #
+            # The backend can afford to be relaxed about this because env-configs.ts falls back
+            # to the EU host on an empty string. Nothing here has an equivalent, so the check
+            # has to live in the deploy.
             if [ -z "$POSTHOG_API_KEY" ]; then
               echo "POSTHOG_API_KEY is empty - refusing to deploy the metrics agent" >&2
               exit 1

@@ -4,7 +4,7 @@ name: Deploy Caddy reverse proxy
 #
 # Caddy runs with --network host so it binds host :80/:443 - :80 for the ACME challenge, :443
 # for TLS termination - and reaches the backend on localhost:48211, which the backend container
-# publishes on loopback only. The Caddyfile is copied up from caddy/Caddyfile; issued certs live
+# publishes on loopback only. The Caddyfile is copied up from infrastructure/caddy; issued certs live
 # in the proke-caddy-data volume so redeploys re-use them rather than re-requesting and running
 # into Let's Encrypt's rate limits.
 #
@@ -20,7 +20,7 @@ on:
     branches:
       - main
     paths:
-      - 'caddy/**'
+      - 'infrastructure/caddy/**'
       - '.github/workflows/caddy-deploy.yml'
 
 env:
@@ -42,9 +42,11 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: caddy/Caddyfile
+          source: infrastructure/caddy/Caddyfile
           target: ${{ env.REMOTE_DIR }}
-          strip_components: 1
+          # Strips `infrastructure/caddy/`, so the file lands as $REMOTE_DIR/Caddyfile - which
+          # is what the bind mount below expects. Must match the depth of `source`.
+          strip_components: 2
 
       - name: Deploy Caddy over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
