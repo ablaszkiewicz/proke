@@ -82,70 +82,16 @@
 }
 
 /*
- * GitHub's dark palette, applied to a subtree rather than swapped in globally.
+ * The inbox's palette, applied to a subtree rather than swapped in globally.
  *
  * The app's own dark theme sits on pure black, which is right for the landing page - one mark on
- * an empty screen - and punishing on the inbox, which is a wall of small text you scan rather
- * than look at. GitHub's canvas is a few points off black and its greys are warmer, so the same
- * density reads without the glare.
+ * an empty screen - and punishing on a wall of small text you scan rather than look at. This is
+ * a few points off black and warm rather than neutral, so the same density reads without glare.
  *
  * Scoped because those two pages want different answers, not because this one is provisional.
  * Promoting it is a matter of moving these declarations onto `.dark`; nothing below reads the
  * class, only the variables.
- *
- * Values are GitHub's own, named by the token each one comes from.
  */
-.theme-github {
-  --background: #0d1117; /* canvas.default */
-  --foreground: #e6edf3; /* fg.default */
-  --card: #161b22; /* canvas.subtle */
-  --card-foreground: #e6edf3;
-  --popover: #161b22;
-  --popover-foreground: #e6edf3;
-  --primary: #e6edf3;
-  --primary-foreground: #0d1117;
-  --secondary: #21262d;
-  --secondary-foreground: #e6edf3;
-  --muted: #21262d;
-  --muted-foreground: #8b949e; /* fg.muted */
-  --accent: #21262d;
-  --accent-foreground: #e6edf3;
-  --destructive: #f85149; /* danger.fg */
-  --border: #30363d; /* borderColor.default */
-  --input: #30363d;
-  --ring: #388bfd; /* accent.emphasis */
-  --rule: #3d444d; /* borderColor.emphasis, near enough */
-}
-
-/*
- * Warm light. `color-scheme` too, or the browser paints dark scrollbars into a light page.
- * The variants below are this one after dark, and differ from each other only in hue: same
- * restraint, same contrast, five different rooms to sit in.
- */
-.theme-paper {
-  color-scheme: light;
-  --background: #fbfaf7;
-  --foreground: #1c1a17;
-  --card: #ffffff;
-  --card-foreground: #1c1a17;
-  --popover: #ffffff;
-  --popover-foreground: #1c1a17;
-  --primary: #1c1a17;
-  --primary-foreground: #fbfaf7;
-  --secondary: #f1eee8;
-  --secondary-foreground: #1c1a17;
-  --muted: #f1eee8;
-  --muted-foreground: #7c766c;
-  --accent: #f3f0ea;
-  --accent-foreground: #1c1a17;
-  --destructive: #b4342a;
-  --border: #e3ded4;
-  --input: #e3ded4;
-  --ring: #b08d57;
-  --rule: #cfc7b8;
-}
-
-/* Warm near-black, cream type. Paper turned out, with the same warmth kept. */
 .theme-ink {
   --background: #12100e;
   --foreground: #e9e3d8;
@@ -166,98 +112,6 @@
   --input: #2a2521;
   --ring: #c8a575;
   --rule: #3a332c;
-}
-
-/* No hue at all. The control against which the other four are colour choices. */
-.theme-charcoal {
-  --background: #131313;
-  --foreground: #ededed;
-  --card: #1b1b1b;
-  --card-foreground: #ededed;
-  --popover: #1b1b1b;
-  --popover-foreground: #ededed;
-  --primary: #ededed;
-  --primary-foreground: #131313;
-  --secondary: #212121;
-  --secondary-foreground: #ededed;
-  --muted: #212121;
-  --muted-foreground: #8d8d8d;
-  --accent: #212121;
-  --accent-foreground: #fafafa;
-  --destructive: #e5675a;
-  --border: #2b2b2b;
-  --input: #2b2b2b;
-  --ring: #9a9a9a;
-  --rule: #3a3a3a;
-}
-
-/* Cool and blue. The coldest of the five, and the highest contrast. */
-.theme-tide {
-  --background: #0d131a;
-  --foreground: #dde6ee;
-  --card: #141d26;
-  --card-foreground: #dde6ee;
-  --popover: #141d26;
-  --popover-foreground: #dde6ee;
-  --primary: #dde6ee;
-  --primary-foreground: #0d131a;
-  --secondary: #18222d;
-  --secondary-foreground: #dde6ee;
-  --muted: #18222d;
-  --muted-foreground: #7c8b9a;
-  --accent: #18222d;
-  --accent-foreground: #eaf2fa;
-  --destructive: #f0776a;
-  --border: #23303d;
-  --input: #23303d;
-  --ring: #5aa9e6;
-  --rule: #33424f;
-}
-
-/* Green-black. Quietest of the five - the hue is almost deniable. */
-.theme-moss {
-  --background: #0c110e;
-  --foreground: #dfe8e1;
-  --card: #131a15;
-  --card-foreground: #dfe8e1;
-  --popover: #131a15;
-  --popover-foreground: #dfe8e1;
-  --primary: #dfe8e1;
-  --primary-foreground: #0c110e;
-  --secondary: #171f1a;
-  --secondary-foreground: #dfe8e1;
-  --muted: #171f1a;
-  --muted-foreground: #7c8f83;
-  --accent: #171f1a;
-  --accent-foreground: #edf4ef;
-  --destructive: #e2766a;
-  --border: #212b24;
-  --input: #212b24;
-  --ring: #6bbf8a;
-  --rule: #313e35;
-}
-
-/* Violet-black. The warmest dark that is not brown, and the only one with a visible tint. */
-.theme-plum {
-  --background: #110f18;
-  --foreground: #e6e2f0;
-  --card: #191627;
-  --card-foreground: #e6e2f0;
-  --popover: #191627;
-  --popover-foreground: #e6e2f0;
-  --primary: #e6e2f0;
-  --primary-foreground: #110f18;
-  --secondary: #1d1a2b;
-  --secondary-foreground: #e6e2f0;
-  --muted: #1d1a2b;
-  --muted-foreground: #8b84a0;
-  --accent: #1d1a2b;
-  --accent-foreground: #f2effa;
-  --destructive: #ec7a7a;
-  --border: #272238;
-  --input: #272238;
-  --ring: #a58ce0;
-  --rule: #382f4e;
 }
 
 /*

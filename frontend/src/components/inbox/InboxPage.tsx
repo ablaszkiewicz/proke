@@ -1,219 +1,86 @@
-import { ProkeLogo } from "@/components/ui/ProkeLogo";
-import { cn } from "@/lib/utils";
-import { useState, type ReactNode } from "react";
-import { FilterIcon, RefreshIcon } from "./icons";
+import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
-import { ActorAvatar, PullRequestRow } from "./PullRequestRow";
-import { MOCK_MINE, MOCK_VIEWER } from "./mock";
-import {
-  MINE_OPEN_SECTIONS,
-  REVIEW_SECTIONS,
-  mineIn,
-  reviewsIn,
-} from "./sections";
+import { MINE_SECTIONS, REVIEW_SECTIONS, mineIn, reviewsIn } from "./sections";
 
 /**
- * One column: a quiet header strip and the sections under it.
+ * The review inbox.
  *
- * The label is deliberately the smallest type on the page. In two columns divided by a hard
- * rule, position already says which pile you are looking at, so the label only has to confirm
- * it - competing with the section titles underneath would invert the hierarchy.
+ * Two piles - your own open pull requests on the left, other people's waiting on you on the
+ * right - divided by a single hairline, which is the only line on the page. Everything else is
+ * separated by space and ranked by type size.
+ *
+ * What is deliberately absent is most of the design: no borders round anything, no status
+ * glyphs, no counts, no dates, and no sentence anywhere explaining what a section means. Every
+ * one of those was tried and taken out again. A row carries a title, where it lives, and who
+ * wrote it, because anything more specific is a reason to open it rather than a substitute for
+ * doing so.
+ *
+ * Nothing animates in. The cascade was pleasant once and a tax on every load after it, and this
+ * is a page somebody opens twenty times a day.
  */
-function InboxArea({
-  title,
-  className,
-  children,
-}: {
-  title: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    // `min-w-0` is load-bearing: a grid item defaults to min-content width, which would let the
-    // longest pull request title set the column and push the other one off the page instead of
-    // truncating. `@container` is what the rows inside measure themselves against.
-    <section className={cn("@container flex min-w-0 flex-col", className)}>
-      <header className="border-b bg-card px-4 py-2">
-        <h2 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {title}
-        </h2>
-      </header>
-      <div>{children}</div>
-    </section>
-  );
-}
 
-/**
- * The one thing this page can say that github.com cannot: proke knows which accounts it is
- * *not* installed on, because that is the same list the connections page is built from.
- */
-function CoverageNote({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div className="flex animate-fade-in items-center gap-3 border-b bg-card/40 px-4 py-2.5 text-xs">
-      <span className="text-muted-foreground">
-        Reviews in <span className="text-foreground">cryptly-dev</span> and{" "}
-        <span className="text-foreground">corelabsltd</span> aren't shown —
-        proke isn't installed there.
-      </span>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          className="bg-primary px-2 py-1 text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Install
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-          className="px-2 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Looks like the real control, does nothing - same contract as the drafts gallery's buttons. */
-function MockControl({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title?: string;
-}) {
+/** Looks like the real control, does nothing. The only chrome on the page. */
+function ReposControl() {
   return (
     <button
       type="button"
-      title={title}
       onClick={(event) => event.preventDefault()}
-      className="inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
-      {children}
+      <FilterIcon className="size-3.5" />
+      16 repos
     </button>
   );
 }
 
-/**
- * The review inbox, on mock data.
- *
- * Public and unauthenticated on purpose: this is a layout to argue about, and it should be
- * openable from a phone in a meeting without a session. Nothing here talks to the API, and the
- * badge in the header says so - a page that looks like real data and is not is worse than no
- * page at all.
- *
- * Edge to edge, and square everywhere something has a border. The only round things left are
- * the avatars and the unread dot, which are a photograph and a dot rather than a frame.
- */
-export function InboxPage() {
-  const [coverageDismissed, setCoverageDismissed] = useState(false);
-  const drafts = MOCK_MINE.drafts;
-
+/** The label over a pile. The smallest type on the page, and the only thing in that register. */
+function PileLabel({ children }: { children: string }) {
   return (
-    <div className="theme-github flex min-h-full w-full animate-fade-in flex-col bg-background text-foreground">
-      <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <ProkeLogo size={22} />
-          <span className="text-sm font-semibold tracking-tight">proke</span>
-        </div>
+    <h2 className="mb-5 px-3 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      {children}
+    </h2>
+  );
+}
 
-        <span className="text-sm text-muted-foreground">/</span>
-        <h1 className="text-sm font-medium">Inbox</h1>
-
-        <span className="border border-dashed px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          Mock data
-        </span>
-
-        <div className="ml-auto flex items-center gap-2">
-          <MockControl>
-            <FilterIcon className="size-3.5" />
-            16 repos
-          </MockControl>
-          <MockControl title="Refreshed from GitHub 2 minutes ago">
-            <RefreshIcon className="size-3.5" />
-            2m ago
-          </MockControl>
-          <ActorAvatar actor={MOCK_VIEWER} size={26} />
-        </div>
+export function InboxPage() {
+  return (
+    <div className="theme-ink min-h-dvh w-full bg-background text-foreground">
+      <header className="mx-auto flex max-w-[100rem] items-baseline gap-4 px-8 pb-2 pt-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+        <ReposControl />
       </header>
 
-      {!coverageDismissed ? (
-        <CoverageNote onDismiss={() => setCoverageDismissed(true)} />
-      ) : null}
-
       {/*
-        Side by side from `xl` up, stacked below it, divided by a hard rule rather than a gap.
-        What you owe other people and what other people owe you are different jobs; putting one
-        under the other means the second is only ever reached by scrolling past the first.
+        Side by side from `xl` up, stacked below it. What you owe other people and what other
+        people owe you are different jobs; putting one under the other means the second is only
+        ever reached by scrolling past the first.
       */}
-      <div className="grid flex-1 xl:grid-cols-2">
-        <InboxArea
-          title="Yours"
-          className="border-b border-rule xl:border-b-0 xl:border-r"
-        >
-          {MINE_OPEN_SECTIONS.map((section) => (
+      <div className="mx-auto grid max-w-[100rem] gap-10 px-5 pb-16 pt-6 xl:grid-cols-2 xl:gap-0">
+        {/* `min-w-0`, or the longest title sets the column width and pushes the other one off
+            the page instead of truncating. */}
+        <div className="min-w-0 xl:border-r xl:border-rule xl:pr-10">
+          <PileLabel>Yours</PileLabel>
+          {MINE_SECTIONS.map((section) => (
             <InboxSection
               key={section.key}
+              sectionKey={section.key}
               title={section.title}
-              count={mineIn(section.key).length}
-            >
-              {mineIn(section.key).map((pullRequest, index) => (
-                <PullRequestRow
-                  key={pullRequest.id}
-                  pullRequest={pullRequest}
-                  index={index}
-                  showChecks
-                />
-              ))}
-            </InboxSection>
+              rows={mineIn(section.key)}
+            />
           ))}
+        </div>
 
-          {/*
-            Closed by default, and the only section that is. A draft is a note to yourself: worth
-            being able to find, never worth being shown the state of every time the page opens.
-          */}
-          <InboxSection
-            title="Drafts"
-            count={drafts.length}
-            defaultOpen={false}
-          >
-            {drafts.map((pullRequest, index) => (
-              <PullRequestRow
-                key={pullRequest.id}
-                pullRequest={pullRequest}
-                index={index}
-                showChecks
-              />
-            ))}
-          </InboxSection>
-        </InboxArea>
-
-        <InboxArea title="Waiting on you">
-          {REVIEW_SECTIONS.map((section) => {
-            const reviews = reviewsIn(section.key);
-
-            return (
-              <InboxSection
-                key={section.key}
-                title={section.title}
-                count={reviews.length}
-                emptyText="Nobody is waiting on you here."
-              >
-                {reviews.map((review, index) => (
-                  <PullRequestRow
-                    key={review.id}
-                    pullRequest={review}
-                    index={index}
-                    // No CI here: something asking for your review gets opened
-                    // either way, so a green tick does not change what you do.
-                    showReviewers
-                  />
-                ))}
-              </InboxSection>
-            );
-          })}
-        </InboxArea>
+        <div className="min-w-0 xl:pl-10">
+          <PileLabel>Waiting on you</PileLabel>
+          {REVIEW_SECTIONS.map((section) => (
+            <InboxSection
+              key={section.key}
+              sectionKey={section.key}
+              title={section.title}
+              rows={reviewsIn(section.key)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
