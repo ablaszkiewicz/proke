@@ -33,7 +33,10 @@ export function InboxSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="border-b border-border/60 last:border-b-0">
+    // Same hairline as the one splitting the two columns - this is the same kind of
+    // boundary. It reads as the stronger line because of its colour, not its weight: two
+    // pixels of anything across a full-width page is a bar rather than a rule.
+    <section className="border-b border-rule last:border-b-0">
       <h3>
         <button
           type="button"
@@ -44,7 +47,7 @@ export function InboxSection({
           <ChevronIcon
             className={cn(
               "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-              open ? "rotate-0" : "-rotate-90"
+              open ? "rotate-0" : "-rotate-90",
             )}
           />
           <span className="text-sm font-medium">{title}</span>
@@ -53,7 +56,11 @@ export function InboxSection({
 
       {open ? (
         count > 0 ? (
-          <ul className="pb-2">{children}</ul>
+          // `border-t` as well as `divide-y`: the hairline above the first row is what stops the
+          // section's own header from reading as one of them.
+          <ul className="divide-y divide-border/60 border-t border-border/60">
+            {children}
+          </ul>
         ) : (
           <p className="animate-fade-in px-4 pb-4 pt-1 text-xs text-muted-foreground">
             {emptyText}

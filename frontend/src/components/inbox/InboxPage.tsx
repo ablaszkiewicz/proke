@@ -54,7 +54,7 @@ function InboxArea({
     // longest pull request title set the column and push the other one off the page instead of
     // truncating. `@container` is what the rows inside measure themselves against.
     <section className={cn("@container flex min-w-0 flex-col", className)}>
-      <header className="border-b bg-muted/30 px-4 py-2">
+      <header className="border-b bg-card px-4 py-2">
         <h2 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           {title}
         </h2>
@@ -67,7 +67,7 @@ function InboxArea({
 /** Oldest ask first - see askedHoursAgo. The age decides the order and is never shown. */
 function reviewsIn(group: MockReviewRequest["group"]): MockReviewRequest[] {
   return MOCK_REVIEWS.filter((review) => review.group === group).sort(
-    (a, b) => b.askedHoursAgo - a.askedHoursAgo
+    (a, b) => b.askedHoursAgo - a.askedHoursAgo,
   );
 }
 
@@ -80,8 +80,8 @@ function CoverageNote({ onDismiss }: { onDismiss: () => void }) {
     <div className="flex animate-fade-in items-center gap-3 border-b bg-card/40 px-4 py-2.5 text-xs">
       <span className="text-muted-foreground">
         Reviews in <span className="text-foreground">cryptly-dev</span> and{" "}
-        <span className="text-foreground">corelabsltd</span> aren't shown — proke
-        isn't installed there.
+        <span className="text-foreground">corelabsltd</span> aren't shown —
+        proke isn't installed there.
       </span>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <button
@@ -139,7 +139,7 @@ export function InboxPage() {
   const drafts = MOCK_MINE.drafts;
 
   return (
-    <div className="flex min-h-screen w-full animate-fade-in flex-col">
+    <div className="theme-github flex min-h-screen w-full animate-fade-in flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <ProkeLogo size={22} />
@@ -176,7 +176,10 @@ export function InboxPage() {
         under the other means the second is only ever reached by scrolling past the first.
       */}
       <div className="grid flex-1 xl:grid-cols-2">
-        <InboxArea title="Yours" className="border-b xl:border-b-0 xl:border-r">
+        <InboxArea
+          title="Yours"
+          className="border-b border-rule xl:border-b-0 xl:border-r"
+        >
           {MINE_SECTIONS.map((section) => (
             <InboxSection
               key={section.key}
@@ -188,6 +191,7 @@ export function InboxPage() {
                   key={pullRequest.id}
                   pullRequest={pullRequest}
                   index={index}
+                  showChecks
                 />
               ))}
             </InboxSection>
@@ -197,12 +201,17 @@ export function InboxPage() {
             Closed by default, and the only section that is. A draft is a note to yourself: worth
             being able to find, never worth being shown the state of every time the page opens.
           */}
-          <InboxSection title="Drafts" count={drafts.length} defaultOpen={false}>
+          <InboxSection
+            title="Drafts"
+            count={drafts.length}
+            defaultOpen={false}
+          >
             {drafts.map((pullRequest, index) => (
               <PullRequestRow
                 key={pullRequest.id}
                 pullRequest={pullRequest}
                 index={index}
+                showChecks
               />
             ))}
           </InboxSection>
@@ -224,8 +233,9 @@ export function InboxPage() {
                     key={review.id}
                     pullRequest={review}
                     index={index}
-                    // Something asking for your review gets opened either way.
-                    showStatus={false}
+                    // No CI here: something asking for your review gets opened
+                    // either way, so a green tick does not change what you do.
+                    showReviewers
                   />
                 ))}
               </InboxSection>

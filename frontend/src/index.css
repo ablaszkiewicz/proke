@@ -29,6 +29,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-rule: var(--rule);
   --color-input: var(--input);
   --color-ring: var(--ring);
 }
@@ -53,6 +54,9 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* Heavier than --border. For the rules that bound a section or a column, as opposed to
+     the hairlines that separate rows inside one. */
+  --rule: oklch(0.86 0 0);
 }
 
 .dark {
@@ -74,6 +78,43 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --rule: oklch(1 0 0 / 22%);
+}
+
+/*
+ * GitHub's dark palette, applied to a subtree rather than swapped in globally.
+ *
+ * The app's own dark theme sits on pure black, which is right for the landing page - one mark on
+ * an empty screen - and punishing on the inbox, which is a wall of small text you scan rather
+ * than look at. GitHub's canvas is a few points off black and its greys are warmer, so the same
+ * density reads without the glare.
+ *
+ * Scoped because those two pages want different answers, not because this one is provisional.
+ * Promoting it is a matter of moving these declarations onto `.dark`; nothing below reads the
+ * class, only the variables.
+ *
+ * Values are GitHub's own, named by the token each one comes from.
+ */
+.theme-github {
+  --background: #0d1117; /* canvas.default */
+  --foreground: #e6edf3; /* fg.default */
+  --card: #161b22; /* canvas.subtle */
+  --card-foreground: #e6edf3;
+  --popover: #161b22;
+  --popover-foreground: #e6edf3;
+  --primary: #e6edf3;
+  --primary-foreground: #0d1117;
+  --secondary: #21262d;
+  --secondary-foreground: #e6edf3;
+  --muted: #21262d;
+  --muted-foreground: #8b949e; /* fg.muted */
+  --accent: #21262d;
+  --accent-foreground: #e6edf3;
+  --destructive: #f85149; /* danger.fg */
+  --border: #30363d; /* borderColor.default */
+  --input: #30363d;
+  --ring: #388bfd; /* accent.emphasis */
+  --rule: #3d444d; /* borderColor.emphasis, near enough */
 }
 
 /*

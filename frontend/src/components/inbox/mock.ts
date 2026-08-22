@@ -18,9 +18,6 @@ export interface MockActor {
 export type CheckState = "success" | "failure" | "pending" | "none";
 
 /** GitHub's `reviewDecision`, plus the state it has no value for. */
-export type ReviewState =
-  "approved" | "changes_requested" | "review_required" | "none";
-
 export interface MockPullRequest {
   id: string;
   title: string;
@@ -30,12 +27,9 @@ export interface MockPullRequest {
   author: MockActor;
   additions: number;
   deletions: number;
-  /** Review threads, settled over total. The `3/16` in the reference. */
-  threads: { resolved: number; total: number };
   /** Everyone whose review has been asked for. Not who has answered. */
   reviewers: MockActor[];
   checks: CheckState;
-  review: ReviewState;
   isDraft?: boolean;
   /** Nothing has changed on it since you last looked. Drives the dot in the gutter. */
   unread?: boolean;
@@ -96,10 +90,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 97,
       deletions: 0,
-      threads: { resolved: 2, total: 2 },
       reviewers: [CAT, HUGUES],
       checks: "success",
-      review: "approved",
       unread: true,
     },
     {
@@ -110,10 +102,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 42,
       deletions: 18,
-      threads: { resolved: 3, total: 3 },
       reviewers: [VEKSA],
       checks: "success",
-      review: "approved",
     },
   ],
   "unresolved-comments": [
@@ -125,10 +115,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 812,
       deletions: 134,
-      threads: { resolved: 2, total: 9 },
       reviewers: [HUGUES, VEKSA, JAKE],
       checks: "success",
-      review: "changes_requested",
       unread: true,
     },
     {
@@ -139,10 +127,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 1204,
       deletions: 390,
-      threads: { resolved: 5, total: 12 },
       reviewers: [CAT, JAKE],
       checks: "failure",
-      review: "changes_requested",
     },
   ],
   "waiting-for-reviewers": [
@@ -154,10 +140,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 640,
       deletions: 12,
-      threads: { resolved: 0, total: 1 },
       reviewers: [CAT],
       checks: "pending",
-      review: "review_required",
       unread: true,
     },
     {
@@ -169,10 +153,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 214,
       deletions: 180,
-      threads: { resolved: 0, total: 0 },
       reviewers: [],
       checks: "success",
-      review: "review_required",
     },
   ],
   drafts: [
@@ -184,10 +166,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 318,
       deletions: 22,
-      threads: { resolved: 0, total: 0 },
       reviewers: [],
       checks: "none",
-      review: "none",
       isDraft: true,
     },
     {
@@ -198,10 +178,8 @@ export const MOCK_MINE: Record<MineSectionKey, MockPullRequest[]> = {
       author: ME,
       additions: 88,
       deletions: 4,
-      threads: { resolved: 0, total: 0 },
       reviewers: [],
       checks: "failure",
-      review: "none",
       isDraft: true,
     },
   ],
@@ -218,10 +196,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 3,
     additions: 1029,
     deletions: 11,
-    threads: { resolved: 3, total: 16 },
     reviewers: [ME, HUGUES, JAKE, VEKSA],
     checks: "failure",
-    review: "review_required",
     group: "team",
     unread: true,
   },
@@ -234,10 +210,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 96,
     additions: 494,
     deletions: 10,
-    threads: { resolved: 1, total: 4 },
     reviewers: [ME, CAT, VEKSA],
     checks: "success",
-    review: "review_required",
     group: "team",
     unread: true,
   },
@@ -250,10 +224,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 10,
     additions: 664,
     deletions: 1,
-    threads: { resolved: 1, total: 5 },
     reviewers: [ME, CAT],
     checks: "success",
-    review: "review_required",
     group: "team",
   },
   {
@@ -265,10 +237,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 144,
     additions: 147,
     deletions: 0,
-    threads: { resolved: 4, total: 4 },
     reviewers: [ME, JAKE],
     checks: "success",
-    review: "approved",
     group: "others",
   },
   {
@@ -281,10 +251,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 504,
     additions: 1192,
     deletions: 199,
-    threads: { resolved: 0, total: 1 },
     reviewers: [ME],
     checks: "success",
-    review: "review_required",
     group: "others",
   },
   {
@@ -296,10 +264,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 6,
     additions: 12,
     deletions: 12,
-    threads: { resolved: 0, total: 3 },
     reviewers: [ME, CAT],
     checks: "success",
-    review: "review_required",
     group: "bots",
   },
   {
@@ -311,10 +277,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 6,
     additions: 18,
     deletions: 13,
-    threads: { resolved: 0, total: 3 },
     reviewers: [ME, CAT],
     checks: "success",
-    review: "review_required",
     group: "bots",
   },
   {
@@ -326,10 +290,8 @@ export const MOCK_REVIEWS: MockReviewRequest[] = [
     askedHoursAgo: 384,
     additions: 44,
     deletions: 42,
-    threads: { resolved: 5, total: 7 },
     reviewers: [ME],
     checks: "success",
-    review: "review_required",
     group: "bots",
   },
 ];

@@ -1,29 +1,12 @@
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
-  ApprovedIcon,
-  AwaitingReviewIcon,
-  ChangesRequestedIcon,
   CheckCircleIcon,
   ClockCircleIcon,
-  CommentIcon,
   DraftPullRequestIcon,
   XCircleIcon,
 } from "./icons";
 import type { MockActor, MockPullRequest } from "./mock";
-
-/**
- * The instrument panel sheds columns on the width of its *column*, not of the window - the page
- * puts two of these side by side, so a wide viewport says nothing about the room a row has.
- * Hence `@sm`/`@xl` (container queries) rather than `sm`/`lg`.
- *
- * Threads are the last thing to go: "is there work waiting on me" survives being the only thing
- * left. The reviewer faces drop first, being the most pixels for the least answer.
- *
- * No time column of any kind, deliberately. "Updated 3h ago" describes the branch rather than
- * the debt, and a row that is going to be read either way is not made more actionable by it.
- * Age still decides the order - see askedHoursAgo - it just does not take up a column.
- */
 
 /** Gap between one row's entrance and the next, capped so a long section is not a slideshow. */
 const STAGGER_MS = 28;
@@ -69,8 +52,14 @@ export function ActorAvatar({
 }
 
 /**
- * Who was asked. Overlapped, because the question this column answers is "am I alone on this",
- * and that is a shape rather than a list of names.
+ * Who else was asked.
+ *
+ * Only shown on other people's pull requests, where the question it answers is "am I the only
+ * one on the hook for this". On your own it would be a list of people you chose, which you
+ * already know.
+ *
+ * Hidden below `@lg` - a container query, not a viewport one, because the page puts two of these
+ * columns side by side and the width of the window says nothing about the room a row has.
  */
 function ReviewerStack({ reviewers }: { reviewers: MockActor[] }) {
   const shown = reviewers.slice(0, 3);
@@ -78,7 +67,7 @@ function ReviewerStack({ reviewers }: { reviewers: MockActor[] }) {
 
   return (
     <div
-      className="hidden w-[4.75rem] items-center justify-end @xl:flex"
+      className="hidden w-[4.75rem] items-center justify-end @lg:flex"
       title={
         reviewers.length > 0
           ? `Reviewers: ${reviewers.map((r) => r.login).join(", ")}`
@@ -109,45 +98,30 @@ function ReviewerStack({ reviewers }: { reviewers: MockActor[] }) {
 }
 
 /**
- * Settled threads over total. Deliberately not a plain comment count: "5 comments" says how
- * chatty a pull request is, "2/9" says how much of it is still open, and only the second one
- * tells the author whether there is work waiting.
+ * The only status left on a row: is CI green, red, or still going.
+ *
+ * The review verdict used to sit beside it and does not any more - on your own pull requests the
+ * section title already says it ("Approved", "Unresolved comments"), so the glyph was the same
+ * fact told twice.
+ *
+ * Colours are GitHub's own semantic ones rather than Tailwind's, to match the palette, and the
+ * three states differ in shape as well as hue so the row survives being read by someone who does
+ * not separate red from green.
  */
-function ThreadCount({ threads }: { threads: MockPullRequest["threads"] }) {
-  if (threads.total === 0) {
-    return <div className="hidden w-11 shrink-0 @sm:block" />;
-  }
-
-  const outstanding = threads.total - threads.resolved;
-
-  return (
-    <div
-      className={cn(
-        "hidden w-11 items-center justify-end gap-1 text-xs tabular-nums @sm:flex",
-        outstanding > 0 ? "text-foreground" : "text-muted-foreground",
-      )}
-      title={`${threads.resolved} of ${threads.total} review threads resolved`}
-    >
-      <CommentIcon className="size-3.5 shrink-0" />
-      {threads.resolved}/{threads.total}
-    </div>
-  );
-}
-
 const CHECKS = {
   success: {
     Icon: CheckCircleIcon,
-    className: "text-emerald-500",
+    className: "text-[#3fb950]",
     label: "Checks passing",
   },
   failure: {
     Icon: XCircleIcon,
-    className: "text-rose-500",
+    className: "text-[#f85149]",
     label: "Checks failing",
   },
   pending: {
     Icon: ClockCircleIcon,
-    className: "text-amber-500",
+    className: "text-[#d29922]",
     label: "Checks running",
   },
 } as const;
@@ -170,69 +144,30 @@ function ChecksCell({ state }: { state: MockPullRequest["checks"] }) {
   );
 }
 
-const REVIEW = {
-  approved: {
-    Icon: ApprovedIcon,
-    className: "text-emerald-500",
-    label: "Approved",
-  },
-  changes_requested: {
-    Icon: ChangesRequestedIcon,
-    className: "text-rose-500",
-    label: "Changes requested",
-  },
-  review_required: {
-    Icon: AwaitingReviewIcon,
-    className: "text-muted-foreground/60",
-    label: "Awaiting review",
-  },
-} as const;
-
-function ReviewCell({ state }: { state: MockPullRequest["review"] }) {
-  if (state === "none") {
-    return (
-      <span className="w-4 shrink-0 text-center text-xs text-muted-foreground/50">
-        —
-      </span>
-    );
-  }
-
-  const { Icon, className, label } = REVIEW[state];
-
-  return (
-    <span className="w-4 shrink-0" title={label}>
-      <Icon className={cn("size-4", className)} />
-    </span>
-  );
-}
-
 export interface PullRequestRowProps {
   pullRequest: MockPullRequest;
   /** Position within its section, for the entrance cascade. */
   index: number;
-  /**
-   * The review verdict and the CI result. On by default, off for pull requests waiting on the
-   * reader: something asking for your review is going to be opened either way, so neither glyph
-   * changes what you do next. On your own pull requests they are the difference between "ship
-   * it" and "not yet".
-   */
-  showStatus?: boolean;
+  /** CI. On your own pull requests only - see ChecksCell. */
+  showChecks?: boolean;
+  /** The other people asked. On other people's pull requests only - see ReviewerStack. */
+  showReviewers?: boolean;
 }
 
 /**
  * One pull request, as one line.
  *
- * The title and its `author · repo #number` are the only things that wrap the reader's eye; the
- * rest is a fixed-width instrument panel on the right, so the columns line up down the whole
- * section and a row can be scanned by shape. Everything in that panel carries a `title`, because
- * an icon that needs a legend is only useful to whoever wrote it.
+ * Title and `author · repo #number` carry the row; whatever is switched on sits in a fixed-width
+ * strip on the right so it lines up down the whole section and can be scanned by shape. No dates
+ * of any kind - see mock.ts.
  */
 export function PullRequestRow({
   pullRequest,
   index,
-  showStatus = true,
+  showChecks = false,
+  showReviewers = false,
 }: PullRequestRowProps) {
-  const { title, repo, number, author, isDraft, unread, reviewers, threads } =
+  const { title, repo, number, author, isDraft, unread, reviewers } =
     pullRequest;
 
   return (
@@ -246,7 +181,7 @@ export function PullRequestRow({
         href={`https://github.com/${repo}/pull/${number}`}
         target="_blank"
         rel="noreferrer"
-        className="group flex items-center gap-3 px-4 py-2 transition-colors hover:bg-accent/60"
+        className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent/60"
       >
         {/* The gutter. Always in the layout so titles start on the same pixel either way. */}
         <span
@@ -254,7 +189,7 @@ export function PullRequestRow({
           title={unread ? "New since you last looked" : undefined}
           className={cn(
             "size-1.5 shrink-0 rounded-full",
-            unread ? "bg-sky-400" : "bg-transparent",
+            unread ? "bg-[#388bfd]" : "bg-transparent",
           )}
         />
 
@@ -272,14 +207,8 @@ export function PullRequestRow({
           </p>
         </div>
 
-        <ReviewerStack reviewers={reviewers} />
-        <ThreadCount threads={threads} />
-        {showStatus ? (
-          <>
-            <ReviewCell state={pullRequest.review} />
-            <ChecksCell state={pullRequest.checks} />
-          </>
-        ) : null}
+        {showReviewers ? <ReviewerStack reviewers={reviewers} /> : null}
+        {showChecks ? <ChecksCell state={pullRequest.checks} /> : null}
       </a>
     </li>
   );
