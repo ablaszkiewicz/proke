@@ -2,11 +2,12 @@ import { cn } from "@/lib/utils";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, type ComponentType } from "react";
 import { InboxPage } from "./InboxPage";
-import { BoardInbox } from "./variants/BoardInbox";
-import { GridInbox } from "./variants/GridInbox";
 import { PaperInbox } from "./variants/PaperInbox";
-import { StreamInbox } from "./variants/StreamInbox";
-import { TerminalInbox } from "./variants/TerminalInbox";
+import { ColumnInbox } from "./variants/paper/ColumnInbox";
+import { InkInbox } from "./variants/paper/InkInbox";
+import { MarginInbox } from "./variants/paper/MarginInbox";
+import { RailInbox } from "./variants/paper/RailInbox";
+import { WideInbox } from "./variants/paper/WideInbox";
 
 interface Variant {
   name: string;
@@ -18,38 +19,43 @@ interface Variant {
 export const VARIANTS: Variant[] = [
   {
     name: "Columns",
-    note: "The base. Two piles, hard rules, GitHub's canvas.",
+    note: "The original. Two piles, hard rules, GitHub's canvas.",
     component: InboxPage,
   },
   {
-    name: "Terminal",
-    note: "One column, all text. The densest this can get.",
-    component: TerminalInbox,
-  },
-  {
     name: "Paper",
-    note: "Light and airy. Separation by space, not borders.",
+    note: "The light one, untouched.",
     component: PaperInbox,
   },
   {
-    name: "Board",
-    note: "Sections as columns of cards. Shape over order.",
-    component: BoardInbox,
+    name: "Ink",
+    note: "Paper's layout exactly, warm near-black. Colour only.",
+    component: InkInbox,
   },
   {
-    name: "Stream",
-    note: "No piles. One ranked queue, each row a sentence.",
-    component: StreamInbox,
+    name: "Column",
+    note: "One narrow measure, piles stacked. Neutral charcoal.",
+    component: ColumnInbox,
   },
   {
-    name: "Grid",
-    note: "One wide table. Full-width titles, pile as a column.",
-    component: GridInbox,
+    name: "Margin",
+    note: "Section titles hang in the left margin. Cool blue.",
+    component: MarginInbox,
+  },
+  {
+    name: "Wide",
+    note: "Full bleed, rows wrap into columns. Green-black.",
+    component: WideInbox,
+  },
+  {
+    name: "Rail",
+    note: "Sections become a rail; one list beside it. Violet.",
+    component: RailInbox,
   },
 ];
 
 /**
- * Six takes on the same screen, switchable with the bar at the bottom or the keyboard.
+ * Seven takes on the same screen, switchable with the bar at the bottom or the keyboard.
  *
  * Same shape as the dashboard drafts gallery next door, and for the same reason: all of them run
  * on one fixed set of mock rows, so what differs between two of them is the design and nothing

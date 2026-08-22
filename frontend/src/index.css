@@ -118,34 +118,10 @@
 }
 
 /*
- * Three more palettes, for the variant gallery on /inbox. Same contract as .theme-github: a
- * class on a subtree, nothing below reads it, only the variables it sets.
+ * Warm light. `color-scheme` too, or the browser paints dark scrollbars into a light page.
+ * The variants below are this one after dark, and differ from each other only in hue: same
+ * restraint, same contrast, five different rooms to sit in.
  */
-
-/* Near-black with one green. For the monospace variant, where colour is punctuation. */
-.theme-terminal {
-  --background: #08090c;
-  --foreground: #c9d5cd;
-  --card: #0e1014;
-  --card-foreground: #c9d5cd;
-  --popover: #0e1014;
-  --popover-foreground: #c9d5cd;
-  --primary: #4ade80;
-  --primary-foreground: #08090c;
-  --secondary: #14171d;
-  --secondary-foreground: #c9d5cd;
-  --muted: #14171d;
-  --muted-foreground: #6b7a72;
-  --accent: #14171d;
-  --accent-foreground: #d7ffe6;
-  --destructive: #ff6b6b;
-  --border: #1e242b;
-  --input: #1e242b;
-  --ring: #4ade80;
-  --rule: #2b3640;
-}
-
-/* Warm light. `color-scheme` too, or the browser paints dark scrollbars into a light page. */
 .theme-paper {
   color-scheme: light;
   --background: #fbfaf7;
@@ -169,27 +145,119 @@
   --rule: #cfc7b8;
 }
 
-/* Cool blue-grey. Warmer to sit in front of than black, colder than GitHub's canvas. */
-.theme-slate {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
-  --card: #1e293b;
-  --card-foreground: #e2e8f0;
-  --popover: #1e293b;
-  --popover-foreground: #e2e8f0;
-  --primary: #e2e8f0;
-  --primary-foreground: #0f172a;
-  --secondary: #1e293b;
-  --secondary-foreground: #e2e8f0;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --accent: #1e293b;
-  --accent-foreground: #f1f5f9;
-  --destructive: #f87171;
-  --border: #334155;
-  --input: #334155;
-  --ring: #38bdf8;
-  --rule: #475569;
+/* Warm near-black, cream type. Paper turned out, with the same warmth kept. */
+.theme-ink {
+  --background: #12100e;
+  --foreground: #e9e3d8;
+  --card: #1a1714;
+  --card-foreground: #e9e3d8;
+  --popover: #1a1714;
+  --popover-foreground: #e9e3d8;
+  --primary: #e9e3d8;
+  --primary-foreground: #12100e;
+  --secondary: #1f1b17;
+  --secondary-foreground: #e9e3d8;
+  --muted: #1f1b17;
+  --muted-foreground: #8b8175;
+  --accent: #1f1b17;
+  --accent-foreground: #f5f1e8;
+  --destructive: #e0705f;
+  --border: #2a2521;
+  --input: #2a2521;
+  --ring: #c8a575;
+  --rule: #3a332c;
+}
+
+/* No hue at all. The control against which the other four are colour choices. */
+.theme-charcoal {
+  --background: #131313;
+  --foreground: #ededed;
+  --card: #1b1b1b;
+  --card-foreground: #ededed;
+  --popover: #1b1b1b;
+  --popover-foreground: #ededed;
+  --primary: #ededed;
+  --primary-foreground: #131313;
+  --secondary: #212121;
+  --secondary-foreground: #ededed;
+  --muted: #212121;
+  --muted-foreground: #8d8d8d;
+  --accent: #212121;
+  --accent-foreground: #fafafa;
+  --destructive: #e5675a;
+  --border: #2b2b2b;
+  --input: #2b2b2b;
+  --ring: #9a9a9a;
+  --rule: #3a3a3a;
+}
+
+/* Cool and blue. The coldest of the five, and the highest contrast. */
+.theme-tide {
+  --background: #0d131a;
+  --foreground: #dde6ee;
+  --card: #141d26;
+  --card-foreground: #dde6ee;
+  --popover: #141d26;
+  --popover-foreground: #dde6ee;
+  --primary: #dde6ee;
+  --primary-foreground: #0d131a;
+  --secondary: #18222d;
+  --secondary-foreground: #dde6ee;
+  --muted: #18222d;
+  --muted-foreground: #7c8b9a;
+  --accent: #18222d;
+  --accent-foreground: #eaf2fa;
+  --destructive: #f0776a;
+  --border: #23303d;
+  --input: #23303d;
+  --ring: #5aa9e6;
+  --rule: #33424f;
+}
+
+/* Green-black. Quietest of the five - the hue is almost deniable. */
+.theme-moss {
+  --background: #0c110e;
+  --foreground: #dfe8e1;
+  --card: #131a15;
+  --card-foreground: #dfe8e1;
+  --popover: #131a15;
+  --popover-foreground: #dfe8e1;
+  --primary: #dfe8e1;
+  --primary-foreground: #0c110e;
+  --secondary: #171f1a;
+  --secondary-foreground: #dfe8e1;
+  --muted: #171f1a;
+  --muted-foreground: #7c8f83;
+  --accent: #171f1a;
+  --accent-foreground: #edf4ef;
+  --destructive: #e2766a;
+  --border: #212b24;
+  --input: #212b24;
+  --ring: #6bbf8a;
+  --rule: #313e35;
+}
+
+/* Violet-black. The warmest dark that is not brown, and the only one with a visible tint. */
+.theme-plum {
+  --background: #110f18;
+  --foreground: #e6e2f0;
+  --card: #191627;
+  --card-foreground: #e6e2f0;
+  --popover: #191627;
+  --popover-foreground: #e6e2f0;
+  --primary: #e6e2f0;
+  --primary-foreground: #110f18;
+  --secondary: #1d1a2b;
+  --secondary-foreground: #e6e2f0;
+  --muted: #1d1a2b;
+  --muted-foreground: #8b84a0;
+  --accent: #1d1a2b;
+  --accent-foreground: #f2effa;
+  --destructive: #ec7a7a;
+  --border: #272238;
+  --input: #272238;
+  --ring: #a58ce0;
+  --rule: #382f4e;
 }
 
 /*
