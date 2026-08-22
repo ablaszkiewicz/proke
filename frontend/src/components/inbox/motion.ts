@@ -3,32 +3,21 @@ import type { Transition } from "motion/react";
 /**
  * The inbox's motion, in one place so the rows, the sections and the piles cannot drift apart.
  *
- * The rule everything here obeys: nothing may delay somebody seeing their data. An entrance is
- * allowed to be the last thing that happens to a row, never the thing standing in front of it -
- * so rows are laid out and readable from the first frame, and only their opacity and a few
- * pixels of travel are animated over the top.
+ * The rule everything here obeys: nothing may delay somebody seeing their data. Which turned out
+ * to mean less motion than expected - there is no entrance stagger and no entrance at all for the
+ * rows the page first paints with. They are simply there.
+ *
+ * What is left animates one thing only: the *difference* GitHub reports a second or two later.
+ * A pull request that has been merged since the snapshot leaves, a new one arrives, and the rows
+ * around them move rather than jump - because that change lands under somebody who is already
+ * reading, and is the only moment on this page where motion is telling them something.
  */
 
 /** The curve everything else in this app already moves on. See index.css. */
 const EASE = [0.2, 0.7, 0.2, 1] as const;
 
-/** Between one row's entrance and the next. Small: sixteen rows should read as one wave. */
-const STAGGER_MS = 22;
-
 /**
- * Past this many, rows stop waiting their turn.
- *
- * Without a cap the last row of a long section starts a third of a second after the first, which
- * is exactly the "animation delayed me seeing the data" this is supposed to avoid.
- */
-const MAX_STAGGERED = 8;
-
-export function entranceDelay(index: number): number {
-  return (Math.min(index, MAX_STAGGERED) * STAGGER_MS) / 1000;
-}
-
-/**
- * How a row moves when something arrives above it.
+ * How a row moves when something arrives above it or leaves from under it.
  *
  * The whole reason `layout` is worth having: a pull request landing at the top of a section
  * should push the rest down rather than teleport them, so somebody mid-sentence can see what
@@ -39,13 +28,12 @@ export const LAYOUT_TRANSITION: Transition = {
   ease: EASE,
 };
 
-export function rowTransition(index: number): Transition {
-  return {
-    layout: LAYOUT_TRANSITION,
-    opacity: { duration: 0.2, delay: entranceDelay(index) },
-    y: { duration: 0.24, delay: entranceDelay(index), ease: EASE },
-  };
-}
+/** An arrival. Only ever runs for a row that was not on screen when the page first painted. */
+export const ENTER_TRANSITION: Transition = {
+  layout: LAYOUT_TRANSITION,
+  opacity: { duration: 0.22 },
+  y: { duration: 0.26, ease: EASE },
+};
 
 /** Leaving is quicker than arriving, and carries no travel - a merged row simply stops being. */
 export const EXIT_TRANSITION: Transition = { duration: 0.14 };

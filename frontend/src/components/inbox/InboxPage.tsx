@@ -1,6 +1,6 @@
 import type { InboxSectionData } from "@/lib/api/inbox.api";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import type { ReactNode } from "react";
+import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
+import { useEffect, useState, type ReactNode } from "react";
 import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
 import { LAYOUT_TRANSITION } from "./motion";
@@ -92,27 +92,51 @@ function Pile({
   empty,
   settled,
   hasAnswer,
+  animateEntrances,
 }: {
   label: string;
   sections: InboxSectionData[];
   empty: ReactNode;
   settled: boolean;
   hasAnswer: boolean;
+  animateEntrances: boolean;
 }) {
-  const isEmpty = sections.every(
-    (section) => section.pullRequests.length === 0
+  // Filtered here rather than inside the section, so an emptying section leaves
+  // AnimatePresence's child list and can be animated out. A child that renders null is
+  // indistinguishable, to AnimatePresence, from one that is still there.
+  const visible = sections.filter(
+    (section) => section.pullRequests.length > 0
   );
+  const isEmpty = visible.length === 0;
 
   return (
     <div className="min-w-0">
       <PileLabel>{label}</PileLabel>
 
-      {/* Sections come and go as piles empty and fill, so they animate the same way rows do. */}
-      <AnimatePresence mode="popLayout" initial={false}>
-        {sections.map((section) => (
-          <InboxSection key={section.key} section={section} />
-        ))}
-      </AnimatePresence>
+      {/*
+        One group across every section in the column.
+ 
+        Layout animations are measured per render, and a row leaving re-renders only the section
+        it was in - so the sections below it never got the chance to notice they had moved.
+        LayoutGroup is what makes them all measure together whether or not they re-rendered,
+        which is precisely the case here.
+      */}
+      <LayoutGroup>
+        {/*
+          Also no `initial={false}`. A section has no entrance of its own to suppress, so it
+          bought nothing - and PresenceContext reaches every descendant, so it was liable to
+          silence the rows inside as well.
+        */}
+        <AnimatePresence mode="popLayout">
+          {visible.map((section) => (
+            <InboxSection
+              key={section.key}
+              section={section}
+              animateEntrances={animateEntrances}
+            />
+          ))}
+        </AnimatePresence>
+      </LayoutGroup>
 
       <AnimatePresence>
         {isEmpty && settled ? (
@@ -141,6 +165,11 @@ export function InboxPage({
   hasAnswer,
   githubReauthRequired,
 }: InboxPageProps) {
+  const animateEntrances = useHasPainted(
+    yours.some((section) => section.pullRequests.length > 0) ||
+      waitingOnYou.some((section) => section.pullRequests.length > 0)
+  );
+
   return (
     // `reducedMotion="user"` rather than a media query per component: somebody who has asked
     // their system for less motion gets none of this, and still gets every row.
@@ -189,6 +218,7 @@ export function InboxPage({
             empty="Nothing open."
             settled={settled}
             hasAnswer={hasAnswer}
+            animateEntrances={animateEntrances}
           />
           <Pile
             label="Waiting on you"
@@ -196,6 +226,7 @@ export function InboxPage({
             empty="Nobody is waiting on you."
             settled={settled}
             hasAnswer={hasAnswer}
+            animateEntrances={animateEntrances}
           />
         </div>
       </div>
@@ -237,4 +268,32 @@ function Status({
   }
 
   return null;
+}
+
+/**
+ * Whether rows have been on screen once already.
+ *
+ * What separates the two arrivals this page has. The first is the snapshot, and it must not
+ * animate: those rows are the answer somebody opened the page for, and a fade in front of them
+ * is a cost paid twenty times a day for something interesting once. The second is GitHub's
+ * correction, landing under a reader, where movement is the only thing that says what changed.
+ *
+ * Decided here rather than by handing AnimatePresence `initial={false}`. That flag reads as if
+ * it means this and does not: it suppresses whatever is present when *that* AnimatePresence
+ * first renders, and a section only exists once its rows do - so it silenced every entrance
+ * forever, including the ones this page exists to show. It also travels down PresenceContext to
+ * descendants, which makes where you put it matter in a way nothing on the page reveals.
+ */
+function useHasPainted(hasRows: boolean): boolean {
+  const [painted, setPainted] = useState(false);
+
+  useEffect(() => {
+    if (hasRows) {
+      setPainted(true);
+    }
+  }, [hasRows]);
+
+  // False on the render that first draws rows - which is the point - and true from the next one,
+  // so anything arriving afterwards animates. Rows already mounted ignore `initial` either way.
+  return painted;
 }

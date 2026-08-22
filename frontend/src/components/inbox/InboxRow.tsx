@@ -2,7 +2,7 @@ import type { InboxAuthor, InboxPullRequest } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { EXIT_TRANSITION, rowTransition } from "./motion";
+import { ENTER_TRANSITION, EXIT_TRANSITION } from "./motion";
 
 /** A real avatar where the network allows, initials otherwise - never a broken image. */
 export function ActorAvatar({
@@ -53,12 +53,17 @@ export function ActorAvatar({
  * A draft is told apart by the weight of its title and nothing else. It is the one distinction
  * that can be made here without adding an object to the row.
  *
- * ## Why this animates at all, having previously refused to
+ * ## What animates, and what deliberately does not
  *
- * The page is now painted from a snapshot and corrected from GitHub a second or two later, so
- * rows genuinely arrive while somebody is reading. Without `layout` a pull request landing at
- * the top of a section moves every row under it by forty pixels between two frames, and the line
- * you were halfway through is simply somewhere else.
+ * The rows the page first paints with do not animate at all. They are the answer to "what is
+ * waiting for me", and putting anything between somebody and that - a fade, a stagger, six
+ * pixels of travel - is a cost paid on every single load for a flourish that is only interesting
+ * the first time.
+ *
+ * A row that arrives *later* is different. The page is painted from a snapshot and corrected
+ * from GitHub a second or two after, so that change lands under somebody already reading, and it
+ * is the one moment here where movement is telling them something. Those rows fade in, and
+ * `layout` means the rows around them slide rather than jump.
  *
  * `initial` only ever runs for a row that was not there before - React keeps rows that are in
  * both answers mounted, keyed on GitHub's node id - so a refresh that changes nothing animates
@@ -66,19 +71,19 @@ export function ActorAvatar({
  */
 export function InboxRow({
   pullRequest,
-  index,
+  animateEntrance,
 }: {
   pullRequest: InboxPullRequest;
-  /** Position within its section, for the entrance stagger. */
-  index: number;
+  /** See InboxPage: false until the page has painted, so the first rows simply exist. */
+  animateEntrance: boolean;
 }) {
   return (
     <motion.li
       layout
-      initial={{ opacity: 0, y: -6 }}
+      initial={animateEntrance ? { opacity: 0, y: -6 } : false}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, transition: EXIT_TRANSITION }}
-      transition={rowTransition(index)}
+      transition={ENTER_TRANSITION}
     >
       <a
         href={pullRequest.url}
