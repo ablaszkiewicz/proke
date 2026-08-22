@@ -4,34 +4,13 @@ import { useState, type ReactNode } from "react";
 import { FilterIcon, RefreshIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
 import { ActorAvatar, PullRequestRow } from "./PullRequestRow";
+import { MOCK_MINE, MOCK_VIEWER } from "./mock";
 import {
-  MOCK_MINE,
-  MOCK_REVIEWS,
-  MOCK_VIEWER,
-  type MineSectionKey,
-  type MockReviewRequest,
-} from "./mock";
-
-/**
- * The two piles, and the sections inside each.
- *
- * Order is the whole design here. Within "Yours" the sections run from least to most work
- * outstanding - a merge button, then a thread to answer, then a wait on somebody else - so the
- * top of the column is always the thing you can finish. Within "Waiting on you" they run by how
- * much your answer is worth to a person: your team is blocked on you, a stranger is
- * inconvenienced, and a dependency bump is neither.
- */
-const MINE_SECTIONS: { key: MineSectionKey; title: string }[] = [
-  { key: "ready-to-merge", title: "Approved" },
-  { key: "unresolved-comments", title: "Unresolved comments" },
-  { key: "waiting-for-reviewers", title: "Waiting for reviewers" },
-];
-
-const REVIEW_SECTIONS: { key: MockReviewRequest["group"]; title: string }[] = [
-  { key: "team", title: "Your team" },
-  { key: "others", title: "Everyone else" },
-  { key: "bots", title: "Bots" },
-];
+  MINE_OPEN_SECTIONS,
+  REVIEW_SECTIONS,
+  mineIn,
+  reviewsIn,
+} from "./sections";
 
 /**
  * One column: a quiet header strip and the sections under it.
@@ -61,13 +40,6 @@ function InboxArea({
       </header>
       <div>{children}</div>
     </section>
-  );
-}
-
-/** Oldest ask first - see askedHoursAgo. The age decides the order and is never shown. */
-function reviewsIn(group: MockReviewRequest["group"]): MockReviewRequest[] {
-  return MOCK_REVIEWS.filter((review) => review.group === group).sort(
-    (a, b) => b.askedHoursAgo - a.askedHoursAgo,
   );
 }
 
@@ -139,7 +111,7 @@ export function InboxPage() {
   const drafts = MOCK_MINE.drafts;
 
   return (
-    <div className="theme-github flex min-h-screen w-full animate-fade-in flex-col bg-background text-foreground">
+    <div className="theme-github flex min-h-full w-full animate-fade-in flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <ProkeLogo size={22} />
@@ -180,13 +152,13 @@ export function InboxPage() {
           title="Yours"
           className="border-b border-rule xl:border-b-0 xl:border-r"
         >
-          {MINE_SECTIONS.map((section) => (
+          {MINE_OPEN_SECTIONS.map((section) => (
             <InboxSection
               key={section.key}
               title={section.title}
-              count={MOCK_MINE[section.key].length}
+              count={mineIn(section.key).length}
             >
-              {MOCK_MINE[section.key].map((pullRequest, index) => (
+              {mineIn(section.key).map((pullRequest, index) => (
                 <PullRequestRow
                   key={pullRequest.id}
                   pullRequest={pullRequest}
