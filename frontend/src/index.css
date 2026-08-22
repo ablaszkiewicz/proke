@@ -388,6 +388,34 @@ dialog[data-state="closed"]::backdrop {
   }
 }
 
+/*
+ * The line across the top of the inbox while it is checking GitHub.
+ *
+ * Indeterminate on purpose: a round trip to another API has no progress to report, and a bar
+ * that fills would be inventing one. A short segment travelling instead says "still working"
+ * without claiming to know how much is left.
+ *
+ * One pixel, and only ever the top edge - the page underneath is already showing real rows, and
+ * a refresh is not important enough to move any of them.
+ */
+@keyframes inbox-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(600%);
+  }
+}
+
+@utility animate-inbox-sweep {
+  animation: inbox-sweep 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* The column inside a RollingNumber. Same curve as everything else that moves here. */
 @utility roll-digits {
   transition: transform var(--motion-duration, 480ms) cubic-bezier(0.2, 0.7, 0.2, 1);

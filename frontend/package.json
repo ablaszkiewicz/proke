@@ -5,7 +5,10 @@
   "type": "module",
   "packageManager": "pnpm@10.15.1",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
   },
   "scripts": {
     "dev": "concurrently \"pnpm start:app\" \"pnpm start:kea\" -n APP,KEA -c blue,green",
@@ -29,6 +32,7 @@
     "kea-loaders": "^3.1.1",
     "kea-localstorage": "^3.1.0",
     "kea-subscriptions": "^3.0.1",
+    "motion": "^13.1.1",
     "posthog-js": "^1.417.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
