@@ -26,10 +26,18 @@ import { InboxSection } from "./InboxSection";
 export interface InboxPageProps {
   yours: InboxSectionData[];
   waitingOnYou: InboxSectionData[];
-  /** First load, with nothing to show yet. A later refresh renders under the rows it replaces. */
-  loading: boolean;
+  /** A trip to GitHub is in flight, behind rows that are already on screen. */
+  refreshing: boolean;
   /** An older answer, served because the refresh behind it failed. */
   stale: boolean;
+  /**
+   * Whether GitHub has ever answered for this person.
+   *
+   * What separates "nothing to do" from "we do not know yet". An empty pile may only claim the
+   * first when this is true; on false the page has rows it never got rather than rows that are
+   * not there, and saying otherwise is a confident lie about somebody's workload.
+   */
+  hasAnswer: boolean;
   /** proke holds no usable GitHub authorization. Nothing can be refreshed until they reconnect. */
   githubReauthRequired: boolean;
 }
@@ -68,10 +76,12 @@ function Pile({
   label,
   sections,
   empty,
+  hasAnswer,
 }: {
   label: string;
   sections: InboxSectionData[];
   empty: ReactNode;
+  hasAnswer: boolean;
 }) {
   const isEmpty = sections.every(
     (section) => section.pullRequests.length === 0
@@ -81,7 +91,9 @@ function Pile({
     <div className="min-w-0">
       <PileLabel>{label}</PileLabel>
       {isEmpty ? (
-        <p className="px-3 text-[13px] text-muted-foreground">{empty}</p>
+        <p className="px-3 text-[13px] text-muted-foreground">
+          {hasAnswer ? empty : "Couldn't reach GitHub."}
+        </p>
       ) : (
         sections.map((section) => (
           <InboxSection key={section.key} section={section} />
@@ -94,8 +106,9 @@ function Pile({
 export function InboxPage({
   yours,
   waitingOnYou,
-  loading,
+  refreshing,
   stale,
+  hasAnswer,
   githubReauthRequired,
 }: InboxPageProps) {
   return (
@@ -103,7 +116,7 @@ export function InboxPage({
       <header className="mx-auto flex max-w-[100rem] items-baseline gap-4 px-8 pb-2 pt-8">
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
         <Status
-          loading={loading}
+          refreshing={refreshing}
           stale={stale}
           githubReauthRequired={githubReauthRequired}
         />
@@ -121,11 +134,17 @@ export function InboxPage({
         over each column already say it.
       */}
       <div className="mx-auto grid max-w-[100rem] gap-y-14 px-5 pb-16 pt-6 xl:grid-cols-2 xl:gap-x-28 xl:gap-y-0">
-        <Pile label="Yours" sections={yours} empty="Nothing open." />
+        <Pile
+          label="Yours"
+          sections={yours}
+          empty="Nothing open."
+          hasAnswer={hasAnswer}
+        />
         <Pile
           label="Waiting on you"
           sections={waitingOnYou}
           empty="Nobody is waiting on you."
+          hasAnswer={hasAnswer}
         />
       </div>
     </div>
@@ -139,11 +158,11 @@ export function InboxPage({
  * renders nothing at all, which is the only state most people ever see.
  */
 function Status({
-  loading,
+  refreshing,
   stale,
   githubReauthRequired,
 }: {
-  loading: boolean;
+  refreshing: boolean;
   stale: boolean;
   githubReauthRequired: boolean;
 }) {
@@ -158,8 +177,12 @@ function Status({
     );
   }
 
-  if (loading) {
-    return <span className="text-xs text-muted-foreground">Loading…</span>;
+  // Above `stale`, deliberately: while a refresh is running, "checking GitHub" is both true
+  // and the more useful of the two - the staleness it is about to resolve is old news.
+  if (refreshing) {
+    return (
+      <span className="text-xs text-muted-foreground">Checking GitHub…</span>
+    );
   }
 
   if (stale) {

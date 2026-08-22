@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import * as nock from 'nock';
 import * as request from 'supertest';
+import { GithubInboxDataService } from '../../src/inbox/github-inbox-data.service';
 import { createTestApp } from '../utils/bootstrap';
 
 /**
@@ -78,7 +79,7 @@ describe('Inbox', () => {
       mockNoTeams();
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -117,7 +118,7 @@ describe('Inbox', () => {
         .reply(200, [{ login: 'bob' }]);
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -142,7 +143,7 @@ describe('Inbox', () => {
       nock('https://api.github.com').get('/user/teams').query(true).reply(403);
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -164,7 +165,7 @@ describe('Inbox', () => {
       mockNoTeams();
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -182,7 +183,7 @@ describe('Inbox', () => {
       mockNoTeams();
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -199,55 +200,90 @@ describe('Inbox', () => {
   });
 
   describe('the snapshot', () => {
-    it('serves a fresh snapshot without asking GitHub again', async () => {
+    /**
+     * Seeds a snapshot the only way anything can: by refreshing.
+     *
+     * Asserts nock is spent afterwards, which is not bookkeeping. An interceptor left unconsumed
+     * here goes on to satisfy the *next* request in the test, so a later assertion about GitHub
+     * being unreachable quietly passes against a leftover 200 instead. That is exactly how this
+     * suite lied about staleness once already.
+     */
+    const seedSnapshot = async (token: string, prs: any[]) => {
+      mockInbox({ yours: prs });
+      mockNoTeams();
+
+      await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(nock.isDone()).toBe(true);
+    };
+
+    it('never asks GitHub on a read, however old the snapshot is', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
       });
 
-      mockInbox({ yours: [pullRequest({ number: 1, reviewThreads: { nodes: [] } })] });
-      mockNoTeams();
+      await seedSnapshot(token, [pullRequest({ number: 1, reviewThreads: { nodes: [] } })]);
 
-      await request(app.getHttpServer())
-        .get('/inbox')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      // A day old, which is far past anything anyone would call fresh.
+      await bootstrap.models.inboxSnapshotModel.updateOne(
+        {},
+        { $set: { refreshedAt: new Date(Date.now() - 24 * 60 * 60_000) } },
+      );
 
-      // Nothing is mocked for a second call, and nock refuses the network - so if the endpoint
-      // went back to GitHub here it would fail rather than quietly cost a request. This is the
-      // property the scheduled sweep depends on: the endpoint is a database read.
+      // Asserted against the collaborator rather than against nock. An unmocked call would be
+      // swallowed by the data service and the endpoint would answer from the snapshot anyway,
+      // so "no interceptor was used" cannot tell these two apart - only "it was never called"
+      // can. This is the property the first paint rests on: a read is a database lookup.
+      const readSpy = jest.spyOn(app.get(GithubInboxDataService), 'read');
+
       const { body } = await request(app.getHttpServer())
         .get('/inbox')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
+      expect(readSpy).not.toHaveBeenCalled();
       expect(section(body, 'yours', 'waiting-for-reviewers').pullRequests).toHaveLength(1);
       expect(body.stale).toBe(false);
+      expect(body.refreshedAt).toBeDefined();
+
+      readSpy.mockRestore();
     });
 
-    it('serves the last answer, flagged, when GitHub is unavailable', async () => {
+    it('answers a read with no refreshedAt before GitHub has ever been asked', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
       });
 
-      mockInbox({ yours: [pullRequest({ number: 1, reviewThreads: { nodes: [] } })] });
-      mockNoTeams();
-
-      await request(app.getHttpServer())
+      const { body } = await request(app.getHttpServer())
         .get('/inbox')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      // Age the snapshot past the endpoint's staleness threshold so the next read refreshes.
-      await bootstrap.models.inboxSnapshotModel.updateOne(
-        {},
-        { $set: { refreshedAt: new Date(Date.now() - 10 * 60_000) } },
-      );
+      // The distinction the page depends on to avoid telling somebody their inbox is empty
+      // while it is still being fetched. Every section is present; nothing has answered yet.
+      expect(body.refreshedAt).toBeUndefined();
+      expect(body.yours.flatMap((s: any) => s.pullRequests)).toHaveLength(0);
+      expect(body.waitingOnYou.flatMap((s: any) => s.pullRequests)).toHaveLength(0);
+    });
+
+    it('serves the last answer, flagged, when a refresh cannot reach GitHub', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      await seedSnapshot(token, [pullRequest({ number: 1, reviewThreads: { nodes: [] } })]);
+
+      // Teams are cached in this process and would otherwise be answered without a request,
+      // which is fine but makes the arrangement read as if it were.
       bootstrap.services.inMemoryCacheService.clear();
 
       nock('https://api.github.com').post('/graphql').reply(502);
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -255,13 +291,14 @@ describe('Inbox', () => {
       // answered, so they go out with `stale` rather than being thrown away.
       expect(section(body, 'yours', 'waiting-for-reviewers').pullRequests).toHaveLength(1);
       expect(body.stale).toBe(true);
+      expect(body.refreshedAt).toBeDefined();
     });
 
     it('reports a missing GitHub authorization without ending the proke session', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser();
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -279,7 +316,7 @@ describe('Inbox', () => {
       nock('https://api.github.com').post('/graphql').reply(401);
 
       const { body } = await request(app.getHttpServer())
-        .get('/inbox')
+        .post('/inbox/refresh')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -290,8 +327,9 @@ describe('Inbox', () => {
       expect(stored.githubAccessToken).toBeUndefined();
     });
 
-    it('refuses an unauthenticated caller', async () => {
+    it('refuses an unauthenticated caller on both routes', async () => {
       await request(app.getHttpServer()).get('/inbox').expect(401);
+      await request(app.getHttpServer()).post('/inbox/refresh').expect(401);
     });
   });
 });

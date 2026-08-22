@@ -55,11 +55,31 @@ export interface InboxResult {
   waitingOnYou: InboxSectionData[];
 }
 
+function authHeaders(jwtToken: string) {
+  return { headers: { Authorization: `Bearer ${jwtToken}` } };
+}
+
 export class InboxApi {
+  /**
+   * The stored snapshot. One database lookup on the server - it never calls GitHub, at any age,
+   * so this is what the page paints from.
+   */
   public static async read(jwtToken: string): Promise<InboxResult> {
-    const response = await axios.get<InboxResult>("/inbox", {
-      headers: { Authorization: `Bearer ${jwtToken}` },
-    });
+    const response = await axios.get<InboxResult>("/inbox", authHeaders(jwtToken));
+
+    return response.data;
+  }
+
+  /**
+   * Asks GitHub and answers with what it said. Slow by nature - a round trip to another API -
+   * which is why it runs behind rows that are already on screen rather than in front of them.
+   */
+  public static async refresh(jwtToken: string): Promise<InboxResult> {
+    const response = await axios.post<InboxResult>(
+      "/inbox/refresh",
+      {},
+      authHeaders(jwtToken)
+    );
 
     return response.data;
   }

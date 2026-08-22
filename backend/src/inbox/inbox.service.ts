@@ -11,21 +11,19 @@ import { InboxRefreshService } from './inbox-refresh.service';
 import { InboxReadService } from './read/inbox-read.service';
 
 /**
- * How old a stored snapshot may be before the endpoint goes and gets a new one itself.
+ * The two halves of what the endpoint offers, and the reason they are two.
  *
- * Matched to the sweep that is coming rather than to anything about the data. Once a refresher
- * is writing every minute this threshold is never crossed, every request is a Mongo read, and
- * this branch quietly stops being reached. Until then it is what keeps the page current, at a
- * cost of at most one GitHub round trip per user per minute.
- */
-const STALE_AFTER_MS = 60_000;
-
-/**
- * What the endpoint serves.
+ * `read` never touches GitHub. Not "usually does not" - never. It is a single indexed Mongo
+ * lookup, so the page has something on screen in a few milliseconds, and the client then asks
+ * for `refresh` behind the rows it is already showing.
  *
- * Read-through, in that order deliberately: the stored snapshot first, GitHub only if there is
- * no usable one. The page must render from Mongo alone - that is the whole point of writing it
- * down - so a GitHub outage costs freshness and never the page.
+ * That split replaced a read that refreshed itself whenever the snapshot passed a minute old,
+ * which meant the first load after any gap paid a GitHub round trip before rendering anything.
+ * Fast most of the time and slow unpredictably is worse than fast always plus a visible refresh:
+ * the reader can start on the top of the list either way, and now they always can.
+ *
+ * The scheduled sweep that is coming does not change this. It writes the same document, so it
+ * only makes the client's `refresh` a no-op most of the time.
  */
 @Injectable()
 export class InboxService {
@@ -34,13 +32,24 @@ export class InboxService {
     private readonly inboxRefreshService: InboxRefreshService,
   ) {}
 
+  /**
+   * Whatever was last written down, however old.
+   *
+   * No staleness check on purpose: age is the client's to judge, and it has `refreshedAt` to
+   * judge it with. An absent `refreshedAt` is the one thing worth reading closely - it means
+   * GitHub has never answered for this person, so an empty inbox here is "not known yet" rather
+   * than "nothing to do".
+   */
   public async readForUser(userId: string): Promise<InboxResponse> {
     const stored = await this.inboxReadService.read(userId);
 
-    if (stored && Date.now() - stored.refreshedAt.getTime() < STALE_AFTER_MS) {
-      return respond(stored, { stale: false, githubReauthRequired: false });
-    }
+    return stored
+      ? respond(stored, { stale: false, githubReauthRequired: false })
+      : blank({ stale: false, githubReauthRequired: false });
+  }
 
+  /** Goes and asks GitHub. The only path in this module that costs a request. */
+  public async refreshForUser(userId: string): Promise<InboxResponse> {
     const refreshed = await this.inboxRefreshService.refresh(userId);
 
     if (refreshed.ok) {
@@ -48,20 +57,16 @@ export class InboxService {
     }
 
     const githubReauthRequired = refreshed.reason === 'no-token';
+    const stored = await this.inboxReadService.read(userId);
 
     // Something the user has seen before beats an empty page, every time. The rows are real -
-    // they were true when GitHub last answered - so they are served with `stale` set rather than
-    // thrown away because the refresh behind them did not land.
+    // they were true when GitHub last answered - so they go out with `stale` set rather than
+    // being thrown away because the refresh behind them did not land.
     if (stored) {
       return respond(stored, { stale: true, githubReauthRequired });
     }
 
-    return {
-      stale: false,
-      githubReauthRequired,
-      yours: empty(YOURS_SECTIONS),
-      waitingOnYou: empty(WAITING_SECTIONS),
-    };
+    return blank({ stale: false, githubReauthRequired });
   }
 }
 
@@ -77,6 +82,15 @@ function respond(
     // knows how to draw.
     yours: fill(snapshot.yours, YOURS_SECTIONS),
     waitingOnYou: fill(snapshot.waitingOnYou, WAITING_SECTIONS),
+  };
+}
+
+/** Every section, empty, and no `refreshedAt` - which is what says this is not an answer yet. */
+function blank(flags: { stale: boolean; githubReauthRequired: boolean }): InboxResponse {
+  return {
+    ...flags,
+    yours: empty(YOURS_SECTIONS),
+    waitingOnYou: empty(WAITING_SECTIONS),
   };
 }
 
