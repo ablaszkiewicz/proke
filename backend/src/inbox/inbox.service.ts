@@ -8,14 +8,14 @@ import {
 } from './core/entities/inbox.interface';
 import { InboxResponse } from './dto/inbox.response';
 import { InboxRefreshService } from './inbox-refresh.service';
-import { InboxReadService } from './read/inbox-read.service';
+import { InboxStoreService } from './inbox-store.service';
 
 /**
  * The two halves of what the endpoint offers, and the reason they are two.
  *
- * `read` never touches GitHub. Not "usually does not" - never. It is a single indexed Mongo
- * lookup, so the page has something on screen in a few milliseconds, and the client then asks
- * for `refresh` behind the rows it is already showing.
+ * `read` never touches GitHub. Not "usually does not" - never. It is a map lookup in this
+ * process, so the page has something on screen in a millisecond, and the client then asks for
+ * `refresh` behind the rows it is already showing.
  *
  * That split replaced a read that refreshed itself whenever the snapshot passed a minute old,
  * which meant the first load after any gap paid a GitHub round trip before rendering anything.
@@ -28,7 +28,7 @@ import { InboxReadService } from './read/inbox-read.service';
 @Injectable()
 export class InboxService {
   constructor(
-    private readonly inboxReadService: InboxReadService,
+    private readonly inboxStoreService: InboxStoreService,
     private readonly inboxRefreshService: InboxRefreshService,
   ) {}
 
@@ -37,11 +37,12 @@ export class InboxService {
    *
    * No staleness check on purpose: age is the client's to judge, and it has `refreshedAt` to
    * judge it with. An absent `refreshedAt` is the one thing worth reading closely - it means
-   * GitHub has never answered for this person, so an empty inbox here is "not known yet" rather
-   * than "nothing to do".
+   * nothing has been built for this person *in this process*, which covers a first-ever visit
+   * and the first visit after a deploy alike. Either way it is "not known yet" rather than
+   * "nothing to do", and the client says so.
    */
   public async readForUser(userId: string): Promise<InboxResponse> {
-    const stored = await this.inboxReadService.read(userId);
+    const stored = this.inboxStoreService.read(userId);
 
     return stored
       ? respond(stored, { stale: false, githubReauthRequired: false })
@@ -57,7 +58,7 @@ export class InboxService {
     }
 
     const githubReauthRequired = refreshed.reason === 'no-token';
-    const stored = await this.inboxReadService.read(userId);
+    const stored = this.inboxStoreService.read(userId);
 
     // Something the user has seen before beats an empty page, every time. The rows are real -
     // they were true when GitHub last answered - so they go out with `stale` set rather than

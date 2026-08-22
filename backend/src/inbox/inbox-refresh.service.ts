@@ -8,7 +8,7 @@ import {
 } from './github-inbox-data.service';
 import { GithubViewerTeammatesDataService } from './github-viewer-teammates-data.service';
 import { classify } from './inbox-classifier';
-import { InboxWriteService } from './write/inbox-write.service';
+import { InboxStoreService } from './inbox-store.service';
 
 /** Why a refresh produced nothing, where the difference changes what the caller should say. */
 export type InboxRefreshFailure = 'no-token' | 'github-unavailable';
@@ -29,6 +29,9 @@ export type InboxRefreshResult =
  * halves of the inbox, and the teammate list that separates your team from everyone else. That
  * is roughly one point of a user's 5,000-an-hour GraphQL budget - a per-user budget, not a
  * per-organisation one - which is what makes a once-a-minute sweep affordable at all.
+ *
+ * The snapshot it writes lives in this process only. See InboxStoreService for why that is
+ * enough, and what it costs.
  */
 @Injectable()
 export class InboxRefreshService {
@@ -39,7 +42,7 @@ export class InboxRefreshService {
     private readonly userWriteService: UserWriteService,
     private readonly inboxDataService: GithubInboxDataService,
     private readonly teammatesDataService: GithubViewerTeammatesDataService,
-    private readonly inboxWriteService: InboxWriteService,
+    private readonly inboxStoreService: InboxStoreService,
   ) {}
 
   public async refresh(userId: string): Promise<InboxRefreshResult> {
@@ -83,7 +86,7 @@ export class InboxRefreshService {
       ...classify(inbox, teammates),
     };
 
-    await this.inboxWriteService.upsert(snapshot);
+    this.inboxStoreService.write(snapshot);
 
     return { ok: true, snapshot };
   }

@@ -389,6 +389,79 @@ dialog[data-state="closed"]::backdrop {
 }
 
 /*
+ * A column that scrolls inside itself.
+ *
+ * Two things make this feel like part of the page rather than a pane bolted into it.
+ *
+ * The bar is invisible until the pointer is over the column, and even then it is a thin rounded
+ * thumb floating in its own track - drawn with a transparent border and `background-clip:
+ * padding-box`, which is the only way to inset a webkit thumb from its gutter. The app's global
+ * scrollbar rules are a flat twelve pixels; a class beats `*`, so these win wherever they apply.
+ *
+ * `scrollbar-gutter: stable` keeps the width from twitching as a column crosses the threshold of
+ * needing a bar at all.
+ *
+ * ## No mask here, deliberately
+ *
+ * The fade at each edge was a `mask-image` on this element, and it flickered black every time
+ * the scrollbar appeared. A mask promotes the element to its own compositing layer, and the
+ * scrollbar arriving forces that layer to repaint - which, on an element with no background of
+ * its own, means one frame composited against black.
+ *
+ * The fades are two gradient overlays instead, painted from `--background` to transparent by a
+ * sibling that never scrolls. Same picture, no layer, and it transitions on opacity, which
+ * nothing has ever flickered.
+ */
+@utility scroll-area {
+  overflow-y: auto;
+  /* Or scrolling to the end of one column starts scrolling whatever is behind it. */
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+
+  transition: scrollbar-color 200ms ease;
+
+  /* Firefox. No thumb styling to speak of, so it gets the colour and nothing else. */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--scrollbar-thumb) / 0) transparent;
+
+  &:hover,
+  &:focus-within {
+    scrollbar-color: rgb(var(--scrollbar-thumb) / 1) transparent;
+  }
+
+  &::-webkit-scrollbar {
+    width: 11px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    /* The same colour as it fades up to, at zero alpha. Never `transparent` - see the note on
+       the tokens above; that is what made the bar arrive black and then warm up. */
+    background-color: rgb(var(--scrollbar-thumb) / 0);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 200ms ease;
+  }
+
+  &:hover::-webkit-scrollbar-thumb,
+  &:focus-within::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--scrollbar-thumb) / 1);
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--scrollbar-thumb-hover) / 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+/*
  * The line across the top of the inbox while it is checking GitHub.
  *
  * Indeterminate on purpose: a round trip to another API has no progress to report, and a bar

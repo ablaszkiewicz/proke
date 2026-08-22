@@ -220,23 +220,17 @@ describe('Inbox', () => {
       expect(nock.isDone()).toBe(true);
     };
 
-    it('never asks GitHub on a read, however old the snapshot is', async () => {
+    it('never asks GitHub on a read', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
       });
 
       await seedSnapshot(token, [pullRequest({ number: 1, reviewThreads: { nodes: [] } })]);
 
-      // A day old, which is far past anything anyone would call fresh.
-      await bootstrap.models.inboxSnapshotModel.updateOne(
-        {},
-        { $set: { refreshedAt: new Date(Date.now() - 24 * 60 * 60_000) } },
-      );
-
       // Asserted against the collaborator rather than against nock. An unmocked call would be
       // swallowed by the data service and the endpoint would answer from the snapshot anyway,
       // so "no interceptor was used" cannot tell these two apart - only "it was never called"
-      // can. This is the property the first paint rests on: a read is a database lookup.
+      // can. This is the property the first paint rests on: a read touches nothing but memory.
       const readSpy = jest.spyOn(app.get(GithubInboxDataService), 'read');
 
       const { body } = await request(app.getHttpServer())
@@ -252,7 +246,7 @@ describe('Inbox', () => {
       readSpy.mockRestore();
     });
 
-    it('answers a read with no refreshedAt before GitHub has ever been asked', async () => {
+    it('answers a read with no refreshedAt before anything has been built', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
       });
@@ -276,10 +270,8 @@ describe('Inbox', () => {
 
       await seedSnapshot(token, [pullRequest({ number: 1, reviewThreads: { nodes: [] } })]);
 
-      // Teams are cached in this process and would otherwise be answered without a request,
-      // which is fine but makes the arrangement read as if it were.
-      bootstrap.services.inMemoryCacheService.clear();
-
+      // Deliberately not clearing the process cache here: the snapshot now lives in it, and
+      // wiping it would remove the very thing this asserts is served.
       nock('https://api.github.com').post('/graphql').reply(502);
 
       const { body } = await request(app.getHttpServer())
@@ -292,6 +284,26 @@ describe('Inbox', () => {
       expect(section(body, 'yours', 'waiting-for-reviewers').pullRequests).toHaveLength(1);
       expect(body.stale).toBe(true);
       expect(body.refreshedAt).toBeDefined();
+    });
+
+    it('forgets a snapshot once its process does', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      await seedSnapshot(token, [pullRequest({ number: 1, reviewThreads: { nodes: [] } })]);
+
+      // Standing in for a redeploy. The snapshot is a copy of what GitHub said and nothing else,
+      // so losing it costs one empty first paint and never any data.
+      bootstrap.services.inMemoryCacheService.clear();
+
+      const { body } = await request(app.getHttpServer())
+        .get('/inbox')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(body.refreshedAt).toBeUndefined();
+      expect(body.yours.flatMap((s: any) => s.pullRequests)).toHaveLength(0);
     });
 
     it('reports a missing GitHub authorization without ending the proke session', async () => {

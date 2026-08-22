@@ -79,7 +79,9 @@ export function InboxRow({
 }) {
   return (
     <motion.li
-      layout
+      // Position only. A row has no box either, and a title that wraps to two lines would
+      // otherwise have its text scaled through the change rather than simply reflowing.
+      layout="position"
       initial={animateEntrance ? { opacity: 0, y: -6 } : false}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, transition: EXIT_TRANSITION }}

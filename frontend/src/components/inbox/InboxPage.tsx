@@ -1,9 +1,11 @@
 import type { InboxSectionData } from "@/lib/api/inbox.api";
+import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
 import { LAYOUT_TRANSITION } from "./motion";
+import { useScrollEdges } from "./useScrollEdges";
 
 /**
  * The review inbox.
@@ -109,9 +111,28 @@ function Pile({
   );
   const isEmpty = visible.length === 0;
 
+  const { ref, onScroll, edges } = useScrollEdges<HTMLDivElement>(sections);
+
   return (
-    <div className="min-w-0">
+    // A column of its own from `xl` up: the label stays put and only the rows move under it.
+    // `min-h-0` is what lets the body actually shrink - a flex child defaults to its content
+    // height, which would push the whole thing past the viewport instead of scrolling.
+    <div className="flex min-w-0 flex-col xl:min-h-0">
       <PileLabel>{label}</PileLabel>
+
+      {/*
+        `relative`, so the two fades can be positioned over the column without scrolling with it.
+        They are siblings of the scrolling element rather than a mask on it - see index.css.
+      */}
+      <div className="relative flex min-w-0 flex-col xl:min-h-0 xl:flex-1">
+        <ScrollFade edge="top" show={edges.top} />
+        <ScrollFade edge="bottom" show={edges.bottom} />
+
+        <div
+          ref={ref}
+          onScroll={onScroll}
+          className="scroll-area -mr-2 pr-2 xl:min-h-0 xl:flex-1"
+        >
 
       {/*
         One group across every section in the column.
@@ -151,8 +172,38 @@ function Pile({
             {hasAnswer ? empty : "Couldn't reach GitHub."}
           </motion.p>
         ) : null}
-      </AnimatePresence>
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * The soft edge on a column that continues past it.
+ *
+ * A gradient from the page's own background to nothing, over the scrolling element rather than
+ * on it. `pointer-events-none` so it cannot swallow a click on the row underneath, and `z-10`
+ * so it sits above the rows without needing anything else on the page to declare a level.
+ */
+function ScrollFade({
+  edge,
+  show,
+}: {
+  edge: "top" | "bottom";
+  show: boolean;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute inset-x-0 z-10 h-7 transition-opacity duration-200",
+        edge === "top"
+          ? "top-0 bg-gradient-to-b from-background to-transparent"
+          : "bottom-0 bg-gradient-to-t from-background to-transparent",
+        show ? "opacity-100" : "opacity-0"
+      )}
+    />
   );
 }
 
@@ -174,7 +225,16 @@ export function InboxPage({
     // `reducedMotion="user"` rather than a media query per component: somebody who has asked
     // their system for less motion gets none of this, and still gets every row.
     <MotionConfig reducedMotion="user">
-      <div className="theme-ink min-h-dvh w-full bg-background text-foreground">
+      <div
+        className={
+          // Locked to the viewport from `xl` up, where the two columns are side by side and each
+          // can own its own scroll. Stacked below that they are one flowing page again, because
+          // two independently scrolling half-height panes on a phone is a worse answer than
+          // scrolling.
+          "theme-ink flex min-h-dvh w-full flex-col bg-background text-foreground " +
+          "xl:h-dvh xl:min-h-0 xl:overflow-hidden"
+        }
+      >
         {/*
           The only sign that a refresh is running. Indeterminate, because a round trip to another
           API has no progress to report and a bar that filled would be inventing one. One pixel,
@@ -195,7 +255,7 @@ export function InboxPage({
           ) : null}
         </AnimatePresence>
 
-        <header className="mx-auto flex max-w-[100rem] items-baseline gap-4 px-8 pb-2 pt-8">
+        <header className="mx-auto flex w-full max-w-[100rem] shrink-0 items-baseline gap-4 px-8 pb-2 pt-8">
           <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <Status stale={stale} githubReauthRequired={githubReauthRequired} />
           <ReposControl />
@@ -211,7 +271,12 @@ export function InboxPage({
           borders anywhere should not keep one purely to say "these are two things" - the labels
           over each column already say it.
         */}
-        <div className="mx-auto grid max-w-[100rem] gap-y-14 px-5 pb-16 pt-6 xl:grid-cols-2 xl:gap-x-28 xl:gap-y-0">
+        <div
+          className={
+            "mx-auto grid w-full max-w-[100rem] gap-y-14 px-5 pb-16 pt-6 " +
+            "xl:min-h-0 xl:flex-1 xl:grid-cols-2 xl:gap-x-28 xl:gap-y-0 xl:pb-6"
+          }
+        >
           <Pile
             label="Yours"
             sections={yours}

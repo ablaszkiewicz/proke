@@ -5,7 +5,6 @@ import * as nock from 'nock';
 import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
-import { InboxSnapshotEntity } from '../../src/inbox/core/entities/inbox-snapshot.entity';
 import { InboxModule } from '../../src/inbox/inbox.module';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
 import { PokeMessageEntity } from '../../src/notifications/messages/core/entities/poke-message.entity';
@@ -96,9 +95,6 @@ export async function createTestApp() {
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
-  const inboxSnapshotModel: Model<InboxSnapshotEntity> = module.get(
-    getModelToken(InboxSnapshotEntity.name),
-  );
   const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
@@ -108,13 +104,13 @@ export async function createTestApp() {
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
-    await inboxSnapshotModel.deleteMany({});
   };
 
   const beforeEach = async () => {
     await clearDatabase();
     nock.cleanAll();
-    // Outlives the database, so without this a team one spec looked up is still known in the next.
+    // Outlives the database, so without this a team one spec looked up - or an inbox one spec
+    // built - is still known in the next.
     inMemoryCacheService.clear();
   };
 
@@ -133,7 +129,6 @@ export async function createTestApp() {
       slackWorkspaceModel,
       slackLinkModel,
       pokeMessageModel,
-      inboxSnapshotModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),

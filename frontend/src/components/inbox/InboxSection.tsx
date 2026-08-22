@@ -28,16 +28,18 @@ export function InboxSection({
   const [open, setOpen] = useState(!CLOSED_BY_DEFAULT.includes(section.key));
 
   return (
+    // `layout="position"`, never plain `layout`. See the note on the list below.
     <motion.section
-      layout
+      layout="position"
       initial={animateEntrances ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: EXIT_TRANSITION }}
       transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.22 } }}
       className="mb-8 last:mb-0"
     >
-      <motion.button
-        layout="position"
+      {/* Not a motion element: it sits at the top of the section and never moves relative
+          to it, so animating it can only ever fight the section that is already moving it. */}
+      <button
         type="button"
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
@@ -49,22 +51,27 @@ export function InboxSection({
         )}
       >
         {SECTION_TITLES[section.key]}
-      </motion.button>
+      </button>
 
       {open ? (
         /*
-          `layout` on the list itself, which is what the exit was missing.
+          A plain list, and every layout animation on this page is `position` only.
 
-          `popLayout` takes a leaving row out of flow on the first frame of its exit, so the rows
-          under it can slide up into the gap - and they do. But the list's own height dropped in
-          that same frame, instantly, and everything below the list is in normal document flow
-          and simply moved. That was the jump: the rows inside were animating and the section
-          underneath was not being animated at all, it was being pushed.
+          `layout` animates size as well as position, and it does it with scale transforms that
+          children then have to counter-scale out of. Nothing here has a box - no border, no
+          background, no shadow - so animating a section's or a list's *size* is invisible when
+          it works and a squash when it does not. The only thing an eye tracks is where a heading
+          and its rows sit, which is position.
 
-          Animating the container's height means what follows it moves smoothly for nothing, and
-          the rows counter-scale because they carry `layout` too.
+          It was also being animated twice over. A section losing a row and a list losing a row
+          are the same fifty-two pixels, and both were animating it while the section was
+          simultaneously being pushed down by the section above it growing. Three transforms
+          composing on one heading is the artifact.
+
+          The list needs no animation of its own: its height snapping is unobservable, and the
+          section *below* it slides to its new place under its own `layout="position"`.
         */
-        <motion.ul layout transition={LAYOUT_TRANSITION}>
+        <ul>
           <AnimatePresence mode="popLayout">
             {section.pullRequests.map((pullRequest) => (
               <InboxRow
@@ -74,7 +81,7 @@ export function InboxSection({
               />
             ))}
           </AnimatePresence>
-        </motion.ul>
+        </ul>
       ) : null}
     </motion.section>
   );

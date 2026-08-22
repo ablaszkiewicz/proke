@@ -71,7 +71,7 @@ export interface InboxSectionContent {
  *
  * A whole snapshot rather than a set of rows, because that is how it is produced: one GraphQL
  * query answers the complete truth for a user, and there is nothing to merge incrementally. The
- * refresher replaces the document; the endpoint reads it.
+ * refresher replaces it; the endpoint reads it.
  */
 export interface InboxSnapshot {
   userId: string;
