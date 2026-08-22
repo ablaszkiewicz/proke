@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
+import { InboxModule } from './inbox/inbox.module';
 import { getEnvConfig } from './shared/configs/env-configs';
 import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
 import { PosthogLogger } from './shared/logging/posthog-logger';
@@ -21,6 +22,7 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     AuthCoreModule,
     UserCoreModule,
     ConnectionsModule,
+    InboxModule,
     SlackModule,
     GithubWebhookModule,
     SlackEventsModule,

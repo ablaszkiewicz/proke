@@ -135,7 +135,11 @@ export type GithubEndpoint =
   | 'repo'
   | 'pull_request'
   | 'review_comment'
-  | 'team_members';
+  | 'team_members'
+  | 'user_teams'
+  | 'team_membership'
+  /* The inbox, which is one GraphQL request rather than one per pull request. */
+  | 'graphql_inbox';
 
 /** The Slack Web API methods proke calls, plus the OAuth exchange that is not one of them. */
 export const SLACK_METHODS = [
@@ -163,6 +167,7 @@ export const CACHE_NAMESPACES = [
   'comment-author',
   'team-members',
   'pr-diff',
+  'teammates',
 ] as const;
 
 export type CacheNamespace = (typeof CACHE_NAMESPACES)[number] | 'other';

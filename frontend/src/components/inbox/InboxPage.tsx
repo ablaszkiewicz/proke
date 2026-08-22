@@ -1,13 +1,14 @@
+import type { InboxSectionData } from "@/lib/api/inbox.api";
+import type { ReactNode } from "react";
 import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
-import { MINE_SECTIONS, REVIEW_SECTIONS, mineIn, reviewsIn } from "./sections";
 
 /**
  * The review inbox.
  *
  * Two piles - your own open pull requests on the left, other people's waiting on you on the
- * right - divided by a single hairline, which is the only line on the page. Everything else is
- * separated by space and ranked by type size.
+ * right - separated by nothing but the gutter, which is why the gutter is wide. Everything else
+ * is ranked by type size.
  *
  * What is deliberately absent is most of the design: no borders round anything, no status
  * glyphs, no counts, no dates, and no sentence anywhere explaining what a section means. Every
@@ -17,9 +18,23 @@ import { MINE_SECTIONS, REVIEW_SECTIONS, mineIn, reviewsIn } from "./sections";
  *
  * Nothing animates in. The cascade was pleasant once and a tax on every load after it, and this
  * is a page somebody opens twenty times a day.
+ *
+ * Presentational: takes data and renders it, so the same page can be driven by the logic next
+ * door or by a fixture.
  */
 
-/** Looks like the real control, does nothing. The only chrome on the page. */
+export interface InboxPageProps {
+  yours: InboxSectionData[];
+  waitingOnYou: InboxSectionData[];
+  /** First load, with nothing to show yet. A later refresh renders under the rows it replaces. */
+  loading: boolean;
+  /** An older answer, served because the refresh behind it failed. */
+  stale: boolean;
+  /** proke holds no usable GitHub authorization. Nothing can be refreshed until they reconnect. */
+  githubReauthRequired: boolean;
+}
+
+/** Looks like the real control, does nothing yet. The only chrome on the page. */
 function ReposControl() {
   return (
     <button
@@ -28,7 +43,7 @@ function ReposControl() {
       className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       <FilterIcon className="size-3.5" />
-      16 repos
+      All repos
     </button>
   );
 }
@@ -42,11 +57,56 @@ function PileLabel({ children }: { children: string }) {
   );
 }
 
-export function InboxPage() {
+/**
+ * A whole pile with nothing in it.
+ *
+ * Its own line rather than an absent column, because "you owe nobody anything" is a result worth
+ * being told, and a column that vanished when it emptied would move the other one across the
+ * page every time somebody finished their last review.
+ */
+function Pile({
+  label,
+  sections,
+  empty,
+}: {
+  label: string;
+  sections: InboxSectionData[];
+  empty: ReactNode;
+}) {
+  const isEmpty = sections.every(
+    (section) => section.pullRequests.length === 0
+  );
+
+  return (
+    <div className="min-w-0">
+      <PileLabel>{label}</PileLabel>
+      {isEmpty ? (
+        <p className="px-3 text-[13px] text-muted-foreground">{empty}</p>
+      ) : (
+        sections.map((section) => (
+          <InboxSection key={section.key} section={section} />
+        ))
+      )}
+    </div>
+  );
+}
+
+export function InboxPage({
+  yours,
+  waitingOnYou,
+  loading,
+  stale,
+  githubReauthRequired,
+}: InboxPageProps) {
   return (
     <div className="theme-ink min-h-dvh w-full bg-background text-foreground">
       <header className="mx-auto flex max-w-[100rem] items-baseline gap-4 px-8 pb-2 pt-8">
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+        <Status
+          loading={loading}
+          stale={stale}
+          githubReauthRequired={githubReauthRequired}
+        />
         <ReposControl />
       </header>
 
@@ -54,34 +114,61 @@ export function InboxPage() {
         Side by side from `xl` up, stacked below it. What you owe other people and what other
         people owe you are different jobs; putting one under the other means the second is only
         ever reached by scrolling past the first.
-      */}
-      <div className="mx-auto grid max-w-[100rem] gap-10 px-5 pb-16 pt-6 xl:grid-cols-2 xl:gap-0">
-        {/* `min-w-0`, or the longest title sets the column width and pushes the other one off
-            the page instead of truncating. */}
-        <div className="min-w-0 xl:border-r xl:border-rule xl:pr-10">
-          <PileLabel>Yours</PileLabel>
-          {MINE_SECTIONS.map((section) => (
-            <InboxSection
-              key={section.key}
-              sectionKey={section.key}
-              title={section.title}
-              rows={mineIn(section.key)}
-            />
-          ))}
-        </div>
 
-        <div className="min-w-0 xl:pl-10">
-          <PileLabel>Waiting on you</PileLabel>
-          {REVIEW_SECTIONS.map((section) => (
-            <InboxSection
-              key={section.key}
-              sectionKey={section.key}
-              title={section.title}
-              rows={reviewsIn(section.key)}
-            />
-          ))}
-        </div>
+        Nothing divides them but the gutter, which is why the gutter is wide. A rule down the
+        middle would be the only line on the page, and a page that has argued itself down to no
+        borders anywhere should not keep one purely to say "these are two things" - the labels
+        over each column already say it.
+      */}
+      <div className="mx-auto grid max-w-[100rem] gap-y-14 px-5 pb-16 pt-6 xl:grid-cols-2 xl:gap-x-28 xl:gap-y-0">
+        <Pile label="Yours" sections={yours} empty="Nothing open." />
+        <Pile
+          label="Waiting on you"
+          sections={waitingOnYou}
+          empty="Nobody is waiting on you."
+        />
       </div>
     </div>
   );
+}
+
+/**
+ * The one line on the page allowed to talk about the page.
+ *
+ * Only ever says something when there is something wrong or something pending; the healthy state
+ * renders nothing at all, which is the only state most people ever see.
+ */
+function Status({
+  loading,
+  stale,
+  githubReauthRequired,
+}: {
+  loading: boolean;
+  stale: boolean;
+  githubReauthRequired: boolean;
+}) {
+  if (githubReauthRequired) {
+    return (
+      <a
+        href="/app"
+        className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+      >
+        Reconnect GitHub to refresh this
+      </a>
+    );
+  }
+
+  if (loading) {
+    return <span className="text-xs text-muted-foreground">Loading…</span>;
+  }
+
+  if (stale) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Showing the last answer GitHub gave
+      </span>
+    );
+  }
+
+  return null;
 }

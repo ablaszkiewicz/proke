@@ -1,36 +1,36 @@
+import type { InboxAuthor, InboxPullRequest } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import type { MockActor, MockPullRequest } from "./mock";
 
 /** A real avatar where the network allows, initials otherwise - never a broken image. */
 export function ActorAvatar({
-  actor,
+  author,
   size = 22,
   className,
 }: {
-  actor: MockActor;
+  author: InboxAuthor;
   size?: number;
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
+  if (failed || !author.avatarUrl) {
     return (
       <span
         style={{ width: size, height: size, fontSize: size * 0.42 }}
         className={cn(
           "inline-flex shrink-0 items-center justify-center rounded-full bg-muted font-medium uppercase text-muted-foreground",
-          className,
+          className
         )}
       >
-        {actor.login.slice(0, 1)}
+        {author.login.slice(0, 1)}
       </span>
     );
   }
 
   return (
     <img
-      src={actor.avatarUrl}
+      src={author.avatarUrl}
       alt=""
       width={size}
       height={size}
@@ -54,27 +54,27 @@ export function ActorAvatar({
  * Deliberately no entrance animation. A staggered cascade is a nice thing to see once and a tax
  * on every load after that, and this page is one somebody opens twenty times a day.
  */
-export function InboxRow({ pullRequest }: { pullRequest: MockPullRequest }) {
+export function InboxRow({ pullRequest }: { pullRequest: InboxPullRequest }) {
   return (
     <li>
       <a
-        href={`https://github.com/${pullRequest.repo}/pull/${pullRequest.number}`}
+        href={pullRequest.url}
         target="_blank"
         rel="noreferrer"
         className="group flex items-start gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent"
       >
-        <ActorAvatar actor={pullRequest.author} size={22} className="mt-0.5" />
+        <ActorAvatar author={pullRequest.author} size={22} className="mt-0.5" />
         <div className="min-w-0 flex-1">
           <p
             className={cn(
               "text-[15px] leading-snug decoration-1 underline-offset-2 group-hover:underline",
-              pullRequest.isDraft ? "text-muted-foreground" : "text-foreground",
+              pullRequest.isDraft ? "text-muted-foreground" : "text-foreground"
             )}
           >
             {pullRequest.title}
           </p>
           <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
-            {pullRequest.repo}
+            {pullRequest.repositoryFullName}
             <span className="text-muted-foreground/60">
               {" "}
               #{pullRequest.number}

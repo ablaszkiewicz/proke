@@ -1,52 +1,22 @@
-import {
-  MOCK_MINE,
-  MOCK_REVIEWS,
-  type MineSectionKey,
-  type MockPullRequest,
-  type MockReviewRequest,
-} from "./mock";
+import type { InboxSectionKey } from "@/lib/api/inbox.api";
 
 /**
- * The grouping and the ordering, kept apart from the page that renders them.
+ * The words over each pile of pull requests.
  *
- * Within "Yours" the sections run from least to most work outstanding - a merge button, then a
- * thread to answer, then a wait on somebody else - so the top is always the thing you can
- * finish. Within "Waiting on you" they run by how much your answer is worth to a person: your
- * team is blocked on you, a stranger is inconvenienced, and a dependency bump is neither.
+ * The only thing about sections the client owns. Which pile a row is in, which sections exist
+ * and what order they come in are all decided by the server, because each of those needs
+ * something a browser cannot see - a review thread's state, a team's membership, whether an
+ * author is a machine.
  */
-export interface SectionSpec<K> {
-  key: K;
-  title: string;
-}
+export const SECTION_TITLES: Record<InboxSectionKey, string> = {
+  approved: "Approved",
+  "unresolved-comments": "Unresolved comments",
+  "waiting-for-reviewers": "Waiting for reviewers",
+  drafts: "Drafts",
+  team: "Your team",
+  others: "Everyone else",
+  bots: "Bots",
+};
 
-export const MINE_SECTIONS: SectionSpec<MineSectionKey>[] = [
-  { key: "ready-to-merge", title: "Approved" },
-  {
-    key: "unresolved-comments",
-    title: "Unresolved comments",
-  },
-  {
-    key: "waiting-for-reviewers",
-    title: "Waiting for reviewers",
-  },
-  { key: "drafts", title: "Drafts" },
-];
-
-export const REVIEW_SECTIONS: SectionSpec<MockReviewRequest["group"]>[] = [
-  { key: "team", title: "Your team" },
-  { key: "others", title: "Everyone else" },
-  { key: "bots", title: "Bots" },
-];
-
-export function mineIn(key: MineSectionKey): MockPullRequest[] {
-  return MOCK_MINE[key];
-}
-
-/** Oldest ask first - see askedHoursAgo. The age decides the order and is never shown. */
-export function reviewsIn(
-  group: MockReviewRequest["group"],
-): MockReviewRequest[] {
-  return MOCK_REVIEWS.filter((review) => review.group === group).sort(
-    (a, b) => b.askedHoursAgo - a.askedHoursAgo,
-  );
-}
+/** Closed on arrival. A draft is a note to yourself rather than a queue. */
+export const CLOSED_BY_DEFAULT: InboxSectionKey[] = ["drafts"];
