@@ -1,7 +1,7 @@
 import type { InboxSectionData } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
 import { LAYOUT_TRANSITION } from "./motion";
@@ -207,6 +207,105 @@ function ScrollFade({
   );
 }
 
+/**
+ * How long the finish takes, and how long it is left up afterwards.
+ *
+ * Both are short. This is the ending of an animation nobody is watching on purpose - long
+ * enough to be seen completing, not long enough to be waited on.
+ */
+const SWEEP_FILL_MS = 280;
+const SWEEP_HOLD_MS = 140;
+
+type SweepPhase = "idle" | "running" | "finishing";
+
+/**
+ * The only sign that a refresh is running, and the only sign that one has ended.
+ *
+ * Indeterminate while it runs, because a round trip to another API has no progress to report and
+ * a bar that filled would be inventing one. One pixel, on the top edge, moving nothing - the
+ * page under it is already showing real rows.
+ *
+ * It does not disappear when the request returns. The segment is somewhere mid-travel at that
+ * moment, and cutting it there reported the finish as an absence - on a fast connection, a
+ * flicker and nothing else. Instead the line fills the width from the left, under the segment
+ * and in the same colour so the two read as one line completing rather than as a swap, and only
+ * then fades. The end of the request gets an ending.
+ */
+function RefreshLine({ refreshing }: { refreshing: boolean }) {
+  const phase = useSweepPhase(refreshing);
+
+  return (
+    <AnimatePresence>
+      {phase === "idle" ? null : (
+        <motion.div
+          aria-hidden="true"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="pointer-events-none fixed inset-x-0 top-0 z-20 h-px overflow-hidden"
+        >
+          {phase === "finishing" ? (
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{
+                duration: SWEEP_FILL_MS / 1000,
+                ease: [0.2, 0.7, 0.2, 1],
+              }}
+              className="absolute inset-0 origin-left bg-foreground/50"
+            />
+          ) : null}
+
+          {/*
+            Tapered rather than a solid block, and travelling at an even pace. Both ends of its
+            journey are off screen - see the keyframes in index.css.
+          */}
+          <div className="relative h-full animate-inbox-sweep bg-gradient-to-r from-transparent via-foreground/70 to-transparent" />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Three states from one boolean: running, finishing, gone.
+ *
+ * The middle one is what the prop cannot say. `refreshing` goes false the instant the answer
+ * lands, and the line still has an ending to play at that point - so the state outlives the
+ * request by exactly as long as that ending takes.
+ */
+function useSweepPhase(refreshing: boolean): SweepPhase {
+  const [phase, setPhase] = useState<SweepPhase>("idle");
+  const wasRefreshing = useRef(false);
+
+  useEffect(() => {
+    if (refreshing) {
+      wasRefreshing.current = true;
+      setPhase("running");
+
+      return;
+    }
+
+    // Nothing to finish if nothing was running. A page that opens with no refresh in flight must
+    // not play the ending of an animation it never started.
+    if (!wasRefreshing.current) {
+      return;
+    }
+
+    wasRefreshing.current = false;
+    setPhase("finishing");
+
+    // Cleared if another refresh starts inside the window, which puts the line straight back to
+    // running rather than letting it fade out from under the next request.
+    const timer = setTimeout(() => setPhase("idle"), SWEEP_FILL_MS + SWEEP_HOLD_MS);
+
+    return () => clearTimeout(timer);
+  }, [refreshing]);
+
+  return phase;
+}
+
 export function InboxPage({
   yours,
   waitingOnYou,
@@ -231,29 +330,11 @@ export function InboxPage({
           // can own its own scroll. Stacked below that they are one flowing page again, because
           // two independently scrolling half-height panes on a phone is a worse answer than
           // scrolling.
-          "theme-ink flex min-h-dvh w-full flex-col bg-background text-foreground " +
+          "flex min-h-dvh w-full flex-col bg-background text-foreground " +
           "xl:h-dvh xl:min-h-0 xl:overflow-hidden"
         }
       >
-        {/*
-          The only sign that a refresh is running. Indeterminate, because a round trip to another
-          API has no progress to report and a bar that filled would be inventing one. One pixel,
-          on the top edge, moving nothing - the page under it is already showing real rows.
-        */}
-        <AnimatePresence>
-          {refreshing ? (
-            <motion.div
-              aria-hidden="true"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="pointer-events-none fixed inset-x-0 top-0 z-20 h-px overflow-hidden"
-            >
-              <div className="h-full w-[14%] animate-inbox-sweep bg-foreground/50" />
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        <RefreshLine refreshing={refreshing} />
 
         <header className="mx-auto flex w-full max-w-[100rem] shrink-0 items-baseline gap-4 px-8 pb-2 pt-8">
           <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>

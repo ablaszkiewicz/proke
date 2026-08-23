@@ -38,12 +38,15 @@ const buttonVariants = cva(
         // text, which is too light to put foreground on top of.
         destructive:
           "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/40",
+        // Filled rather than hollow in the dark, which is the only theme this app has: an
+        // outline on a background the same colour as the page reads as a disabled control.
+        // Every colour here is a token - the neutral greys that used to be hardcoded were
+        // written against a pure-black palette and go cold against the warm one.
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-neutral-800 dark:border-neutral-700 dark:hover:bg-neutral-700",
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-secondary dark:hover:bg-foreground/10",
         secondary:
           "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
-        ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-neutral-800",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

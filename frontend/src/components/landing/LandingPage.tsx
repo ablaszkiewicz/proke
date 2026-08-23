@@ -23,7 +23,7 @@ export function LandingPage() {
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden">
-      {/* A single soft light behind the hero. Pure black everywhere else would be flat. */}
+      {/* A single soft light behind the hero. One flat colour everywhere else would be flat. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_55%_at_50%_32%,oklch(0.985_0_0/0.08),transparent_72%)]"

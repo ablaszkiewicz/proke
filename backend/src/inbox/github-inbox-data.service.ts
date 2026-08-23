@@ -165,6 +165,11 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
  * Only the viewer's own half asks for review threads. On somebody else's pull request the state
  * of their threads is not what decides where the row goes, and thirty nodes each would be the
  * most expensive thing in the query for no answer.
+ *
+ * `draft:false` on that half too, and only that half. Your own drafts are worth a pile - they
+ * are the work you have started and not sent - but somebody else's draft is not waiting on you,
+ * whatever GitHub says about the review request sitting on it. Excluded in the search rather
+ * than after it so the page limit is spent on rows that will be shown.
  */
 const INBOX_QUERY = `
 query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
@@ -179,7 +184,7 @@ query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
     }
   }
   waitingOnYou: search(
-    query: "is:open is:pr review-requested:@me archived:false"
+    query: "is:open is:pr review-requested:@me archived:false draft:false"
     type: ISSUE
     first: $waiting
   ) {
