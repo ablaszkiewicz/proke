@@ -57,24 +57,42 @@
   /* Heavier than --border. For the rules that bound a section or a column, as opposed to
      the hairlines that separate rows inside one. */
   --rule: oklch(0.86 0 0);
-  /* See the note on these in `.dark`, which is the palette the app actually runs on. */
-  --scrollbar-thumb: 205 200 195;
-  --scrollbar-thumb-hover: 180 174 168;
+}
+
+.dark {
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --rule: oklch(1 0 0 / 22%);
 }
 
 /*
- * The app's palette. Dark-only, and warm rather than neutral.
+ * The inbox's palette, applied to a subtree rather than swapped in globally.
  *
- * It was written for the inbox, where it had to survive being a wall of small text somebody
- * scans twenty times a day: a few points off black instead of pure black, and every grey pulled
- * towards brown, so the same density reads without glare. It sat on a `.theme-ink` class over
- * that page alone while the rest of the app stayed on neutral black.
+ * The app's own dark theme sits on pure black, which is right for the landing page - one mark on
+ * an empty screen - and punishing on a wall of small text you scan rather than look at. This is
+ * a few points off black and warm rather than neutral, so the same density reads without glare.
  *
- * It is the default now because there was no second answer worth keeping - the landing page and
- * the dashboard were on the neutral one by inheritance, not by argument, and the warm one is
- * better on both. Nothing in the app reads a theme class; everything reads these variables.
+ * Scoped because those two pages want different answers, not because this one is provisional.
+ * Promoting it is a matter of moving these declarations onto `.dark`; nothing below reads the
+ * class, only the variables.
  */
-.dark {
+.theme-ink {
   --background: #12100e;
   --foreground: #e9e3d8;
   --card: #1a1714;
@@ -94,17 +112,6 @@
   --input: #2a2521;
   --ring: #c8a575;
   --rule: #3a332c;
-
-  /*
-   * Scrollbars, as an `r g b` triple rather than a colour.
-   *
-   * `.scroll-area` fades a thumb up from nothing, and it has to fade up from *this* colour at
-   * zero alpha - `transparent` is black at zero alpha, so a bar interpolating from it arrives
-   * black and warms up over the transition. `rgb(var(--x) / 0)` is what lets both ends of that
-   * transition name the same colour, and it needs the channels loose to do it.
-   */
-  --scrollbar-thumb: 58 51 44;
-  --scrollbar-thumb-hover: 77 68 59;
 }
 
 /*
@@ -523,10 +530,10 @@ dialog[data-state="closed"]::backdrop {
     cursor: pointer;
   }
 
-  /* Everything the app does not scroll itself: same warm greys as the palette. */
+  /* Dark scrollbars */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgb(var(--scrollbar-thumb)) transparent;
+    scrollbar-color: oklch(0.4 0 0) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -539,11 +546,11 @@ dialog[data-state="closed"]::backdrop {
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: rgb(var(--scrollbar-thumb));
+    background-color: oklch(0.4 0 0);
     border-radius: 6px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(var(--scrollbar-thumb-hover));
+    background-color: oklch(0.5 0 0);
   }
 }
