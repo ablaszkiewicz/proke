@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as MockInboxRouteImport } from './routes/mock-inbox'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AppInboxRouteImport } from './routes/app/inbox'
 import { Route as AppCallbacksSlackRouteImport } from './routes/app/callbacks/slack'
@@ -20,11 +19,6 @@ import { Route as AppCallbacksOauthGithubRouteImport } from './routes/app/callba
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MockInboxRoute = MockInboxRouteImport.update({
-  id: '/mock-inbox',
-  path: '/mock-inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -56,7 +50,6 @@ const AppCallbacksOauthGithubRoute = AppCallbacksOauthGithubRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/mock-inbox': typeof MockInboxRoute
   '/app/inbox': typeof AppInboxRoute
   '/app/': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
@@ -65,7 +58,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/mock-inbox': typeof MockInboxRoute
   '/app/inbox': typeof AppInboxRoute
   '/app': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
@@ -75,7 +67,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/mock-inbox': typeof MockInboxRoute
   '/app/inbox': typeof AppInboxRoute
   '/app/': typeof AppIndexRoute
   '/app/callbacks/slack': typeof AppCallbacksSlackRoute
@@ -86,7 +77,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/mock-inbox'
     | '/app/inbox'
     | '/app/'
     | '/app/callbacks/slack'
@@ -95,7 +85,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/mock-inbox'
     | '/app/inbox'
     | '/app'
     | '/app/callbacks/slack'
@@ -104,7 +93,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/mock-inbox'
     | '/app/inbox'
     | '/app/'
     | '/app/callbacks/slack'
@@ -114,7 +102,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  MockInboxRoute: typeof MockInboxRoute
   AppInboxRoute: typeof AppInboxRoute
   AppIndexRoute: typeof AppIndexRoute
   AppCallbacksSlackRoute: typeof AppCallbacksSlackRoute
@@ -129,13 +116,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mock-inbox': {
-      id: '/mock-inbox'
-      path: '/mock-inbox'
-      fullPath: '/mock-inbox'
-      preLoaderRoute: typeof MockInboxRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/': {
@@ -178,7 +158,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  MockInboxRoute: MockInboxRoute,
   AppInboxRoute: AppInboxRoute,
   AppIndexRoute: AppIndexRoute,
   AppCallbacksSlackRoute: AppCallbacksSlackRoute,

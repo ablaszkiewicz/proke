@@ -1,10 +1,10 @@
-import type { InboxSectionData } from "@/lib/api/inbox.api";
+import type { InboxSectionData, InboxSectionKey } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FilterIcon } from "./icons";
 import { InboxSection } from "./InboxSection";
 import { LAYOUT_TRANSITION } from "./motion";
+import { WAITING_SECTIONS, YOURS_SECTIONS } from "./sections";
 import { useScrollEdges } from "./useScrollEdges";
 
 /**
@@ -27,8 +27,10 @@ import { useScrollEdges } from "./useScrollEdges";
  * Holding a full-screen loader in front of all that traded one flicker for a mandatory pause,
  * which is the worse of the two on a page somebody opens twenty times a day.
  *
- * What stops it flickering instead is that an empty pile says nothing until there is something
- * to say - see `settled`.
+ * "Empty" means the headings and nothing under them, not a blank screen. The section list is the
+ * client's - see sections.ts - so the first frame is already the finished layout, and what
+ * arrives is only ever rows dropping into it. That is what a cascade needs to be worth having:
+ * with no skeleton it would be a stagger in front of a void.
  *
  * Presentational: takes data and renders it, so the same page can be driven by the logic next
  * door or by the stopwatch at /mock-inbox.
@@ -59,67 +61,72 @@ export interface InboxPageProps {
   githubReauthRequired: boolean;
 }
 
-/** Looks like the real control, does nothing yet. The only chrome on the page. */
-function ReposControl() {
-  return (
-    <button
-      type="button"
-      onClick={(event) => event.preventDefault()}
-      className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-    >
-      <FilterIcon className="size-3.5" />
-      All repos
-    </button>
-  );
-}
-
-/** The label over a pile. The smallest type on the page, and the only thing in that register. */
-function PileLabel({ children }: { children: string }) {
-  return (
-    <h2 className="mb-5 px-3 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-      {children}
-    </h2>
-  );
-}
-
 /**
- * One pile, and what it says when it has nothing in it.
+ * One pile: its sections, in order, and what it says when it has none worth drawing.
  *
- * Three states rather than two, because "we have not looked yet" and "there is nothing" read
- * identically as an empty column and mean opposite things.
+ * The sections are the client's list rather than the server's - see sections.ts - so the column
+ * has its full shape on the first frame and the rows cascade into a layout that is already
+ * there. Until an answer arrives every heading is drawn, empty. Once one has, the ones that got
+ * nothing leave: a heading with nothing under it and nothing coming is a promise the page does
+ * not keep, and on most accounts "Bots" would be that promise most days.
+ *
+ * Which leaves two states that a column of headings cannot express by itself, and they are the
+ * only two things here written in words: that there is genuinely nothing, and that we could not
+ * find out.
  */
 function Pile({
   label,
+  keys,
   sections,
   empty,
   settled,
   hasAnswer,
-  animateEntrances,
+  cascading,
 }: {
   label: string;
+  keys: InboxSectionKey[];
   sections: InboxSectionData[];
+  /** What this column says once it is certain it is empty. Never shown before that. */
   empty: ReactNode;
   settled: boolean;
   hasAnswer: boolean;
-  animateEntrances: boolean;
+  /** Whether the rows mounting on this render are the column's first. See useHasPainted. */
+  cascading: boolean;
 }) {
-  // Filtered here rather than inside the section, so an emptying section leaves
-  // AnimatePresence's child list and can be animated out. A child that renders null is
-  // indistinguishable, to AnimatePresence, from one that is still there.
-  const visible = sections.filter(
-    (section) => section.pullRequests.length > 0
+  const byKey = new Map(sections.map((section) => [section.key, section]));
+
+  // Everything until there is an answer, and then only what has something in it. The skeleton
+  // has to be the whole list - it is being drawn against data that has not arrived - and the
+  // moment it has, the list is answerable from the data instead of guessed at.
+  const drawn = keys.filter(
+    (key) => !settled || (byKey.get(key)?.pullRequests.length ?? 0) > 0
   );
-  const isEmpty = visible.length === 0;
+
+  const isEmpty = keys.every(
+    (key) => (byKey.get(key)?.pullRequests.length ?? 0) === 0
+  );
+
+  // See cascadeDelay: the stagger is measured in sections that have rows, not in sections.
+  let filled = 0;
+  const cascadeIndexOf = (section: InboxSectionData) => {
+    if (!cascading || section.pullRequests.length === 0) {
+      return -1;
+    }
+
+    return filled++;
+  };
 
   const { ref, onScroll, edges } = useScrollEdges<HTMLDivElement>(sections);
 
   return (
-    // A column of its own from `xl` up: the label stays put and only the rows move under it.
+    // A column of its own from `xl` up: only the rows inside it move.
     // `min-h-0` is what lets the body actually shrink - a flex child defaults to its content
     // height, which would push the whole thing past the viewport instead of scrolling.
-    <div className="flex min-w-0 flex-col xl:min-h-0">
-      <PileLabel>{label}</PileLabel>
-
+    //
+    // `label` is not printed any more. It stays as the region's accessible name, because the
+    // heading that used to be here was the only thing telling somebody who cannot see the
+    // layout that these are two piles rather than one long list.
+    <div role="region" aria-label={label} className="flex min-w-0 flex-col xl:min-h-0">
       {/*
         `relative`, so the two fades can be positioned over the column without scrolling with it.
         They are siblings of the scrolling element rather than a mask on it - see index.css.
@@ -133,45 +140,49 @@ function Pile({
           onScroll={onScroll}
           className="scroll-area -mr-2 pr-2 xl:min-h-0 xl:flex-1"
         >
+          {/*
+            One group across every section in the column.
 
-      {/*
-        One group across every section in the column.
- 
-        Layout animations are measured per render, and a row leaving re-renders only the section
-        it was in - so the sections below it never got the chance to notice they had moved.
-        LayoutGroup is what makes them all measure together whether or not they re-rendered,
-        which is precisely the case here.
-      */}
-      <LayoutGroup>
-        {/*
-          Also no `initial={false}`. A section has no entrance of its own to suppress, so it
-          bought nothing - and PresenceContext reaches every descendant, so it was liable to
-          silence the rows inside as well.
-        */}
-        <AnimatePresence mode="popLayout">
-          {visible.map((section) => (
-            <InboxSection
-              key={section.key}
-              section={section}
-              animateEntrances={animateEntrances}
-            />
-          ))}
-        </AnimatePresence>
-      </LayoutGroup>
+            Layout animations are measured per render, and a row leaving re-renders only the
+            section it was in - so the sections below it never got the chance to notice they had
+            moved. LayoutGroup is what makes them all measure together whether or not they
+            re-rendered, which is precisely the case here.
 
-      <AnimatePresence>
-        {isEmpty && settled ? (
-          <motion.p
-            layout
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.2 } }}
-            className="px-3 text-[13px] text-muted-foreground"
-          >
-            {hasAnswer ? empty : "Couldn't reach GitHub."}
-          </motion.p>
-        ) : null}
+            `popLayout` is what makes a retiring section leave without dragging the page with
+            it: it is taken out of the flow the moment it starts fading, so the sections under it
+            slide up while the rows are landing. One resolve, rather than a collapse and then an
+            arrival.
+          */}
+          <LayoutGroup>
+            <AnimatePresence mode="popLayout">
+              {drawn.map((key) => {
+                const section = byKey.get(key) ?? { key, pullRequests: [] };
+
+                return (
+                  <InboxSection
+                    key={key}
+                    section={section}
+                    cascadeIndex={cascadeIndexOf(section)}
+                    animateIn={settled}
+                  />
+                );
+              })}
+            </AnimatePresence>
+          </LayoutGroup>
+
+          <AnimatePresence>
+            {settled && isEmpty ? (
+              <motion.p
+                layout
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.2 } }}
+                className="px-3 text-[13px] text-muted-foreground"
+              >
+                {hasAnswer ? empty : "Couldn't reach GitHub."}
+              </motion.p>
+            ) : null}
           </AnimatePresence>
         </div>
       </div>
@@ -315,7 +326,9 @@ export function InboxPage({
   hasAnswer,
   githubReauthRequired,
 }: InboxPageProps) {
-  const animateEntrances = useHasPainted(
+  // True only on the render that first puts rows on the page. Those are the ones that cascade;
+  // everything mounting after it is a correction arriving on its own and gets no delay.
+  const cascading = !useHasPainted(
     yours.some((section) => section.pullRequests.length > 0) ||
       waitingOnYou.some((section) => section.pullRequests.length > 0)
   );
@@ -330,7 +343,7 @@ export function InboxPage({
           // can own its own scroll. Stacked below that they are one flowing page again, because
           // two independently scrolling half-height panes on a phone is a worse answer than
           // scrolling.
-          "flex min-h-dvh w-full flex-col bg-background text-foreground " +
+          "theme-ink flex min-h-dvh w-full flex-col bg-background text-foreground " +
           "xl:h-dvh xl:min-h-0 xl:overflow-hidden"
         }
       >
@@ -339,7 +352,6 @@ export function InboxPage({
         <header className="mx-auto flex w-full max-w-[100rem] shrink-0 items-baseline gap-4 px-8 pb-2 pt-8">
           <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <Status stale={stale} githubReauthRequired={githubReauthRequired} />
-          <ReposControl />
         </header>
 
         {/*
@@ -347,32 +359,39 @@ export function InboxPage({
           people owe you are different jobs; putting one under the other means the second is only
           ever reached by scrolling past the first.
 
-          Nothing divides them but the gutter, which is why the gutter is wide. A rule down the
-          middle would be the only line on the page, and a page that has argued itself down to no
-          borders anywhere should not keep one purely to say "these are two things" - the labels
-          over each column already say it.
+          Nothing divides them but the gutter, which is why the gutter is wide - and now that the
+          headings over each column are gone, the gutter is the only thing saying they are two
+          piles at all. A rule down the middle would be the only line on the page, and a page that
+          has argued itself down to no borders anywhere should not grow one here; the answer to a
+          separation that has to work harder is more space, not a mark.
+
+          Which is what the stacked layout gets too: below `xl` the two piles run one under the
+          other with nothing between them, so the gap there is wider than the one the headings
+          used to sit in.
         */}
         <div
           className={
-            "mx-auto grid w-full max-w-[100rem] gap-y-14 px-5 pb-16 pt-6 " +
+            "mx-auto grid w-full max-w-[100rem] gap-y-20 px-5 pb-16 pt-8 " +
             "xl:min-h-0 xl:flex-1 xl:grid-cols-2 xl:gap-x-28 xl:gap-y-0 xl:pb-6"
           }
         >
           <Pile
             label="Yours"
+            keys={YOURS_SECTIONS}
             sections={yours}
             empty="Nothing open."
             settled={settled}
             hasAnswer={hasAnswer}
-            animateEntrances={animateEntrances}
+            cascading={cascading}
           />
           <Pile
             label="Waiting on you"
+            keys={WAITING_SECTIONS}
             sections={waitingOnYou}
             empty="Nobody is waiting on you."
             settled={settled}
             hasAnswer={hasAnswer}
-            animateEntrances={animateEntrances}
+            cascading={cascading}
           />
         </div>
       </div>
@@ -419,10 +438,10 @@ function Status({
 /**
  * Whether rows have been on screen once already.
  *
- * What separates the two arrivals this page has. The first is the snapshot, and it must not
- * animate: those rows are the answer somebody opened the page for, and a fade in front of them
- * is a cost paid twenty times a day for something interesting once. The second is GitHub's
- * correction, landing under a reader, where movement is the only thing that says what changed.
+ * What separates the two arrivals this page has. The first is the snapshot, and it cascades -
+ * section by section, row by row, into headings that are already drawn. The second is GitHub's
+ * correction, landing under somebody who is by then reading, where a row has to arrive on its
+ * own account rather than as part of a wave that has long since finished.
  *
  * Decided here rather than by handing AnimatePresence `initial={false}`. That flag reads as if
  * it means this and does not: it suppresses whatever is present when *that* AnimatePresence
@@ -439,7 +458,7 @@ function useHasPainted(hasRows: boolean): boolean {
     }
   }, [hasRows]);
 
-  // False on the render that first draws rows - which is the point - and true from the next one,
-  // so anything arriving afterwards animates. Rows already mounted ignore `initial` either way.
+  // False on the render that first draws rows - which is the point, that is the cascade - and
+  // true from the next one. Rows already mounted ignore `initial` either way.
   return painted;
 }
