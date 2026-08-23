@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { InboxRow } from "./InboxRow";
-import { cascadeDelay, EXIT_TRANSITION, LAYOUT_TRANSITION } from "./motion";
+import { EXIT_TRANSITION, LAYOUT_TRANSITION } from "./motion";
 import { CLOSED_BY_DEFAULT, SECTION_TITLES } from "./sections";
 
 /**
@@ -13,30 +13,17 @@ import { CLOSED_BY_DEFAULT, SECTION_TITLES } from "./sections";
  * loudest thing on a page whose entire argument is restraint, and a shut section already
  * announces itself by having no rows under it.
  *
- * ## Drawn empty, but only until it has been answered
- *
- * A section renders before it has anything in it, and that is what makes the entrance work: the
- * headings are the page's layout, and they are on screen from the first frame for the rows to
- * cascade into. Which of them survives being answered is the pile's decision, not this one -
- * a section that turns out to have nothing in it is dropped there, not here.
- *
- * Which is why this can exit. `animateIn` is off for the sections that make up that first
- * skeleton, because those are the frame rather than something arriving into it; a section that
- * mounts later, when a bot finally opens something, has arrived and fades in like a row.
+ * Whether an empty section is drawn at all is the pile's decision, not this one. Returning null
+ * from in here left AnimatePresence holding a child that rendered nothing, which it cannot tell
+ * from a child that is still there - so a section emptying never animated out.
  */
 export function InboxSection({
   section,
-  cascadeIndex,
-  animateIn,
+  animateEntrances,
 }: {
   section: InboxSectionData;
-  /**
-   * How many sections above this one had rows to show, or -1 for a section whose rows are
-   * arriving on their own rather than as part of the first cascade. See InboxPage.
-   */
-  cascadeIndex: number;
-  /** False for the sections the page is first drawn with. They are the layout, not an arrival. */
-  animateIn: boolean;
+  /** See InboxPage: false until the page has painted, so the first rows simply exist. */
+  animateEntrances: boolean;
 }) {
   const [open, setOpen] = useState(!CLOSED_BY_DEFAULT.includes(section.key));
 
@@ -44,15 +31,14 @@ export function InboxSection({
     // `layout="position"`, never plain `layout`. See the note on the list below.
     <motion.section
       layout="position"
-      initial={animateIn ? { opacity: 0 } : false}
+      initial={animateEntrances ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: EXIT_TRANSITION }}
       transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.22 } }}
       className="mb-8 last:mb-0"
     >
       {/* Not a motion element: it sits at the top of the section and never moves relative
-          to it, so animating it can only ever fight the section that is already moving it.
-          It is also the one thing on this page that must not wait for data. */}
+          to it, so animating it can only ever fight the section that is already moving it. */}
       <button
         type="button"
         onClick={() => setOpen((was) => !was)}
@@ -87,11 +73,11 @@ export function InboxSection({
         */
         <ul>
           <AnimatePresence mode="popLayout">
-            {section.pullRequests.map((pullRequest, index) => (
+            {section.pullRequests.map((pullRequest) => (
               <InboxRow
                 key={pullRequest.id}
                 pullRequest={pullRequest}
-                enterDelay={cascadeDelay(cascadeIndex, index)}
+                animateEntrance={animateEntrances}
               />
             ))}
           </AnimatePresence>

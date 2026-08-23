@@ -2,7 +2,7 @@ import type { InboxAuthor, InboxPullRequest } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { ENTER_TRAVEL_PX, enterTransition, EXIT_TRANSITION } from "./motion";
+import { ENTER_TRANSITION, EXIT_TRANSITION } from "./motion";
 
 /** A real avatar where the network allows, initials otherwise - never a broken image. */
 export function ActorAvatar({
@@ -53,17 +53,17 @@ export function ActorAvatar({
  * A draft is told apart by the weight of its title and nothing else. It is the one distinction
  * that can be made here without adding an object to the row.
  *
- * ## What animates
+ * ## What animates, and what deliberately does not
  *
- * Every row arrives. The rows in the first answer arrive in order, each one held back by
- * `enterDelay` - see cascadeDelay in motion.ts - so a pile fills section by section instead of
- * appearing as a block. Nothing is being hidden while that runs: the headings are already
- * there, and the whole cascade is over inside a second.
+ * The rows the page first paints with do not animate at all. They are the answer to "what is
+ * waiting for me", and putting anything between somebody and that - a fade, a stagger, six
+ * pixels of travel - is a cost paid on every single load for a flourish that is only interesting
+ * the first time.
  *
- * A row that arrives *later* is the same animation with no delay in front of it. The page is
- * painted from a snapshot and corrected from GitHub a second or two after, so that change lands
- * under somebody already reading, and it is the one moment here where movement is telling them
- * something. `layout` means the rows around it slide rather than jump.
+ * A row that arrives *later* is different. The page is painted from a snapshot and corrected
+ * from GitHub a second or two after, so that change lands under somebody already reading, and it
+ * is the one moment here where movement is telling them something. Those rows fade in, and
+ * `layout` means the rows around them slide rather than jump.
  *
  * `initial` only ever runs for a row that was not there before - React keeps rows that are in
  * both answers mounted, keyed on GitHub's node id - so a refresh that changes nothing animates
@@ -71,21 +71,21 @@ export function ActorAvatar({
  */
 export function InboxRow({
   pullRequest,
-  enterDelay,
+  animateEntrance,
 }: {
   pullRequest: InboxPullRequest;
-  /** Where this row sits in the cascade, in seconds. Zero for anything arriving on its own. */
-  enterDelay: number;
+  /** See InboxPage: false until the page has painted, so the first rows simply exist. */
+  animateEntrance: boolean;
 }) {
   return (
     <motion.li
       // Position only. A row has no box either, and a title that wraps to two lines would
       // otherwise have its text scaled through the change rather than simply reflowing.
       layout="position"
-      initial={{ opacity: 0, y: ENTER_TRAVEL_PX }}
+      initial={animateEntrance ? { opacity: 0, y: -6 } : false}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, transition: EXIT_TRANSITION }}
-      transition={enterTransition(enterDelay)}
+      transition={ENTER_TRANSITION}
     >
       <a
         href={pullRequest.url}

@@ -1,10 +1,9 @@
-import type { InboxSectionData, InboxSectionKey } from "@/lib/api/inbox.api";
+import type { InboxSectionData } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InboxSection } from "./InboxSection";
 import { LAYOUT_TRANSITION } from "./motion";
-import { WAITING_SECTIONS, YOURS_SECTIONS } from "./sections";
 import { useScrollEdges } from "./useScrollEdges";
 
 /**
@@ -27,10 +26,8 @@ import { useScrollEdges } from "./useScrollEdges";
  * Holding a full-screen loader in front of all that traded one flicker for a mandatory pause,
  * which is the worse of the two on a page somebody opens twenty times a day.
  *
- * "Empty" means the headings and nothing under them, not a blank screen. The section list is the
- * client's - see sections.ts - so the first frame is already the finished layout, and what
- * arrives is only ever rows dropping into it. That is what a cascade needs to be worth having:
- * with no skeleton it would be a stagger in front of a void.
+ * What stops it flickering instead is that an empty pile says nothing until there is something
+ * to say - see `settled`.
  *
  * Presentational: takes data and renders it, so the same page can be driven by the logic next
  * door or by the stopwatch at /mock-inbox.
@@ -62,59 +59,33 @@ export interface InboxPageProps {
 }
 
 /**
- * One pile: its sections, in order, and what it says when it has none worth drawing.
+ * One pile, and what it says when it has nothing in it.
  *
- * The sections are the client's list rather than the server's - see sections.ts - so the column
- * has its full shape on the first frame and the rows cascade into a layout that is already
- * there. Until an answer arrives every heading is drawn, empty. Once one has, the ones that got
- * nothing leave: a heading with nothing under it and nothing coming is a promise the page does
- * not keep, and on most accounts "Bots" would be that promise most days.
- *
- * Which leaves two states that a column of headings cannot express by itself, and they are the
- * only two things here written in words: that there is genuinely nothing, and that we could not
- * find out.
+ * Three states rather than two, because "we have not looked yet" and "there is nothing" read
+ * identically as an empty column and mean opposite things.
  */
 function Pile({
   label,
-  keys,
   sections,
   empty,
   settled,
   hasAnswer,
-  cascading,
+  animateEntrances,
 }: {
   label: string;
-  keys: InboxSectionKey[];
   sections: InboxSectionData[];
-  /** What this column says once it is certain it is empty. Never shown before that. */
   empty: ReactNode;
   settled: boolean;
   hasAnswer: boolean;
-  /** Whether the rows mounting on this render are the column's first. See useHasPainted. */
-  cascading: boolean;
+  animateEntrances: boolean;
 }) {
-  const byKey = new Map(sections.map((section) => [section.key, section]));
-
-  // Everything until there is an answer, and then only what has something in it. The skeleton
-  // has to be the whole list - it is being drawn against data that has not arrived - and the
-  // moment it has, the list is answerable from the data instead of guessed at.
-  const drawn = keys.filter(
-    (key) => !settled || (byKey.get(key)?.pullRequests.length ?? 0) > 0
+  // Filtered here rather than inside the section, so an emptying section leaves
+  // AnimatePresence's child list and can be animated out. A child that renders null is
+  // indistinguishable, to AnimatePresence, from one that is still there.
+  const visible = sections.filter(
+    (section) => section.pullRequests.length > 0
   );
-
-  const isEmpty = keys.every(
-    (key) => (byKey.get(key)?.pullRequests.length ?? 0) === 0
-  );
-
-  // See cascadeDelay: the stagger is measured in sections that have rows, not in sections.
-  let filled = 0;
-  const cascadeIndexOf = (section: InboxSectionData) => {
-    if (!cascading || section.pullRequests.length === 0) {
-      return -1;
-    }
-
-    return filled++;
-  };
+  const isEmpty = visible.length === 0;
 
   const { ref, onScroll, edges } = useScrollEdges<HTMLDivElement>(sections);
 
@@ -140,49 +111,45 @@ function Pile({
           onScroll={onScroll}
           className="scroll-area -mr-2 pr-2 xl:min-h-0 xl:flex-1"
         >
-          {/*
-            One group across every section in the column.
 
-            Layout animations are measured per render, and a row leaving re-renders only the
-            section it was in - so the sections below it never got the chance to notice they had
-            moved. LayoutGroup is what makes them all measure together whether or not they
-            re-rendered, which is precisely the case here.
+      {/*
+        One group across every section in the column.
+ 
+        Layout animations are measured per render, and a row leaving re-renders only the section
+        it was in - so the sections below it never got the chance to notice they had moved.
+        LayoutGroup is what makes them all measure together whether or not they re-rendered,
+        which is precisely the case here.
+      */}
+      <LayoutGroup>
+        {/*
+          Also no `initial={false}`. A section has no entrance of its own to suppress, so it
+          bought nothing - and PresenceContext reaches every descendant, so it was liable to
+          silence the rows inside as well.
+        */}
+        <AnimatePresence mode="popLayout">
+          {visible.map((section) => (
+            <InboxSection
+              key={section.key}
+              section={section}
+              animateEntrances={animateEntrances}
+            />
+          ))}
+        </AnimatePresence>
+      </LayoutGroup>
 
-            `popLayout` is what makes a retiring section leave without dragging the page with
-            it: it is taken out of the flow the moment it starts fading, so the sections under it
-            slide up while the rows are landing. One resolve, rather than a collapse and then an
-            arrival.
-          */}
-          <LayoutGroup>
-            <AnimatePresence mode="popLayout">
-              {drawn.map((key) => {
-                const section = byKey.get(key) ?? { key, pullRequests: [] };
-
-                return (
-                  <InboxSection
-                    key={key}
-                    section={section}
-                    cascadeIndex={cascadeIndexOf(section)}
-                    animateIn={settled}
-                  />
-                );
-              })}
-            </AnimatePresence>
-          </LayoutGroup>
-
-          <AnimatePresence>
-            {settled && isEmpty ? (
-              <motion.p
-                layout
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.2 } }}
-                className="px-3 text-[13px] text-muted-foreground"
-              >
-                {hasAnswer ? empty : "Couldn't reach GitHub."}
-              </motion.p>
-            ) : null}
+      <AnimatePresence>
+        {isEmpty && settled ? (
+          <motion.p
+            layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ layout: LAYOUT_TRANSITION, opacity: { duration: 0.2 } }}
+            className="px-3 text-[13px] text-muted-foreground"
+          >
+            {hasAnswer ? empty : "Couldn't reach GitHub."}
+          </motion.p>
+        ) : null}
           </AnimatePresence>
         </div>
       </div>
@@ -326,9 +293,7 @@ export function InboxPage({
   hasAnswer,
   githubReauthRequired,
 }: InboxPageProps) {
-  // True only on the render that first puts rows on the page. Those are the ones that cascade;
-  // everything mounting after it is a correction arriving on its own and gets no delay.
-  const cascading = !useHasPainted(
+  const animateEntrances = useHasPainted(
     yours.some((section) => section.pullRequests.length > 0) ||
       waitingOnYou.some((section) => section.pullRequests.length > 0)
   );
@@ -377,21 +342,19 @@ export function InboxPage({
         >
           <Pile
             label="Yours"
-            keys={YOURS_SECTIONS}
             sections={yours}
             empty="Nothing open."
             settled={settled}
             hasAnswer={hasAnswer}
-            cascading={cascading}
+            animateEntrances={animateEntrances}
           />
           <Pile
             label="Waiting on you"
-            keys={WAITING_SECTIONS}
             sections={waitingOnYou}
             empty="Nobody is waiting on you."
             settled={settled}
             hasAnswer={hasAnswer}
-            cascading={cascading}
+            animateEntrances={animateEntrances}
           />
         </div>
       </div>
@@ -438,10 +401,10 @@ function Status({
 /**
  * Whether rows have been on screen once already.
  *
- * What separates the two arrivals this page has. The first is the snapshot, and it cascades -
- * section by section, row by row, into headings that are already drawn. The second is GitHub's
- * correction, landing under somebody who is by then reading, where a row has to arrive on its
- * own account rather than as part of a wave that has long since finished.
+ * What separates the two arrivals this page has. The first is the snapshot, and it must not
+ * animate: those rows are the answer somebody opened the page for, and a fade in front of them
+ * is a cost paid twenty times a day for something interesting once. The second is GitHub's
+ * correction, landing under a reader, where movement is the only thing that says what changed.
  *
  * Decided here rather than by handing AnimatePresence `initial={false}`. That flag reads as if
  * it means this and does not: it suppresses whatever is present when *that* AnimatePresence
@@ -458,7 +421,7 @@ function useHasPainted(hasRows: boolean): boolean {
     }
   }, [hasRows]);
 
-  // False on the render that first draws rows - which is the point, that is the cascade - and
-  // true from the next one. Rows already mounted ignore `initial` either way.
+  // False on the render that first draws rows - which is the point - and true from the next one,
+  // so anything arriving afterwards animates. Rows already mounted ignore `initial` either way.
   return painted;
 }
