@@ -35,9 +35,10 @@ const SNAPSHOT_TTL_MS = 30 * 60_000;
  * miss, filled by the refresh the client fires at the same moment.
  *
  * The cost of that is one cached document per combination somebody actually uses, which is why
- * filters are booleans a person sets once rather than anything free-form: a filter with an open
- * set of values would multiply this cache by its cardinality, and should be applied when the
- * snapshot is served instead.
+ * every filter's value comes from a closed set - a boolean, or one of six named windows. The
+ * ceiling is the product of those cardinalities, and it is a number we can name. A filter with
+ * an open set of values - a number of hours, a date - would multiply this cache by whatever
+ * anybody thought to type, and should be applied when the snapshot is served instead.
  *
  * ## What it all costs, honestly
  *

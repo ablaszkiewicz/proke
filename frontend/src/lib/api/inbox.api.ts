@@ -39,34 +39,89 @@ export interface InboxSectionData {
 }
 
 /**
+ * How long a draft counts as work in progress rather than as something put down, mirroring the
+ * server's list. The strings are the values on the wire *and* the words on the buttons - see
+ * components/inbox/filters.ts - which is why they are this short.
+ */
+export const RECENT_DRAFT_WINDOWS = ["6h", "12h", "1d", "3d", "7d"] as const;
+
+export type RecentDraftWindow = (typeof RECENT_DRAFT_WINDOWS)[number];
+
+/**
+ * The `recentDrafts` filter: a window, or `off`.
+ *
+ * `off` is a member of the same field rather than a flag beside it, so a window that is not in
+ * force cannot be written down - not here, not on the wire, and not in the address bar.
+ */
+export type RecentDrafts = RecentDraftWindow | "off";
+
+export const RECENT_DRAFTS_VALUES: readonly RecentDrafts[] = [
+  "off",
+  ...RECENT_DRAFT_WINDOWS,
+];
+
+/**
  * Every filter, in the order they are drawn, and the shape the server takes them in.
  *
  * The names read as what they *include* rather than what they hide, which is the only way a
  * toggle can be labelled without a double negative under it.
  *
- * Adding one is a name here, a default below, and an entry in components/inbox/filters.ts for
- * the words. The server owns the rule itself - "already approved" needs GitHub's review
- * decision, which no browser can see - so nothing about the filtering happens in this file.
+ * Adding one is a field here, a default below, an entry in components/inbox/filters.ts for the
+ * words, and a line in components/inbox/search.ts for the address bar. The server owns the rule
+ * itself - "already approved" needs GitHub's review decision, and "touched in the last six
+ * hours" needs GitHub's `updatedAt`, neither of which a browser can see - so nothing about the
+ * filtering happens in this file.
  */
-export const INBOX_FILTER_KEYS = ["includeApproved"] as const;
+export interface InboxFilters {
+  includeApproved: boolean;
+  recentDrafts: RecentDrafts;
+}
 
-export type InboxFilterKey = (typeof INBOX_FILTER_KEYS)[number];
+export type InboxFilterKey = keyof InboxFilters;
 
-export type InboxFilters = { [Key in InboxFilterKey]: boolean };
+/** Typed as a window rather than as a `RecentDrafts`, so the default can never be `off`. */
+export const DEFAULT_RECENT_DRAFT_WINDOW: RecentDraftWindow = "1d";
 
 /**
- * What somebody who has never opened the settings gets. Kept in step with the server's own
+ * What somebody who has never touched the settings gets. Kept in step with the server's own
  * defaults, though nothing breaks if they drift: every request sends every filter explicitly.
+ *
+ * It is also what decides how short the address bar is. Only settings that differ from these
+ * are written into it - see components/inbox/search.ts - so the page as it comes is `/app/inbox`
+ * and nothing more.
  */
 export const DEFAULT_INBOX_FILTERS: InboxFilters = {
   includeApproved: false,
+  recentDrafts: DEFAULT_RECENT_DRAFT_WINDOW,
 };
+
+/** Every filter's name, taken from the defaults so there is no second list to forget one in. */
+export const INBOX_FILTER_KEYS = Object.keys(
+  DEFAULT_INBOX_FILTERS
+) as InboxFilterKey[];
+
+/**
+ * Setting one filter, with the value typed against the key rather than to `unknown`.
+ *
+ * Written out as a type because it is generic, and a generic function type cannot be spelled
+ * inline in a props interface without losing the tie between the two arguments - which is the
+ * only thing stopping `recentDrafts` being set to `true`.
+ */
+export type InboxFilterChange = <Key extends InboxFilterKey>(
+  key: Key,
+  value: InboxFilters[Key]
+) => void;
+
+/** Whether two sets of choices ask for the same thing. */
+export function sameInboxFilters(a: InboxFilters, b: InboxFilters): boolean {
+  return INBOX_FILTER_KEYS.every((key) => a[key] === b[key]);
+}
 
 /**
  * Sent in full on every request rather than only where they differ from the default, so what
  * the page is showing is never a matter of what the two sides happen to agree the default is.
  */
-function filterParams(filters: InboxFilters): Record<string, boolean> {
+function filterParams(filters: InboxFilters): Record<string, string | boolean> {
   return Object.fromEntries(INBOX_FILTER_KEYS.map((key) => [key, filters[key]]));
 }
 

@@ -1,4 +1,9 @@
-import type { InboxFilterKey, InboxFilters } from "@/lib/api/inbox.api";
+import {
+  DEFAULT_RECENT_DRAFT_WINDOW,
+  type InboxFilterChange,
+  type InboxFilters,
+  type RecentDraftWindow,
+} from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -6,6 +11,8 @@ import {
   INBOX_FILTER_OPTIONS,
   switchPosition,
   valueWhenPressed,
+  type SwitchOption,
+  type WindowOption,
 } from "./filters";
 
 /**
@@ -44,7 +51,7 @@ export function InboxSettings({
 }: {
   filters: InboxFilters;
   /** Applied immediately. There is nothing to confirm. */
-  onChange: (key: InboxFilterKey, value: boolean) => void;
+  onChange: InboxFilterChange;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +92,8 @@ export function InboxSettings({
             role="group"
             // Named directly rather than by a heading inside it. The heading that used to be
             // here said "Show", which stopped being true the moment a toggle in the list read
-            // "Hide" - and a panel holding two lines about one list has nothing to title.
+            // "Hide" - and a panel holding a couple of switches over one list has nothing to
+            // title that its own accessible name does not already say.
             aria-label="Filters"
             // Barely any travel, and from the corner it came out of. Same curve and roughly the
             // same eighth of a second as a modal opening - see index.css - so the two read as
@@ -103,29 +111,188 @@ export function InboxSettings({
               "rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
             )}
           >
-            {INBOX_FILTER_OPTIONS.map((option) => {
-              // Where the switch sits, which is not always what the filter says - an option can
-              // be worded the opposite way round from the name that crosses the wire. The two
-              // helpers are the only place that is reconciled; `onChange` is handed the filter's
-              // value, never the switch's.
-              const on = switchPosition(option, filters);
-
-              return (
-                <FilterItem
+            {INBOX_FILTER_OPTIONS.map((option) =>
+              option.kind === "window" ? (
+                <WindowFilter
                   key={option.key}
-                  label={option.label}
-                  detail={option.detail}
-                  checked={on}
-                  onToggle={() => onChange(option.key, valueWhenPressed(option, on))}
+                  option={option}
+                  value={filters[option.key]}
+                  onChange={onChange}
                 />
-              );
-            })}
+              ) : (
+                <SwitchFilter
+                  key={option.key}
+                  option={option}
+                  filters={filters}
+                  onChange={onChange}
+                />
+              )
+            )}
           </motion.div>
         ) : null}
       </AnimatePresence>
     </div>
   );
 }
+
+/**
+ * A filter that is on or off.
+ *
+ * Nothing here but the reconciliation between the switch and the filter: an option can be
+ * worded the opposite way round from the name that crosses the wire, and `switchPosition` and
+ * `valueWhenPressed` are the only two places that is undone. `onChange` is handed the filter's
+ * value, never the switch's.
+ */
+function SwitchFilter({
+  option,
+  filters,
+  onChange,
+}: {
+  option: SwitchOption;
+  filters: InboxFilters;
+  onChange: InboxFilterChange;
+}) {
+  const on = switchPosition(option, filters);
+
+  return (
+    <FilterItem
+      label={option.label}
+      detail={option.detail}
+      checked={on}
+      onToggle={() => onChange(option.key, valueWhenPressed(option, on))}
+    />
+  );
+}
+
+/**
+ * A filter that is on or off and, when on, says how far back it reaches.
+ *
+ * ## Why the spans are not there when it is off
+ *
+ * Because there is no such thing as a window when the section is not being drawn. Leaving five
+ * dimmed buttons under an off switch would be five controls that either do nothing or turn the
+ * thing back on, and both of those are worse than the space they take.
+ *
+ * The cost is that a window turned off and on again comes back at the default rather than where
+ * it was. That is the honest answer rather than a shortcoming: nothing on this page keeps a
+ * setting that is not in force, because the address bar is the only place settings are kept and
+ * it carries only what is in force. Somebody who wants a different span presses it, which is
+ * the same press they made the first time.
+ *
+ * ## Why the spans are buttons rather than radios
+ *
+ * Same reason the panel is not a `role="menu"` - see above. `radiogroup` is a promise about how
+ * it is driven: arrow keys move within the group, and Tab passes over the whole thing. Keeping
+ * that promise means a roving tabindex and a keydown handler, and what is actually here is five
+ * buttons. So they say so, and Tab and Space work on them like everything else on the page.
+ */
+function WindowFilter({
+  option,
+  value,
+  onChange,
+}: {
+  option: WindowOption;
+  value: InboxFilters["recentDrafts"];
+  onChange: InboxFilterChange;
+}) {
+  const on = value !== "off";
+
+  return (
+    <div>
+      <FilterItem
+        label={option.label}
+        detail={option.detail}
+        checked={on}
+        onToggle={() =>
+          onChange(option.key, on ? "off" : DEFAULT_RECENT_DRAFT_WINDOW)
+        }
+      />
+
+      {/*
+        `initial={false}` so a panel opened on a filter that is already on does not play the
+        spans unrolling. They were there before it opened; only a press should move them.
+      */}
+      <AnimatePresence initial={false}>
+        {on ? (
+          <motion.div
+            // Height, which is the one animation on this page that is not position or opacity.
+            // A row of buttons appearing between a toggle and the edge of a panel has to push
+            // something, and the panel growing under its own corner is the whole gesture - see
+            // the note on the page about why nothing in the *list* animates its size.
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.16, ease: [0.2, 0.7, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div
+              role="group"
+              aria-label={option.choicesLabel}
+              className="flex gap-1 px-2.5 pb-2 pt-0.5"
+            >
+              {option.choices.map((choice) => (
+                <WindowChoice
+                  key={choice}
+                  choice={choice}
+                  selected={choice === value}
+                  onPick={() => onChange(option.key, choice)}
+                />
+              ))}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**
+ * One span.
+ *
+ * `aria-pressed` rather than `aria-checked`, because these are buttons and not radios. The
+ * visible word is the short form - five of them share the width of the panel, and "6 hours" put
+ * next to "12 hours" next to "7 days" would wrap - so the spoken name is written out instead.
+ */
+function WindowChoice({
+  choice,
+  selected,
+  onPick,
+}: {
+  choice: RecentDraftWindow;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={`Last ${SPOKEN_WINDOWS[choice]}`}
+      onClick={onPick}
+      className={cn(
+        "flex-1 rounded-md py-1 text-center text-[12px] font-medium tabular-nums transition-colors",
+        "focus-visible:outline-2 focus-visible:-outline-offset-2",
+        selected
+          ? "bg-primary text-primary-foreground"
+          : // Tinted from `foreground` rather than from `muted`, which on this palette is two
+            // points off the panel behind it - the same reason the off switch has a visible
+            // track. Lighter than that track, though: five of these in a row at the switch's
+            // own weight would be the loudest thing in the panel.
+            "bg-foreground/10 text-muted-foreground hover:bg-foreground/20 hover:text-foreground"
+      )}
+    >
+      {choice}
+    </button>
+  );
+}
+
+/** What a screen reader says, where the button itself has room for four characters. */
+const SPOKEN_WINDOWS: Record<RecentDraftWindow, string> = {
+  "6h": "6 hours",
+  "12h": "12 hours",
+  "1d": "1 day",
+  "3d": "3 days",
+  "7d": "7 days",
+};
 
 /**
  * One toggle.
@@ -304,7 +471,7 @@ function usePanelDismissal({
 
 /**
  * Sliders rather than a cog. A cog says "preferences" - a page of them, somewhere else - and
- * what is behind this button is two lines about this list.
+ * what is behind this button is a couple of switches over this list.
  */
 function SlidersIcon({ className }: { className?: string }) {
   return (

@@ -1,5 +1,5 @@
 import type {
-  InboxFilterKey,
+  InboxFilterChange,
   InboxFilters,
   InboxSectionData,
 } from "@/lib/api/inbox.api";
@@ -69,8 +69,11 @@ export interface InboxPageProps {
    * toggles in their right positions and for nothing else.
    */
   filters: InboxFilters;
-  /** Takes effect immediately: a new answer is fetched behind the rows already on screen. */
-  onFilterChange: (key: InboxFilterKey, value: boolean) => void;
+  /**
+   * Takes effect immediately: the address bar is rewritten, and a new answer is fetched behind
+   * the rows already on screen.
+   */
+  onFilterChange: InboxFilterChange;
 }
 
 /**

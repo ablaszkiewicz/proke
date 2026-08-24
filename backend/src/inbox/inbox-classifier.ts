@@ -2,7 +2,7 @@ import {
   GithubInboxPullRequest,
   GithubInbox,
 } from './github-inbox-data.service';
-import { InboxFilters } from './core/entities/inbox-filters.interface';
+import { InboxFilters, recentDraftWindowMs } from './core/entities/inbox-filters.interface';
 import {
   InboxPullRequest,
   InboxSectionContent,
@@ -20,15 +20,6 @@ import {
  */
 
 /**
- * How long a draft counts as work in progress rather than as something put down.
- *
- * A day, because that is the span that survives an evening and a night: a draft pushed at six
- * and opened again at nine the next morning is the same piece of work, and anything shorter
- * would file it away overnight.
- */
-const RECENT_DRAFT_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/**
  * The order matters and is not the display order.
  *
  * Drafts first because a draft is a draft whatever else is true of it. Then unresolved threads,
@@ -40,10 +31,21 @@ const RECENT_DRAFT_WINDOW_MS = 24 * 60 * 60 * 1000;
  * are working on, and it is the one thing in this pile with any claim on your attention today;
  * the eleven you opened in March are a pile, and the point of a pile is that it stays shut. Same
  * rule, two headings, so the client can open one of them by default without opening the other.
+ *
+ * How far back "this morning" reaches is the reader's, and so is whether the split happens at
+ * all: `recentDrafts: 'off'` returns null for the window, every draft goes to the one pile, and
+ * the recent heading is left empty - which is how a section stops being drawn. Nothing about
+ * that is a special case here; a window of nothing keeps nothing.
  */
-function yoursSection(pullRequest: GithubInboxPullRequest, now: number): InboxSectionKey {
+function yoursSection(
+  pullRequest: GithubInboxPullRequest,
+  filters: InboxFilters,
+  now: number,
+): InboxSectionKey {
   if (pullRequest.isDraft) {
-    return now - updatedMs(pullRequest) < RECENT_DRAFT_WINDOW_MS
+    const windowMs = recentDraftWindowMs(filters.recentDrafts);
+
+    return windowMs !== null && now - updatedMs(pullRequest) < windowMs
       ? InboxSectionKey.RecentDrafts
       : InboxSectionKey.Drafts;
   }
@@ -198,7 +200,9 @@ export function classify(
   now: number = Date.now(),
 ): { yours: InboxSectionContent[]; waitingOnYou: InboxSectionContent[] } {
   return {
-    yours: group(inbox.yours, YOURS_SECTIONS, (pullRequest) => yoursSection(pullRequest, now)),
+    yours: group(inbox.yours, YOURS_SECTIONS, (pullRequest) =>
+      yoursSection(pullRequest, filters, now),
+    ),
     waitingOnYou: group(
       inbox.waitingOnYou.filter((pullRequest) =>
         isWaitingOnYou(pullRequest, inbox.viewerLogin, filters),

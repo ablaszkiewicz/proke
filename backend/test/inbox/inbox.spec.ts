@@ -129,6 +129,71 @@ describe('Inbox', () => {
       ).toEqual([3, 4]);
     });
 
+    it('moves the line between the two drafts piles to where the reader put it', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      const hoursAgo = (hours: number) =>
+        new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      mockInbox({
+        yours: [
+          pullRequest({ number: 1, isDraft: true, updatedAt: hoursAgo(2), reviewThreads: { nodes: [] } }),
+          // Recent under the default day and not under six hours, which is the whole point of
+          // the setting: whose day is whose is not ours to decide.
+          pullRequest({ number: 2, isDraft: true, updatedAt: hoursAgo(20), reviewThreads: { nodes: [] } }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ recentDrafts: '6h' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(
+        section(body, 'yours', 'recent-drafts').pullRequests.map((p: any) => p.number),
+      ).toEqual([1]);
+      expect(
+        section(body, 'yours', 'drafts').pullRequests.map((p: any) => p.number),
+      ).toEqual([2]);
+    });
+
+    it('puts every draft in the one pile when the reader turns the split off', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        yours: [
+          // Pushed to a moment ago, so under any window at all this would be the recent one.
+          pullRequest({
+            number: 1,
+            isDraft: true,
+            updatedAt: new Date().toISOString(),
+            reviewThreads: { nodes: [] },
+          }),
+          pullRequest({ number: 2, isDraft: true, reviewThreads: { nodes: [] } }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ recentDrafts: 'off' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // The heading is still in the answer - every section always is - but it is empty, which is
+      // how the client stops drawing it. Nothing about "off" is a special case on either side.
+      expect(section(body, 'yours', 'recent-drafts').pullRequests).toEqual([]);
+      expect(
+        section(body, 'yours', 'drafts').pullRequests.map((p: any) => p.number),
+      ).toEqual([1, 2]);
+    });
+
     it('orders every section by when GitHub last saw the pull request move', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
@@ -326,6 +391,20 @@ describe('Inbox', () => {
       await request(app.getHttpServer())
         .get('/inbox')
         .query({ includeApproved: 'yes' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(400);
+    });
+
+    it('rejects a window that is not one of the offered ones', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      // For the same reason, and for one more: the value ends up in the key a snapshot is filed
+      // under, so anything accepted here is a cache entry somebody can ask for by typing.
+      await request(app.getHttpServer())
+        .get('/inbox')
+        .query({ recentDrafts: '4h' })
         .set('Authorization', `Bearer ${token}`)
         .expect(400);
     });

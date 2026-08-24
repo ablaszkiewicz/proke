@@ -1,11 +1,12 @@
 import { applyDecorators } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 import {
   DEFAULT_INBOX_FILTERS,
-  INBOX_FILTER_NAMES,
   InboxFilters,
+  RECENT_DRAFTS_VALUES,
+  RecentDrafts,
 } from '../core/entities/inbox-filters.interface';
 
 /**
@@ -29,11 +30,27 @@ function FilterFlag(description: string): PropertyDecorator {
 }
 
 /**
+ * A filter that is one of a short list of named values.
+ *
+ * No coercion to do - these are words on the wire and words in the domain - so the whole job is
+ * refusing anything that is not one of them. Refusing rather than falling back to the default,
+ * for the same reason a mistyped boolean is a 400: a filter that quietly reads as something
+ * else removes rows nobody asked to have removed.
+ */
+function FilterChoice(values: readonly string[], description: string): PropertyDecorator {
+  return applyDecorators(
+    ApiPropertyOptional({ enum: values, description }),
+    IsOptional(),
+    IsIn(values),
+  );
+}
+
+/**
  * The filters as they come off the wire: every one optional, because a client that has never
  * heard of a filter must keep working after we add it.
  *
  * `implements Partial<InboxFilters>` is what makes that safe. A field misspelled here, or a
- * filter added to the name list and forgotten here, is a compile error rather than an option
+ * filter added to the interface and forgotten here, is a compile error rather than an option
  * that quietly never arrives.
  */
 export class InboxFiltersQuery implements Partial<InboxFilters> {
@@ -42,15 +59,25 @@ export class InboxFiltersQuery implements Partial<InboxFilters> {
       'the review they were asking for has happened.',
   )
   includeApproved?: boolean;
+
+  @FilterChoice(
+    RECENT_DRAFTS_VALUES,
+    'How recently one of your drafts must have moved to get a heading of its own instead of ' +
+      'going in with the rest. `off` puts every draft in the one pile. Defaults to `1d`.',
+  )
+  recentDrafts?: RecentDrafts;
 }
 
-/** Fills the gaps from the defaults, so nothing downstream has to decide what absent meant. */
+/**
+ * Fills the gaps from the defaults, so nothing downstream has to decide what absent meant.
+ *
+ * Written out field by field rather than looped over the name list, and that is the point: the
+ * return type is the complete `InboxFilters`, so a filter added to the interface and forgotten
+ * here does not compile. A loop would have taken it silently.
+ */
 export function toInboxFilters(query: InboxFiltersQuery): InboxFilters {
-  const filters = { ...DEFAULT_INBOX_FILTERS };
-
-  for (const name of INBOX_FILTER_NAMES) {
-    filters[name] = query[name] ?? DEFAULT_INBOX_FILTERS[name];
-  }
-
-  return filters;
+  return {
+    includeApproved: query.includeApproved ?? DEFAULT_INBOX_FILTERS.includeApproved,
+    recentDrafts: query.recentDrafts ?? DEFAULT_INBOX_FILTERS.recentDrafts,
+  };
 }

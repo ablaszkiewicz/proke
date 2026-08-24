@@ -23,8 +23,12 @@ export const SECTION_TITLES: Record<InboxSectionKey, string> = {
  * Closed on arrival. A draft is a note to yourself rather than a queue.
  *
  * "Recent drafts" is not in here, and that is the whole reason it is a separate section: a draft
- * you touched in the last day is what you are in the middle of, so it is worth the space every
+ * you touched inside the window is what you are in the middle of, so it is worth the space every
  * other draft is not. The server decides which of the two a row is in - it is the one holding
- * the timestamp - and the difference here is only whether the heading arrives open.
+ * the timestamp, and the one that knows how far back the reader has asked "recent" to reach -
+ * and the difference here is only whether the heading arrives open.
+ *
+ * A reader who turns the split off gets every draft in the pile below, and no recent heading at
+ * all: an empty section is not drawn, so nothing here has to know the setting exists.
  */
 export const CLOSED_BY_DEFAULT: InboxSectionKey[] = ["drafts"];

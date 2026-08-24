@@ -4,7 +4,7 @@ import { loaders } from "kea-loaders";
 import {
   DEFAULT_INBOX_FILTERS,
   InboxApi,
-  type InboxFilterKey,
+  sameInboxFilters,
   type InboxFilters,
   type InboxResult,
 } from "../api/inbox.api";
@@ -40,6 +40,18 @@ const EMPTY: InboxResult = {
  * Chained off failure as well as success: a read that errored is more reason to ask GitHub, not
  * less.
  *
+ * ## Where the filters come from
+ *
+ * The address bar, by way of the page - see components/inbox/search.ts. Nothing is stored here
+ * and nothing is stored in the browser, so this logic never has an opinion about what the
+ * settings are; it is told, and `setFilters` is the only way in.
+ *
+ * That is also why `setFilters` decides between a read and a refresh rather than the page
+ * deciding. The first one is the page opening on whatever the link was carrying, and the two
+ * passes above are exactly what a page opening wants. Every later one is somebody moving a
+ * switch, and that goes straight to GitHub - see below. A component holding a "have I mounted
+ * yet" flag would be the same decision made somewhere it cannot be read next to its reason.
+ *
  * ## Why changing a filter refreshes rather than re-reads
  *
  * Because a snapshot is built under one set of filters, so the stored one for the settings you
@@ -64,7 +76,8 @@ export const inboxLogic = kea<inboxLogicType>([
   path(["src", "lib", "logics", "inboxLogic"]),
 
   actions({
-    setFilter: (key: InboxFilterKey, value: boolean) => ({ key, value }),
+    /** What the address bar says the settings are now. The only way filters get in here. */
+    setFilters: (filters: InboxFilters) => ({ filters }),
   }),
 
   loaders(({ values }) => ({
@@ -103,19 +116,29 @@ export const inboxLogic = kea<inboxLogicType>([
 
   reducers({
     /**
-     * The reader's choices, kept between visits - a filter somebody sets is a statement about
-     * how they work, and asking again every morning would make it not worth setting.
+     * The settings every request is made under.
      *
-     * Stored as whatever has been set rather than as a complete object, and completed by the
-     * selector below. A stored object would be missing every filter added after it was written,
-     * which is exactly the shape of a deploy: the value in somebody's browser is always the one
-     * the previous version of this file wrote.
+     * Complete rather than partial, and not persisted: the page hands over a whole set worked
+     * out from the address bar and the defaults, so nothing here ever has to decide what an
+     * absent filter meant or what a filter added in a later deploy should be.
      */
-    chosenFilters: [
-      {} as Partial<InboxFilters>,
-      { persist: true },
+    filters: [
+      DEFAULT_INBOX_FILTERS as InboxFilters,
       {
-        setFilter: (state, { key, value }) => ({ ...state, [key]: value }),
+        setFilters: (_, { filters }) => filters,
+      },
+    ],
+    /**
+     * Whether the page has said what the settings are yet.
+     *
+     * The one thing separating the page opening from somebody changing something, and the reason
+     * `setFilters` can be the only way in. Listeners run after reducers, so the value here is
+     * already true by the time the listener sees it - which is what `previousState` is for.
+     */
+    opened: [
+      false,
+      {
+        setFilters: () => true,
       },
     ],
     /** Whether a trip to GitHub is in flight. Not whether anything is on screen. */
@@ -145,21 +168,6 @@ export const inboxLogic = kea<inboxLogicType>([
 
   selectors({
     /**
-     * What to send, and what to draw the toggles from.
-     *
-     * Always complete: the defaults first, then whatever has been set on top. A filter added in
-     * a later deploy therefore arrives at its own default for everybody, rather than as an
-     * `undefined` that would be dropped from the request and drawn as an off switch - which for
-     * a filter that defaults to on is the page quietly doing the opposite of what it says.
-     */
-    filters: [
-      (s) => [s.chosenFilters],
-      (chosenFilters: Partial<InboxFilters>): InboxFilters => ({
-        ...DEFAULT_INBOX_FILTERS,
-        ...chosenFilters,
-      }),
-    ],
-    /**
      * Whether there is anything worth showing, as opposed to a page of empty headings.
      *
      * True as soon as a stored snapshot arrives - that is the fast path, and the rows are real
@@ -182,8 +190,24 @@ export const inboxLogic = kea<inboxLogicType>([
   listeners(({ actions }) => ({
     loadInboxSuccess: () => actions.refreshInbox(),
     loadInboxFailure: () => actions.refreshInbox(),
-    // Straight to GitHub, deliberately - see the note above the logic. The rows on screen stay
-    // where they are until the answer for the new settings lands.
-    setFilter: () => actions.refreshInbox(),
+    setFilters: ({ filters }, _breakpoint, _action, previousState) => {
+      // The page opening. Read the stored snapshot first; the refresh chains off it above.
+      if (!inboxLogic.selectors.opened(previousState)) {
+        actions.loadInbox();
+
+        return;
+      }
+
+      // The address bar saying again what is already on screen. A router is entitled to hand
+      // the same location back - a re-render, a press on the span that is already chosen - and
+      // a GitHub round trip per repetition is a cost nobody asked for.
+      if (sameInboxFilters(inboxLogic.selectors.filters(previousState), filters)) {
+        return;
+      }
+
+      // Straight to GitHub, deliberately - see the note above the logic. The rows on screen stay
+      // where they are until the answer for the new settings lands.
+      actions.refreshInbox();
+    },
   })),
 ]);

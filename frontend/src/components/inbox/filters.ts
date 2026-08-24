@@ -1,23 +1,38 @@
 import {
   INBOX_FILTER_KEYS,
-  type InboxFilterKey,
+  RECENT_DRAFT_WINDOWS,
   type InboxFilters,
+  type RecentDraftWindow,
 } from "@/lib/api/inbox.api";
 
 /**
  * The words on each toggle in the settings.
  *
  * The only thing about filters the client owns, for the same reason it owns only the words over
- * a section: the rule behind this one needs GitHub's review decision, which a browser cannot
- * see. What a filter does, and what happens to the rows it removes, is the server's.
+ * a section: the rules behind them need things a browser cannot see - GitHub's review decision,
+ * GitHub's idea of when a pull request last moved. What a filter does, and what happens to the
+ * rows it removes, is the server's.
  *
  * `label` is what the toggle is called and `detail` is what it does - two lines rather than one
  * long one, because a filter that has to be read twice is a filter nobody touches.
+ *
+ * ## The two shapes a filter comes in
+ *
+ * `switch` is on or off and nothing else. `window` is on or off and, when on, says how far back
+ * it reaches - a switch with a row of spans under it. They are one list rather than two because
+ * the panel draws them in order and a second list would be a second place to forget one; the
+ * `kind` is what tells the panel which control to draw.
  */
-export interface InboxFilterOption {
-  key: InboxFilterKey;
+
+interface FilterOptionBase {
   label: string;
   detail: string;
+}
+
+/** A filter that is on or off. */
+export interface SwitchOption extends FilterOptionBase {
+  kind: "switch";
+  key: "includeApproved";
   /**
    * Whether the switch reads the opposite way round from the filter behind it.
    *
@@ -35,8 +50,20 @@ export interface InboxFilterOption {
   inverted?: boolean;
 }
 
+/** A filter that is on or off and, when on, carries how far back it reaches. */
+export interface WindowOption extends FilterOptionBase {
+  kind: "window";
+  key: "recentDrafts";
+  /** Names the row of spans for anyone who cannot see that it sits under the toggle. */
+  choicesLabel: string;
+  choices: readonly RecentDraftWindow[];
+}
+
+export type InboxFilterOption = SwitchOption | WindowOption;
+
 export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
   {
+    kind: "switch",
     key: "includeApproved",
     label: "Hide approved PRs",
     inverted: true,
@@ -47,19 +74,38 @@ export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
     detail:
       "Ones waiting on you that somebody has already approved. Your own always show.",
   },
+  {
+    kind: "window",
+    key: "recentDrafts",
+    label: "Recent drafts",
+    // Says what turning it off does, because that is the part nobody would guess: the drafts do
+    // not disappear, they go back in with the rest. The heading is what is being turned off,
+    // not the work.
+    detail:
+      "The draft you are in the middle of, kept out of the pile. Off puts every draft together.",
+    choicesLabel: "How recently a draft moved",
+    choices: RECENT_DRAFT_WINDOWS,
+  },
 ];
 
 /**
- * Where the switch sits, which is not always what the filter says - see `inverted`.
+ * Where the switch sits, which is not always what the filter says.
  *
  * A function rather than a boolean worked out at the call site, because getting this backwards
  * is invisible: the panel still draws, the switch still moves, and the only symptom is a filter
  * that does the opposite of its own label.
+ *
+ * For a window, "on" is simply anything that is not `off` - the span it is set to is the row of
+ * buttons' business, not the switch's.
  */
 export function switchPosition(
   option: InboxFilterOption,
   filters: InboxFilters
 ): boolean {
+  if (option.kind === "window") {
+    return filters[option.key] !== "off";
+  }
+
   return option.inverted ? !filters[option.key] : filters[option.key];
 }
 
@@ -70,10 +116,7 @@ export function switchPosition(
  * its switch - so the two negations cancel and the answer is `on` itself. Written out rather
  * than inlined precisely because it reads like a mistake.
  */
-export function valueWhenPressed(
-  option: InboxFilterOption,
-  on: boolean
-): boolean {
+export function valueWhenPressed(option: SwitchOption, on: boolean): boolean {
   return option.inverted ? on : !on;
 }
 
