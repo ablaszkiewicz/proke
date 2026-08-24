@@ -160,21 +160,19 @@ export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
   {
     kind: "switch",
     key: "separateBots",
-    label: "Bots",
-    // Points at the setting below it, because "off" here and "ignore" there are the two things
-    // somebody who is sick of a bot might mean, and only one of them makes it go away.
-    detail:
-      "Machines, under their own heading. Off puts them in with everyone else.",
+    label: "Bots section",
+    // One clause. The label already says which section, and what off does - back in with
+    // everyone else - is the same answer as for the section above it, which has now said it.
+    detail: "Machines get their own section.",
   },
   {
     kind: "authors",
     key: "ignoredAuthors",
     label: "Ignore authors",
-    // "Never see" rather than "hide", because this one really does remove the row - it is the
-    // only setting in the panel that does, and the difference is the whole reason it is worded
-    // apart from the two above it.
-    detail:
-      "Their pull requests never reach you. For the bot that opens nine a week.",
+    // "Never reach you" rather than "hidden", because this one really does remove the row - it
+    // is the only setting in the drawer that does, and that difference is the whole reason it is
+    // worded apart from the ones above it.
+    detail: "Their pull requests never reach you.",
     placeholder: "Add a login…",
   },
 ];

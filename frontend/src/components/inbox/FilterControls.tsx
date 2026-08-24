@@ -7,203 +7,28 @@ import {
 } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
-  INBOX_FILTER_OPTIONS,
   switchPosition,
   valueWhenPressed,
   type AuthorsOption,
-  type InboxFilterOption,
   type SwitchOption,
   type TeamsOption,
   type WindowOption,
 } from "./filters";
 
 /**
- * What the inbox is showing, and the one control on this page that changes it.
+ * The controls one setting can be drawn as, and nothing about where they are drawn.
  *
- * ## Why it is behind a button
+ * Lifted out of InboxSettings when the same five controls were wanted in two places at once - a
+ * popover hanging off the header, and a drawer that squishes the page - and the alternative was
+ * two copies of a switch that inverts its own label. Whatever chrome ends up winning, there is
+ * one implementation of what is inside it.
  *
- * Because it is read once and set once. A filter that lived on the page would be a permanent
- * row of controls above a list whose entire argument is that it carries nothing you could answer
- * by opening a pull request - and the page would be paying for it on every one of the twenty
- * loads a day where nobody touches it. Behind a button it costs one small mark in the corner of
- * the header, and it is exactly as reachable.
- *
- * ## Why it is neither a dialog nor a menu
- *
- * Not a dialog, because filters are not a decision to be confirmed. There is no Save, no Cancel
- * and no closing on a press: every toggle takes effect immediately, the rows behind it change
- * under the open panel, and somebody can turn two things on and watch both happen. A dialog
- * would put a scrim over the only thing they are trying to look at.
- *
- * Not `role="menu"` either, though it is drawn like one. A menu is a promise about how it is
- * driven - arrow keys move between items, Tab leaves - and making that promise means keeping it
- * with a roving tabindex and a keydown handler. What is actually in here is a group of switches,
- * so it says so: real buttons, in the tab order, driven by Tab and Space like every other
- * control on the page. The behaviour a screen reader is told to expect is the behaviour it gets.
- *
- * ## What is deliberately absent
- *
- * A count of what is hidden. It reads as a warning - "you have 3 hidden" - about a thing the
- * reader chose, and it would need the server to keep and send a number for rows it was asked not
- * to send. The toggle is either on or it is not, and it says so.
+ * So: no positioning, no dismissal, no opening or closing. Each of these is a self-contained
+ * block that takes the filters and hands back a change, and the thing rendering them decides
+ * what sits between them and around them.
  */
-export function InboxSettings({
-  filters,
-  teams,
-  teamsAsked,
-  onChange,
-}: {
-  filters: InboxFilters;
-  /**
-   * The teams the "your team" heading is built from, for the reader to strike one out.
-   *
-   * Undefined is "not established yet", which the panel says out loud rather than drawing as an
-   * empty list - see the note on TeamsFilter.
-   */
-  teams?: InboxTeam[];
-  /**
-   * Whether GitHub has answered for this person at all.
-   *
-   * Only ever consulted about the teams, and only to separate "not yet" from "would not say" -
-   * absent teams after a real answer is a missing permission rather than a slow one.
-   */
-  teamsAsked: boolean;
-  /** Applied immediately. There is nothing to confirm. */
-  onChange: InboxFilterChange;
-}) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const panelId = useId();
-
-  // Stable, or the effect behind it rebinds its listeners on every render of the page.
-  const close = useCallback(() => setOpen(false), []);
-
-  usePanelDismissal({ open, close, triggerRef, panelRef });
-
-  /**
-   * One setting, drawn as whatever kind it is.
-   *
-   * A function rather than four branches inline, because the dividers between them are the
-   * caller's business and the control itself is this one's - and mixing the two put a `switch`
-   * inside a `map` inside JSX, which is three things to read before finding the component.
-   */
-  const renderFilter = (option: InboxFilterOption) => {
-    switch (option.kind) {
-      case "window":
-        return (
-          <WindowFilter
-            option={option}
-            value={filters[option.key]}
-            onChange={onChange}
-          />
-        );
-      case "teams":
-        return (
-          <TeamsFilter
-            option={option}
-            on={filters[option.key]}
-            excluded={filters[option.membersKey]}
-            teams={teams}
-            asked={teamsAsked}
-            onChange={onChange}
-          />
-        );
-      case "authors":
-        return (
-          <AuthorsFilter
-            option={option}
-            authors={filters[option.key]}
-            onChange={onChange}
-          />
-        );
-      default:
-        return (
-          <SwitchFilter option={option} filters={filters} onChange={onChange} />
-        );
-    }
-  };
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((was) => !was)}
-        aria-expanded={open}
-        aria-controls={panelId}
-        aria-label="Filters"
-        className={cn(
-          // The one piece of chrome on the page, so it is sized to be found rather than seen:
-          // muted until it is wanted, and lit by the same `accent` a row uses under a pointer.
-          "flex size-8 items-center justify-center rounded-lg transition-colors",
-          open
-            ? "bg-accent text-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground"
-        )}
-      >
-        <SlidersIcon className="size-[18px]" />
-      </button>
-
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            ref={panelRef}
-            id={panelId}
-            role="group"
-            // Named directly rather than by a heading inside it. The heading that used to be
-            // here said "Show", which stopped being true the moment a toggle in the list read
-            // "Hide" - and a panel holding a couple of switches over one list has nothing to
-            // title that its own accessible name does not already say.
-            aria-label="Filters"
-            // Barely any travel, and from the corner it came out of. Same curve and roughly the
-            // same eighth of a second as a modal opening - see index.css - so the two read as
-            // one product rather than two ideas about how things should appear.
-            initial={{ opacity: 0, y: -4, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -2, scale: 0.98, transition: { duration: 0.12 } }}
-            transition={{ duration: 0.16, ease: [0.2, 0.7, 0.2, 1] }}
-            style={{ transformOrigin: "top right" }}
-            // Above the fades at the top of each column, which are z-10.
-            className={cn(
-              // Capped against the viewport as well as sized, or on a narrow phone a panel hung
-              // off the right edge of the header runs off the left one.
-              "absolute right-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-4rem)] origin-top-right",
-              // Capped and scrolling, because it is no longer a panel of switches: a long team
-              // list plus a field of chips can outgrow a laptop viewport, and the page it hangs
-              // from is `overflow-hidden` from `xl` up - so anything past the bottom would be
-              // clipped by the page rather than reachable.
-              "max-h-[min(34rem,calc(100dvh-6rem))] overflow-y-auto overscroll-contain",
-              "rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
-            )}
-          >
-            {INBOX_FILTER_OPTIONS.map((option, index) => (
-              <Fragment key={option.key}>
-                {/*
-                  A hairline between settings, and only between them - never above the first or
-                  below the last, where it would be a second border inside the panel's own.
-
-                  It is here because the panel stopped being a list of switches: two of these
-                  controls open into something underneath them, and without a line it is genuinely
-                  unclear whether a row of spans belongs to the setting above it or the one below.
-                  At `border/60` it is barely a mark - enough to group, not enough to be a
-                  feature, which is the whole argument of the page it hangs from.
-                */}
-                {index > 0 ? (
-                  <div aria-hidden="true" className="mx-2.5 my-1 h-px bg-border/60" />
-                ) : null}
-
-                {renderFilter(option)}
-              </Fragment>
-            ))}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 /**
  * A filter that is on or off.
@@ -213,7 +38,7 @@ export function InboxSettings({
  * `valueWhenPressed` are the only two places that is undone. `onChange` is handed the filter's
  * value, never the switch's.
  */
-function SwitchFilter({
+export function SwitchFilter({
   option,
   filters,
   onChange,
@@ -256,7 +81,7 @@ function SwitchFilter({
  * that promise means a roving tabindex and a keydown handler, and what is actually here is five
  * buttons. So they say so, and Tab and Space work on them like everything else on the page.
  */
-function WindowFilter({
+export function WindowFilter({
   option,
   value,
   onChange,
@@ -329,7 +154,7 @@ function WindowFilter({
  * leave it with no teams to send. What separates them from here is whether the *inbox* came
  * back - if it did, GitHub was reached, and the teams are missing for a reason.
  */
-function TeamsFilter({
+export function TeamsFilter({
   option,
   on,
   excluded,
@@ -461,7 +286,7 @@ function Tick({ checked }: { checked: boolean }) {
  * duplicate, and the field clears either way: pressing Enter twice on the same name should feel
  * like it worked twice, because it did.
  */
-function AuthorsFilter({
+export function AuthorsFilter({
   option,
   authors,
   onChange,
@@ -773,105 +598,10 @@ function Switch({ checked }: { checked: boolean }) {
 }
 
 /**
- * The three ways out of an open panel, and where focus goes on the way.
- *
- * Escape and a press elsewhere are the two everybody tries. The third is Tab past the last
- * switch, which has to close it or the panel is left open behind somebody who has walked off
- * into the rows.
- *
- * Focus returns to the trigger on Escape and only on Escape - a pointer has already put it
- * somewhere its owner chose, and stealing it back is the classic way a popover loses somebody's
- * place.
- *
- * `pointerdown` rather than `click`: a click fires after the press, so a press that begins
- * outside and ends inside would close the panel underneath its own release.
- *
- * Nothing here closes on scroll, which most popovers do. This one is positioned against the
- * header it hangs from: the columns scroll inside themselves and leave the header where it is,
- * and below `xl` the whole page scrolls and takes both with it. The panel is never anywhere but
- * under its own button. Closing on scroll would also have made a filter shut its own panel -
- * removing rows can shorten a column past its scroll position, and the browser reports the
- * correction it makes as a scroll.
- */
-function usePanelDismissal({
-  open,
-  close,
-  triggerRef,
-  panelRef,
-}: {
-  open: boolean;
-  close: () => void;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
-  panelRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    // Captured now so the cleanup unbinds from the element it bound to, whatever has happened
-    // to the ref by then.
-    const panel = panelRef.current;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-
-      // The trigger closes it through its own onClick. Closing here as well would run both and
-      // reopen it on the very press that was meant to shut it.
-      if (
-        panelRef.current?.contains(target) ||
-        triggerRef.current?.contains(target)
-      ) {
-        return;
-      }
-
-      close();
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      event.stopPropagation();
-      close();
-      triggerRef.current?.focus();
-    };
-
-    const onFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget as Node | null;
-
-      // Null means focus went nowhere, which is what a press on a non-focusable part of the
-      // panel looks like. Closing on that would shut the panel every time somebody clicked the
-      // gap between two switches.
-      if (
-        !next ||
-        panelRef.current?.contains(next) ||
-        triggerRef.current?.contains(next)
-      ) {
-        return;
-      }
-
-      close();
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    panel?.addEventListener("focusout", onFocusOut);
-
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      panel?.removeEventListener("focusout", onFocusOut);
-    };
-  }, [open, close, panelRef, triggerRef]);
-}
-
-/**
  * Sliders rather than a cog. A cog says "preferences" - a page of them, somewhere else - and
  * what is behind this button is a couple of switches over this list.
  */
-function SlidersIcon({ className }: { className?: string }) {
+export function SlidersIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"

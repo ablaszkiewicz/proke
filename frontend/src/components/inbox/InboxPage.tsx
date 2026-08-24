@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InboxSection } from "./InboxSection";
-import { InboxSettings } from "./InboxSettings";
+import { SlidersIcon } from "./FilterControls";
+import { InboxSettingsDrawer } from "./InboxSettingsDrawer";
 import { LAYOUT_TRANSITION } from "./motion";
 import { useScrollEdges } from "./useScrollEdges";
 
@@ -323,6 +324,10 @@ export function InboxPage({
   teams,
   onFilterChange,
 }: InboxPageProps) {
+  // Shut on arrival. Settings are read once and set once, and a drawer that opened itself would
+  // be taking a quarter of the page from somebody who came here to read a list.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const animateEntrances = useHasPainted(
     yours.some((section) => section.pullRequests.length > 0) ||
       waitingOnYou.some((section) => section.pullRequests.length > 0)
@@ -332,16 +337,22 @@ export function InboxPage({
     // `reducedMotion="user"` rather than a media query per component: somebody who has asked
     // their system for less motion gets none of this, and still gets every row.
     <MotionConfig reducedMotion="user">
-      <div
-        className={
-          // Locked to the viewport from `xl` up, where the two columns are side by side and each
-          // can own its own scroll. Stacked below that they are one flowing page again, because
-          // two independently scrolling half-height panes on a phone is a worse answer than
-          // scrolling.
-          "theme-ink flex min-h-dvh w-full flex-col bg-background text-foreground " +
-          "xl:h-dvh xl:min-h-0 xl:overflow-hidden"
-        }
-      >
+      {/*
+        A row: the page, and the settings drawer taking width from it. From `xl` up the drawer is
+        in this flow and the page genuinely narrows; below it the drawer covers instead, because
+        there is no width on a phone to give away - see InboxSettingsDrawer.
+      */}
+      <div className="theme-ink flex w-full bg-background text-foreground xl:h-dvh xl:overflow-hidden">
+        <div
+          className={
+            // Locked to the viewport from `xl` up, where the two columns are side by side and
+            // each can own its own scroll. Stacked below that they are one flowing page again,
+            // because two independently scrolling half-height panes on a phone is a worse answer
+            // than scrolling.
+            "flex min-h-dvh min-w-0 flex-1 flex-col " +
+            "xl:h-full xl:min-h-0 xl:overflow-hidden"
+          }
+        >
         <RefreshLine refreshing={refreshing} />
 
         {/*
@@ -356,12 +367,23 @@ export function InboxPage({
           </div>
 
           <div className="ml-auto">
-            <InboxSettings
-              filters={filters}
-              teams={teams}
-              teamsAsked={hasAnswer}
-              onChange={onFilterChange}
-            />
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((was) => !was)}
+              aria-expanded={settingsOpen}
+              aria-label="Filters"
+              className={cn(
+                // The one piece of chrome on the page, so it is sized to be found rather than
+                // seen: muted until it is wanted, and lit by the same `accent` a row uses under
+                // a pointer.
+                "flex size-8 items-center justify-center rounded-lg transition-colors",
+                settingsOpen
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              <SlidersIcon className="size-[18px]" />
+            </button>
           </div>
         </header>
 
@@ -403,6 +425,16 @@ export function InboxPage({
             animateEntrances={animateEntrances}
           />
         </div>
+        </div>
+
+        <InboxSettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          filters={filters}
+          teams={teams}
+          teamsAsked={hasAnswer}
+          onChange={onFilterChange}
+        />
       </div>
     </MotionConfig>
   );
