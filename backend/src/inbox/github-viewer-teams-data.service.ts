@@ -18,6 +18,20 @@ const MAX_TEAMS = 25;
 const PER_PAGE = 100;
 
 /**
+ * How many of the member lists to ask for at once.
+ *
+ * Not a performance knob - a correctness one. GitHub asks that requests for one user be made
+ * serially and answers a burst with a secondary rate limit, which arrives as a 403 and is
+ * indistinguishable from "you do not have permission". Twenty-five at once, on a cold cache, is
+ * exactly the shape that triggers it - and the cost of tripping it is not a slow page but a
+ * wrong sentence in the settings, cached for two minutes and baked into a snapshot for thirty.
+ *
+ * Four is the compromise: strictly serial would be five seconds for somebody in twenty-five
+ * teams, and this is once every half hour per person.
+ */
+const MEMBER_REQUEST_CONCURRENCY = 4;
+
+/**
  * One of the viewer's teams and who is in it.
  *
  * Members are lowercased logins, and include the viewer. A team whose members GitHub would not
@@ -75,21 +89,62 @@ export class GithubViewerTeamsDataService {
       return null;
     }
 
-    // Concurrently, and a team that cannot be read drops out rather than taking the rest with it.
-    // A partial set of teams still groups most of the inbox correctly.
+    if (teams.length === 0) {
+      return [];
+    }
+
+    // A team that cannot be read drops out rather than taking the rest with it. A partial set
+    // still groups most of the inbox correctly.
     //
     // Dropping it entirely rather than keeping it with no members, because the list goes out to
     // the settings: a team drawn with a checkbox that changes nothing is worse than a team that
     // is not drawn, and this way what is listed is exactly what is in force.
-    const memberships = await Promise.all(
-      teams.slice(0, MAX_TEAMS).map(async (team) => {
-        const members = await this.readMembers(accessToken, team);
-
-        return members && { team, members: members.map((login) => login.toLowerCase()) };
-      }),
+    const memberships = await this.readAllMembers(accessToken, teams.slice(0, MAX_TEAMS));
+    const resolved = memberships.filter(
+      (membership): membership is ViewerTeamMembership => !!membership,
     );
 
-    return memberships.filter((membership): membership is ViewerTeamMembership => !!membership);
+    // GitHub named some teams and then would not say who is in any of them, which is a missing
+    // permission or a rate limit rather than an answer. Falling through with an empty list would
+    // have the settings say "you are in no teams" - a different sentence, and a false one.
+    if (resolved.length === 0) {
+      this.logger.warn(
+        `GitHub named ${teams.length} team(s) for this user and would not list the members of ` +
+          'any of them. Reporting the teams as unresolved rather than as none.',
+      );
+
+      return null;
+    }
+
+    return resolved;
+  }
+
+  /**
+   * The member lists, a few at a time rather than all at once - see MEMBER_REQUEST_CONCURRENCY.
+   *
+   * Written out rather than pulled in, because a dependency for "map with a limit" is a
+   * dependency to keep up to date for eight lines. Order is preserved, which nothing depends on
+   * and which makes the result readable in a log.
+   */
+  private async readAllMembers(
+    accessToken: string,
+    teams: ViewerTeam[],
+  ): Promise<(ViewerTeamMembership | null)[]> {
+    const memberships: (ViewerTeamMembership | null)[] = [];
+
+    for (let start = 0; start < teams.length; start += MEMBER_REQUEST_CONCURRENCY) {
+      const batch = await Promise.all(
+        teams.slice(start, start + MEMBER_REQUEST_CONCURRENCY).map(async (team) => {
+          const members = await this.readMembers(accessToken, team);
+
+          return members && { team, members: members.map((login) => login.toLowerCase()) };
+        }),
+      );
+
+      memberships.push(...batch);
+    }
+
+    return memberships;
   }
 
   private async readTeams(accessToken: string): Promise<ViewerTeam[] | null> {

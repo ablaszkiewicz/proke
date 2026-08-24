@@ -7,12 +7,13 @@ import {
 } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   INBOX_FILTER_OPTIONS,
   switchPosition,
   valueWhenPressed,
   type AuthorsOption,
+  type InboxFilterOption,
   type SwitchOption,
   type TeamsOption,
   type WindowOption,
@@ -82,6 +83,49 @@ export function InboxSettings({
 
   usePanelDismissal({ open, close, triggerRef, panelRef });
 
+  /**
+   * One setting, drawn as whatever kind it is.
+   *
+   * A function rather than four branches inline, because the dividers between them are the
+   * caller's business and the control itself is this one's - and mixing the two put a `switch`
+   * inside a `map` inside JSX, which is three things to read before finding the component.
+   */
+  const renderFilter = (option: InboxFilterOption) => {
+    switch (option.kind) {
+      case "window":
+        return (
+          <WindowFilter
+            option={option}
+            value={filters[option.key]}
+            onChange={onChange}
+          />
+        );
+      case "teams":
+        return (
+          <TeamsFilter
+            option={option}
+            on={filters[option.key]}
+            excluded={filters[option.membersKey]}
+            teams={teams}
+            asked={teamsAsked}
+            onChange={onChange}
+          />
+        );
+      case "authors":
+        return (
+          <AuthorsFilter
+            option={option}
+            authors={filters[option.key]}
+            onChange={onChange}
+          />
+        );
+      default:
+        return (
+          <SwitchFilter option={option} filters={filters} onChange={onChange} />
+        );
+    }
+  };
+
   return (
     <div className="relative">
       <button
@@ -135,49 +179,25 @@ export function InboxSettings({
               "rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
             )}
           >
-            {INBOX_FILTER_OPTIONS.map((option) => {
-              switch (option.kind) {
-                case "window":
-                  return (
-                    <WindowFilter
-                      key={option.key}
-                      option={option}
-                      value={filters[option.key]}
-                      onChange={onChange}
-                    />
-                  );
-                case "teams":
-                  return (
-                    <TeamsFilter
-                      key={option.key}
-                      option={option}
-                      on={filters[option.key]}
-                      excluded={filters[option.membersKey]}
-                      teams={teams}
-                      asked={teamsAsked}
-                      onChange={onChange}
-                    />
-                  );
-                case "authors":
-                  return (
-                    <AuthorsFilter
-                      key={option.key}
-                      option={option}
-                      authors={filters[option.key]}
-                      onChange={onChange}
-                    />
-                  );
-                default:
-                  return (
-                    <SwitchFilter
-                      key={option.key}
-                      option={option}
-                      filters={filters}
-                      onChange={onChange}
-                    />
-                  );
-              }
-            })}
+            {INBOX_FILTER_OPTIONS.map((option, index) => (
+              <Fragment key={option.key}>
+                {/*
+                  A hairline between settings, and only between them - never above the first or
+                  below the last, where it would be a second border inside the panel's own.
+
+                  It is here because the panel stopped being a list of switches: two of these
+                  controls open into something underneath them, and without a line it is genuinely
+                  unclear whether a row of spans belongs to the setting above it or the one below.
+                  At `border/60` it is barely a mark - enough to group, not enough to be a
+                  feature, which is the whole argument of the page it hangs from.
+                */}
+                {index > 0 ? (
+                  <div aria-hidden="true" className="mx-2.5 my-1 h-px bg-border/60" />
+                ) : null}
+
+                {renderFilter(option)}
+              </Fragment>
+            ))}
           </motion.div>
         ) : null}
       </AnimatePresence>

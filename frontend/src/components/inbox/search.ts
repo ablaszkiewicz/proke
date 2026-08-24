@@ -29,10 +29,28 @@ import {
  * ## Why the lists are one comma-separated word
  *
  * Because somebody is meant to be able to read their own address bar. `?ignoredAuthors=
- * dependabot,renovate` says what it does; the JSON array a router would otherwise write -
+ * dependabot,renovate` says what it does; the JSON array a router writes by default -
  * `?ignoredAuthors=%5B%22dependabot%22%5D` - says nothing to anyone. It is also exactly the
  * shape the server reads, so the query string the page carries and the query string it sends
  * are the same string.
+ *
+ * ## Why `normalizeInboxSearch` exists, which is the important part
+ *
+ * TanStack runs `validateSearch` on every navigation and writes **its return value** into the
+ * address bar. So whatever this module says a search is, is what the URL becomes - and that is
+ * then parsed straight back by this same module on the next load.
+ *
+ * Which means the returned shape has to be the *URL* shape rather than the useful one. Returning
+ * complete `InboxFilters` from the validator - the obvious thing, and what this did first - put
+ * real arrays and every default into the address bar, and then failed to read them back: the
+ * URL said `excludedTeams=["posthog/core"]` and the parser, expecting a comma-separated word,
+ * took it for nothing at all. Every list silently emptied on the next navigation, so setting one
+ * cleared the other and a reload dropped both.
+ *
+ * So `validateSearch` returns `normalizeInboxSearch` - read it, then write it back the canonical
+ * way - and the page turns that into filters itself. Reading accepts either shape, so a URL
+ * somebody bookmarked in the broken form still works and is rewritten the moment they touch a
+ * switch.
  */
 
 /**
@@ -52,6 +70,17 @@ export interface InboxSearch {
 
 /** Whatever the address bar might have had under each name, before any of it is believed. */
 type RawSearch = Partial<Record<keyof InboxSearch, unknown>>;
+
+/**
+ * What the address bar should say for what it currently says.
+ *
+ * What `validateSearch` returns, and therefore what the URL becomes on the next navigation:
+ * read, then written back canonically. Idempotent by construction - serialising produces exactly
+ * what parsing consumes - which matters, because the router runs it against its own output.
+ */
+export function normalizeInboxSearch(search: RawSearch): InboxSearch {
+  return inboxSearchFromFilters(inboxFiltersFromSearch(search));
+}
 
 /**
  * What the address bar was carrying, filled out with the defaults.
@@ -115,10 +144,9 @@ export function inboxSearchFromFilters(filters: InboxFilters): InboxSearch {
 /**
  * A boolean, or the default.
  *
- * The string forms are here because the address bar is hand-editable and a router is entitled to
- * hand back whatever it found: `?separateTeam=false` typed by a person parses to the word rather
- * than the value under some parsers and the value under others, and the page should not depend
- * on which.
+ * The string forms are here because the address bar is hand-editable and the router only turns a
+ * value into a boolean if it happens to be valid JSON: `?separateTeam=true` arrives as `true`
+ * and `?separateTeam=yes` arrives as the word, and the page should not depend on which.
  */
 function flag(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") {
@@ -133,7 +161,12 @@ function flag(value: unknown, fallback: boolean): boolean {
 }
 
 /**
- * A comma-separated word as the list it stands for.
+ * The list a search value stands for, however it happens to be written.
+ *
+ * Three shapes reach this. The comma-separated word is what this module writes. An array is what
+ * an older build of the page wrote into somebody's bookmark, and taking it for nothing was the
+ * bug this whole module is arranged to avoid. A number is what the router hands back for a login
+ * that happens to be all digits, which JSON.parse is only too happy to convert.
  *
  * Normalised the same way the server normalises it - trimmed, lowercased, deduplicated - so that
  * what the panel draws as ticked and what the server actually matched on are the same thing. A
@@ -141,14 +174,21 @@ function flag(value: unknown, fallback: boolean): boolean {
  * with.
  */
 function list(value: unknown): string[] {
-  if (typeof value !== "string") {
-    return [];
-  }
+  const parts =
+    typeof value === "string" || typeof value === "number"
+      ? String(value).split(",")
+      : Array.isArray(value)
+        ? value
+        : [];
 
   const seen = new Set<string>();
 
-  for (const part of value.split(",")) {
-    const normalized = part.trim().toLowerCase();
+  for (const part of parts) {
+    if (typeof part !== "string" && typeof part !== "number") {
+      continue;
+    }
+
+    const normalized = String(part).trim().toLowerCase();
 
     if (normalized) {
       seen.add(normalized);

@@ -82,9 +82,10 @@ export interface TeamsOption extends FilterOptionBase {
    * The three things this can say instead of a list, which are three and not two.
    *
    * `waiting` is before GitHub has answered at all. `unavailable` is after it has answered the
-   * rest of the inbox and still not said - which is proke missing the "Members" organisation
-   * permission far more often than it is an outage, and is the one of the three somebody can do
-   * something about. `none` is GitHub saying you are in no teams.
+   * rest of the inbox and still not said, which is either proke missing the "Members"
+   * organisation permission or GitHub rate-limiting the burst of member lookups - it answers
+   * both with a 403, so nothing downstream can tell them apart and the words must not pretend
+   * to. `none` is GitHub saying you are in no teams.
    *
    * Told apart because "still loading" and "this will never load" draw as the same nothing and
    * mean opposite things to whoever is waiting on it.
@@ -147,8 +148,13 @@ export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
     detail:
       "Their pull requests, above everyone else's. Off puts them in with everyone else.",
     waiting: "Asking GitHub which teams you are in…",
+    // Both causes, because they are not distinguishable from here and only one of them is
+    // anybody's fault: GitHub answers a missing organisation permission and a rate-limited burst
+    // with the same 403. Ends with the thing to do, since neither cause is worth explaining to
+    // somebody who just wants the list.
     unavailable:
-      "GitHub would not say which teams you are in. proke may be missing the Members permission.",
+      "GitHub would not say which teams you are in — a missing Members permission, or it was " +
+      "busy. Reload to ask again.",
     none: "GitHub says you are in no teams, so nothing lands here.",
   },
   {

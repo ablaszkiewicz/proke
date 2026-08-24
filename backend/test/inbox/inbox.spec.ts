@@ -445,6 +445,31 @@ describe('Inbox', () => {
       expect(body.teams).toBeUndefined();
     });
 
+    it('reports teams as unresolved when GitHub names them but lists none of their members', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({});
+      nock('https://api.github.com')
+        .get('/user/teams')
+        .query(true)
+        .reply(200, [{ slug: 'core', name: 'Core', organization: { login: 'acme' } }]);
+      // What a missing Members permission looks like, and equally what GitHub answers when it
+      // decides a burst of member lookups was too fast.
+      nock('https://api.github.com').get('/orgs/acme/teams/core/members').query(true).reply(403);
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // Not an empty list. An empty list is the settings saying "you are in no teams", which is
+      // a different sentence from "we could not find out" and a false one here - GitHub just
+      // named one.
+      expect(body.teams).toBeUndefined();
+    });
+
     it('rejects a name list that is too long or full of the wrong characters', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
