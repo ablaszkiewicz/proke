@@ -20,16 +20,32 @@ import {
  */
 
 /**
+ * How long a draft counts as work in progress rather than as something put down.
+ *
+ * A day, because that is the span that survives an evening and a night: a draft pushed at six
+ * and opened again at nine the next morning is the same piece of work, and anything shorter
+ * would file it away overnight.
+ */
+const RECENT_DRAFT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
  * The order matters and is not the display order.
  *
  * Drafts first because a draft is a draft whatever else is true of it. Then unresolved threads,
  * *above* approved: a pull request that has been signed off and still has an open question on it
  * is one where somebody is waiting on an answer, and "Approved" would tell the reader there is
  * nothing left to do. Everything else has simply not been looked at yet.
+ *
+ * The drafts split in two on nothing but recency. A draft you pushed to this morning is what you
+ * are working on, and it is the one thing in this pile with any claim on your attention today;
+ * the eleven you opened in March are a pile, and the point of a pile is that it stays shut. Same
+ * rule, two headings, so the client can open one of them by default without opening the other.
  */
-function yoursSection(pullRequest: GithubInboxPullRequest): InboxSectionKey {
+function yoursSection(pullRequest: GithubInboxPullRequest, now: number): InboxSectionKey {
   if (pullRequest.isDraft) {
-    return InboxSectionKey.Drafts;
+    return now - updatedMs(pullRequest) < RECENT_DRAFT_WINDOW_MS
+      ? InboxSectionKey.RecentDrafts
+      : InboxSectionKey.Drafts;
   }
 
   if (pullRequest.hasUnresolvedThreads) {
@@ -65,19 +81,38 @@ function waitingSection(
 }
 
 /**
- * Oldest first, within every section.
+ * Most recently updated first, within every section.
  *
- * A proxy, and an honest one. What this list wants to be sorted by is how long *you* have been
- * asked, which no search result carries - but proke is sent a `review_requested` webhook the
- * moment it happens, so the real number is already arriving and can replace this without the
- * client noticing. Until then, how long the pull request has existed is the closest thing, and
- * it has the property that matters: a bot rebasing its own branch hourly cannot climb over
- * somebody who has been waiting since Tuesday.
+ * On GitHub's `updatedAt`, which is the field GitHub sorts its own lists by and the same one the
+ * search behind this is asked to order on - so the page and the query agree about what "top of
+ * the list" means, and the fifty rows the query returns are the fifty the page wants.
+ *
+ * This replaced oldest-created-first, which was standing in for how long you had been waiting.
+ * It read well on the waiting-on-you half and badly everywhere else: a pull request somebody
+ * pushed to ten minutes ago sat at the bottom of the pile under one they had abandoned in March,
+ * and nothing on screen said why. Recency is the thing both halves have in common - what moved
+ * last is what is live.
  */
-function byAgeThenNumber(a: GithubInboxPullRequest, b: GithubInboxPullRequest): number {
-  const byAge = Date.parse(a.createdAt || '') - Date.parse(b.createdAt || '');
+function byRecency(a: GithubInboxPullRequest, b: GithubInboxPullRequest): number {
+  const byUpdated = updatedMs(b) - updatedMs(a);
 
-  return Number.isNaN(byAge) || byAge === 0 ? a.number - b.number : byAge;
+  // Ties are two rows written in the same second, so the newer pull request goes on top for the
+  // same reason the newer update does.
+  return byUpdated === 0 ? b.number - a.number : byUpdated;
+}
+
+/**
+ * `updatedAt` as epoch milliseconds, and 0 where GitHub sent nothing that parses.
+ *
+ * Zero rather than NaN on purpose: a comparator that returns NaN gives a sort no ordering at all
+ * and the result is engine-defined. This way an unreadable timestamp costs that one row its
+ * place - it sorts to the bottom, and is never counted as a recent draft - and costs the rest
+ * of the section nothing.
+ */
+function updatedMs(pullRequest: GithubInboxPullRequest): number {
+  const parsed = Date.parse(pullRequest.updatedAt || '');
+
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function toPullRequest(pullRequest: GithubInboxPullRequest): InboxPullRequest {
@@ -118,7 +153,7 @@ function group(
 
   return keys.map((key) => ({
     key,
-    pullRequests: (buckets.get(key) ?? []).sort(byAgeThenNumber).map(toPullRequest),
+    pullRequests: (buckets.get(key) ?? []).sort(byRecency).map(toPullRequest),
   }));
 }
 
@@ -152,13 +187,18 @@ function isWaitingOnYou(
   return filters.includeApproved || pullRequest.reviewDecision !== 'APPROVED';
 }
 
+/**
+ * `now` is a parameter rather than a `Date.now()` inside, so that the one rule here that depends
+ * on the clock - which drafts are recent - can be asserted against a fixed one.
+ */
 export function classify(
   inbox: GithubInbox,
   teammates: Set<string> | null,
   filters: InboxFilters,
+  now: number = Date.now(),
 ): { yours: InboxSectionContent[]; waitingOnYou: InboxSectionContent[] } {
   return {
-    yours: group(inbox.yours, YOURS_SECTIONS, yoursSection),
+    yours: group(inbox.yours, YOURS_SECTIONS, (pullRequest) => yoursSection(pullRequest, now)),
     waitingOnYou: group(
       inbox.waitingOnYou.filter((pullRequest) =>
         isWaitingOnYou(pullRequest, inbox.viewerLogin, filters),

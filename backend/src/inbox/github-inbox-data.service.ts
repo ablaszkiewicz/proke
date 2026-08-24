@@ -5,8 +5,8 @@ import { githubFetch } from '../shared/http/github-fetch';
 /**
  * What GitHub says about one pull request, before anything has decided where it belongs.
  *
- * Richer than InboxPullRequest on purpose - the three extra fields exist only so the classifier
- * can bucket the row, and none of them leaves this module.
+ * Richer than InboxPullRequest on purpose - the extra fields exist only so the classifier can
+ * bucket and order the row, and none of them leaves this module.
  */
 export interface GithubInboxPullRequest {
   id: string;
@@ -14,7 +14,16 @@ export interface GithubInboxPullRequest {
   title: string;
   url: string;
   isDraft: boolean;
-  createdAt: string;
+  /**
+   * GitHub's own `updatedAt`, and what every section is ordered by.
+   *
+   * Bumped by a push, a comment, a title edit, a label - anything that touches the pull request.
+   * Which is looser than "the last push" and is deliberately not narrowed: the closest thing to
+   * a real last-push timestamp is the head commit's `committedDate`, and that costs a commit
+   * node per row and still lies after a rebase. This is the field GitHub sorts its own lists by,
+   * and it answers the question the ordering is actually asking - what moved most recently.
+   */
+  updatedAt: string;
   repositoryId: string;
   repositoryFullName: string;
   authorLogin: string;
@@ -149,7 +158,7 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
         title: node.title ?? '',
         url: node.url ?? '',
         isDraft: Boolean(node.isDraft),
-        createdAt: node.createdAt ?? '',
+        updatedAt: node.updatedAt ?? '',
         repositoryId: node.repository.id,
         repositoryFullName: node.repository.nameWithOwner,
         authorLogin: login,
@@ -180,6 +189,12 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
  * for everybody. Thirty rows of budget occasionally spent on pull requests that are then dropped
  * is the cheaper mistake.
  *
+ * `sort:updated-desc` on both halves, matching the order the sections are drawn in. It changes
+ * nothing about what the reader sees while both lists fit under the page limits - the classifier
+ * sorts what it is given regardless - and everything about *which* fifty come back once one does
+ * not. Truncating by best-match and then displaying by recency would drop rows off the bottom of
+ * the query that belong at the top of the page.
+ *
  * `draft:false` on that half too, and only that half. Your own drafts are worth a pile - they
  * are the work you have started and not sent - but somebody else's draft is not waiting on you,
  * whatever GitHub says about the review request sitting on it. Excluded in the search rather
@@ -188,7 +203,11 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
 const INBOX_QUERY = `
 query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
   viewer { login }
-  yours: search(query: "is:open is:pr author:@me archived:false", type: ISSUE, first: $yours) {
+  yours: search(
+    query: "is:open is:pr author:@me archived:false sort:updated-desc"
+    type: ISSUE
+    first: $yours
+  ) {
     nodes {
       ... on PullRequest {
         ...Row
@@ -197,7 +216,7 @@ query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
     }
   }
   waitingOnYou: search(
-    query: "is:open is:pr review-requested:@me archived:false draft:false"
+    query: "is:open is:pr review-requested:@me archived:false draft:false sort:updated-desc"
     type: ISSUE
     first: $waiting
   ) {
@@ -211,7 +230,7 @@ fragment Row on PullRequest {
   title
   url
   isDraft
-  createdAt
+  updatedAt
   reviewDecision
   repository { id nameWithOwner }
   author { __typename login avatarUrl }

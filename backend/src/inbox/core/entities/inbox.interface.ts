@@ -15,6 +15,8 @@ export enum InboxSectionKey {
   UnresolvedComments = 'unresolved-comments',
   /** Yours: nobody has said anything yet. */
   WaitingForReviewers = 'waiting-for-reviewers',
+  /** Yours: a draft you have touched in the last day. Work in progress, rather than a pile. */
+  RecentDrafts = 'recent-drafts',
   /** Yours: a note to yourself. Asking nothing of anyone. */
   Drafts = 'drafts',
   /** Waiting on you: written by someone you share a GitHub team with. */
@@ -29,6 +31,7 @@ export const YOURS_SECTIONS = [
   InboxSectionKey.Approved,
   InboxSectionKey.UnresolvedComments,
   InboxSectionKey.WaitingForReviewers,
+  InboxSectionKey.RecentDrafts,
   InboxSectionKey.Drafts,
 ] as const;
 

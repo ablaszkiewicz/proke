@@ -34,7 +34,9 @@ describe('Inbox', () => {
     title: 'A change',
     url: 'https://github.com/acme/api/pull/1',
     isDraft: false,
-    createdAt: '2026-01-01T00:00:00Z',
+    // Long enough ago that nothing built on this fixture is accidentally "recent". Anything
+    // testing the recency window says so, in the test, with a timestamp of its own.
+    updatedAt: '2020-01-01T00:00:00Z',
     repository: { id: 'repo-1', nameWithOwner: 'acme/api' },
     author: { __typename: 'User', login: 'bob', avatarUrl: 'https://avatars/bob' },
     ...overrides,
@@ -94,6 +96,71 @@ describe('Inbox', () => {
       expect(section(body, 'yours', 'drafts').pullRequests[0].number).toBe(4);
     });
 
+    it('separates the drafts you are working on from the drafts you have put down', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      const hoursAgo = (hours: number) =>
+        new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      mockInbox({
+        yours: [
+          pullRequest({ number: 1, isDraft: true, updatedAt: hoursAgo(1), reviewThreads: { nodes: [] } }),
+          // The overnight case the window exists for: pushed to yesterday evening, opened again
+          // this morning, and still the thing you are in the middle of.
+          pullRequest({ number: 2, isDraft: true, updatedAt: hoursAgo(20), reviewThreads: { nodes: [] } }),
+          pullRequest({ number: 3, isDraft: true, updatedAt: hoursAgo(30), reviewThreads: { nodes: [] } }),
+          pullRequest({ number: 4, isDraft: true, reviewThreads: { nodes: [] } }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(
+        section(body, 'yours', 'recent-drafts').pullRequests.map((p: any) => p.number),
+      ).toEqual([1, 2]);
+      expect(
+        section(body, 'yours', 'drafts').pullRequests.map((p: any) => p.number),
+      ).toEqual([3, 4]);
+    });
+
+    it('orders every section by when GitHub last saw the pull request move', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        yours: [
+          pullRequest({ number: 1, updatedAt: '2026-03-01T00:00:00Z', reviewThreads: { nodes: [] } }),
+          pullRequest({ number: 2, updatedAt: '2026-05-01T00:00:00Z', reviewThreads: { nodes: [] } }),
+          pullRequest({ number: 3, updatedAt: '2026-04-01T00:00:00Z', reviewThreads: { nodes: [] } }),
+        ],
+        waitingOnYou: [
+          pullRequest({ number: 10, updatedAt: '2026-04-01T00:00:00Z' }),
+          pullRequest({ number: 11, updatedAt: '2026-06-01T00:00:00Z' }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // Newest first, on both halves. What moved last is what is live.
+      expect(
+        section(body, 'yours', 'waiting-for-reviewers').pullRequests.map((p: any) => p.number),
+      ).toEqual([2, 3, 1]);
+      expect(
+        section(body, 'waitingOnYou', 'others').pullRequests.map((p: any) => p.number),
+      ).toEqual([11, 10]);
+    });
+
     it('separates teammates from everyone else and from machines', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
@@ -126,9 +193,11 @@ describe('Inbox', () => {
       expect(section(body, 'waitingOnYou', 'team').pullRequests[0].number).toBe(10);
       expect(section(body, 'waitingOnYou', 'others').pullRequests[0].number).toBe(11);
       // A GitHub App's account, and the `[bot]` suffix that catches the ones it mistypes.
+      // Newest first, and these two share a timestamp - so the tie falls to the newer pull
+      // request, which is what puts 13 above 12.
       expect(
         section(body, 'waitingOnYou', 'bots').pullRequests.map((p: any) => p.number),
-      ).toEqual([12, 13]);
+      ).toEqual([13, 12]);
     });
 
     it('puts everyone human in "everyone else" when teams cannot be read', async () => {
@@ -194,10 +263,11 @@ describe('Inbox', () => {
         .expect(200);
 
       // The default. The review it was asking for has happened, so leaving it in the pile makes
-      // the pile a worse answer to "what is left to do".
+      // the pile a worse answer to "what is left to do". Ordered newest first, and they share a
+      // timestamp here, so the tie falls to the newer pull request.
       expect(
         body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
-      ).toEqual([31, 32]);
+      ).toEqual([32, 31]);
     });
 
     it('keeps approved pull requests when the reader asks for them', async () => {
@@ -221,7 +291,7 @@ describe('Inbox', () => {
 
       expect(
         body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
-      ).toEqual([30, 31]);
+      ).toEqual([31, 30]);
     });
 
     it('never applies the approved filter to your own pull requests', async () => {
@@ -279,6 +349,7 @@ describe('Inbox', () => {
         'approved',
         'unresolved-comments',
         'waiting-for-reviewers',
+        'recent-drafts',
         'drafts',
       ]);
       expect(body.waitingOnYou.map((s: any) => s.key)).toEqual(['team', 'others', 'bots']);

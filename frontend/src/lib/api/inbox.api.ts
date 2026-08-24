@@ -9,6 +9,7 @@ export type InboxSectionKey =
   | "approved"
   | "unresolved-comments"
   | "waiting-for-reviewers"
+  | "recent-drafts"
   | "drafts"
   | "team"
   | "others"
