@@ -2,7 +2,11 @@ import type { InboxFilterKey, InboxFilters } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { INBOX_FILTER_OPTIONS } from "./filters";
+import {
+  INBOX_FILTER_OPTIONS,
+  switchPosition,
+  valueWhenPressed,
+} from "./filters";
 
 /**
  * What the inbox is showing, and the one control on this page that changes it.
@@ -46,7 +50,6 @@ export function InboxSettings({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
-  const labelId = useId();
 
   // Stable, or the effect behind it rebinds its listeners on every render of the page.
   const close = useCallback(() => setOpen(false), []);
@@ -80,7 +83,10 @@ export function InboxSettings({
             ref={panelRef}
             id={panelId}
             role="group"
-            aria-labelledby={labelId}
+            // Named directly rather than by a heading inside it. The heading that used to be
+            // here said "Show", which stopped being true the moment a toggle in the list read
+            // "Hide" - and a panel holding two lines about one list has nothing to title.
+            aria-label="Filters"
             // Barely any travel, and from the corner it came out of. Same curve and roughly the
             // same eighth of a second as a modal opening - see index.css - so the two read as
             // one product rather than two ideas about how things should appear.
@@ -97,27 +103,23 @@ export function InboxSettings({
               "rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
             )}
           >
-            {/*
-              A heading with nothing to say about any single toggle, so it is the smallest thing
-              in here. It exists for the second and third filter, when the list stops being
-              self-evident from one line of text.
-            */}
-            <p
-              id={labelId}
-              className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground"
-            >
-              Show
-            </p>
+            {INBOX_FILTER_OPTIONS.map((option) => {
+              // Where the switch sits, which is not always what the filter says - an option can
+              // be worded the opposite way round from the name that crosses the wire. The two
+              // helpers are the only place that is reconciled; `onChange` is handed the filter's
+              // value, never the switch's.
+              const on = switchPosition(option, filters);
 
-            {INBOX_FILTER_OPTIONS.map((option) => (
-              <FilterItem
-                key={option.key}
-                label={option.label}
-                detail={option.detail}
-                checked={filters[option.key]}
-                onToggle={() => onChange(option.key, !filters[option.key])}
-              />
-            ))}
+              return (
+                <FilterItem
+                  key={option.key}
+                  label={option.label}
+                  detail={option.detail}
+                  checked={on}
+                  onToggle={() => onChange(option.key, valueWhenPressed(option, on))}
+                />
+              );
+            })}
           </motion.div>
         ) : null}
       </AnimatePresence>
