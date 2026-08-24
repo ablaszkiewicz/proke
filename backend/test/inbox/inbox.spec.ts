@@ -174,6 +174,92 @@ describe('Inbox', () => {
       ).toHaveLength(0);
     });
 
+    it('leaves out a pull request somebody has already approved', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 30, reviewDecision: 'APPROVED' }),
+          pullRequest({ number: 31, reviewDecision: 'REVIEW_REQUIRED' }),
+          pullRequest({ number: 32 }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // The default. The review it was asking for has happened, so leaving it in the pile makes
+      // the pile a worse answer to "what is left to do".
+      expect(
+        body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
+      ).toEqual([31, 32]);
+    });
+
+    it('keeps approved pull requests when the reader asks for them', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 30, reviewDecision: 'APPROVED' }),
+          pullRequest({ number: 31 }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ includeApproved: 'true' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(
+        body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
+      ).toEqual([30, 31]);
+    });
+
+    it('never applies the approved filter to your own pull requests', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      // Your own approved pull request is the one with a button left to press. It is the
+      // opposite of finished, and the filter that hides other people's must not reach it.
+      mockInbox({
+        yours: [
+          pullRequest({ number: 40, reviewDecision: 'APPROVED', reviewThreads: { nodes: [] } }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(section(body, 'yours', 'approved').pullRequests[0].number).toBe(40);
+    });
+
+    it('rejects a filter that is not a boolean', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      // Rather than coercing it. A typo reading as "off" would silently hide rows, which is the
+      // one thing a filter must never do by accident.
+      await request(app.getHttpServer())
+        .get('/inbox')
+        .query({ includeApproved: 'yes' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(400);
+    });
+
     it('answers with every section, empty ones included', async () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({
         githubAccessToken: 'gho_token',
@@ -337,6 +423,44 @@ describe('Inbox', () => {
       // Cleared, so the next sweep does not present a dead credential on every pass.
       const stored = await bootstrap.services.userReadService.readByIdOrThrow(user.id);
       expect(stored.githubAccessToken).toBeUndefined();
+    });
+
+    it('is filed under the filters it was built with', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({ waitingOnYou: [pullRequest({ number: 30, reviewDecision: 'APPROVED' })] });
+      mockNoTeams();
+
+      await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ includeApproved: 'true' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(nock.isDone()).toBe(true);
+
+      // A filter removes its rows before they are ever written down, so this snapshot is only an
+      // answer to the question that built it. Served under the default settings it would show a
+      // pull request that reader has asked not to see - so it is not served at all, and the
+      // refresh the client fires alongside the read fills the gap.
+      const { body: unfiltered } = await request(app.getHttpServer())
+        .get('/inbox')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(unfiltered.refreshedAt).toBeUndefined();
+
+      // And the one that was built is still there, untouched by the read that missed.
+      const { body: stored } = await request(app.getHttpServer())
+        .get('/inbox')
+        .query({ includeApproved: 'true' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(stored.refreshedAt).toBeDefined();
+      expect(stored.waitingOnYou.flatMap((s: any) => s.pullRequests)).toHaveLength(1);
     });
 
     it('refuses an unauthenticated caller on both routes', async () => {

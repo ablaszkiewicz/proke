@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { UserReadService } from '../user/read/user-read.service';
 import { UserWriteService } from '../user/write/user-write.service';
+import { InboxFilters } from './core/entities/inbox-filters.interface';
 import { InboxSnapshot } from './core/entities/inbox.interface';
 import {
   GithubInboxDataService,
@@ -30,8 +31,13 @@ export type InboxRefreshResult =
  * is roughly one point of a user's 5,000-an-hour GraphQL budget - a per-user budget, not a
  * per-organisation one - which is what makes a once-a-minute sweep affordable at all.
  *
- * The snapshot it writes lives in this process only. See InboxStoreService for why that is
- * enough, and what it costs.
+ * The snapshot it writes lives in this process only, filed under the filters it was built with.
+ * See InboxStoreService for why both of those are so, and what they cost.
+ *
+ * The filters change what is written, never what is asked for: the same GitHub answer is
+ * classified differently under different settings. Which means the sweep can refresh somebody
+ * under one set of filters for the price of one query and, if it ever needs to, write a second
+ * snapshot under another for free.
  */
 @Injectable()
 export class InboxRefreshService {
@@ -45,7 +51,7 @@ export class InboxRefreshService {
     private readonly inboxStoreService: InboxStoreService,
   ) {}
 
-  public async refresh(userId: string): Promise<InboxRefreshResult> {
+  public async refresh(userId: string, filters: InboxFilters): Promise<InboxRefreshResult> {
     const user = await this.userReadService.readByIdOrThrow(userId);
 
     if (!user.githubAccessToken) {
@@ -83,7 +89,8 @@ export class InboxRefreshService {
     const snapshot: InboxSnapshot = {
       userId,
       refreshedAt: new Date(),
-      ...classify(inbox, teammates),
+      filters,
+      ...classify(inbox, teammates, filters),
     };
 
     this.inboxStoreService.write(snapshot);

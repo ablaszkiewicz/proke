@@ -1,8 +1,13 @@
-import type { InboxSectionData } from "@/lib/api/inbox.api";
+import type {
+  InboxFilterKey,
+  InboxFilters,
+  InboxSectionData,
+} from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InboxSection } from "./InboxSection";
+import { InboxSettings } from "./InboxSettings";
 import { LAYOUT_TRANSITION } from "./motion";
 import { useScrollEdges } from "./useScrollEdges";
 
@@ -56,6 +61,16 @@ export interface InboxPageProps {
   hasAnswer: boolean;
   /** proke holds no usable GitHub authorization. Nothing can be refreshed until they reconnect. */
   githubReauthRequired: boolean;
+  /**
+   * What the reader has chosen to be shown.
+   *
+   * The rows arriving are already filtered - the server builds the snapshot under these, because
+   * every rule behind one needs something a browser cannot see - so this is here to draw the
+   * toggles in their right positions and for nothing else.
+   */
+  filters: InboxFilters;
+  /** Takes effect immediately: a new answer is fetched behind the rows already on screen. */
+  onFilterChange: (key: InboxFilterKey, value: boolean) => void;
 }
 
 /**
@@ -292,6 +307,8 @@ export function InboxPage({
   settled,
   hasAnswer,
   githubReauthRequired,
+  filters,
+  onFilterChange,
 }: InboxPageProps) {
   const animateEntrances = useHasPainted(
     yours.some((section) => section.pullRequests.length > 0) ||
@@ -314,9 +331,20 @@ export function InboxPage({
       >
         <RefreshLine refreshing={refreshing} />
 
-        <header className="mx-auto flex w-full max-w-[100rem] shrink-0 items-baseline gap-4 px-8 pb-2 pt-8">
-          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-          <Status stale={stale} githubReauthRequired={githubReauthRequired} />
+        {/*
+          `items-center` on the header and `items-baseline` on the title group, because the two
+          jobs are different: the status line sits on the title's baseline, and the settings
+          button - which has no baseline worth speaking of - is centred against the whole row.
+        */}
+        <header className="mx-auto flex w-full max-w-[100rem] shrink-0 items-center gap-4 px-8 pb-2 pt-8">
+          <div className="flex min-w-0 items-baseline gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+            <Status stale={stale} githubReauthRequired={githubReauthRequired} />
+          </div>
+
+          <div className="ml-auto">
+            <InboxSettings filters={filters} onChange={onFilterChange} />
+          </div>
         </header>
 
         {/*

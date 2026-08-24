@@ -21,7 +21,13 @@ export interface GithubInboxPullRequest {
   authorAvatarUrl?: string;
   /** GitHub calls a GitHub App's account a Bot. The suffix check is the belt to that brace. */
   authorIsBot: boolean;
-  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or absent where GitHub has no opinion. */
+  /**
+   * APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or absent where GitHub has no opinion.
+   *
+   * Asked for on both halves. On yours it decides the section; on somebody else's it is what the
+   * "already approved" filter reads, and it is GitHub's decision for the pull request rather
+   * than a record of whether you personally reviewed it.
+   */
   reviewDecision?: string;
   /** Whether any review thread is still open. Only asked for on the viewer's own pull requests. */
   hasUnresolvedThreads: boolean;
@@ -164,7 +170,15 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
  *
  * Only the viewer's own half asks for review threads. On somebody else's pull request the state
  * of their threads is not what decides where the row goes, and thirty nodes each would be the
- * most expensive thing in the query for no answer.
+ * most expensive thing in the query for no answer. The review decision is in the shared fragment
+ * instead - it is one scalar, and both halves have a use for it.
+ *
+ * The "already approved" filter is applied after this rather than as a `-review:approved` in the
+ * search, unlike the draft rule below. The reasons are not symmetric: `draft:false` is a
+ * qualifier this query has always used and is known to work, where a search GitHub rejects for
+ * a malformed qualifier loses the entire half - and a filter that is on by default would lose it
+ * for everybody. Thirty rows of budget occasionally spent on pull requests that are then dropped
+ * is the cheaper mistake.
  *
  * `draft:false` on that half too, and only that half. Your own drafts are worth a pile - they
  * are the work you have started and not sent - but somebody else's draft is not waiting on you,
@@ -178,7 +192,6 @@ query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
     nodes {
       ... on PullRequest {
         ...Row
-        reviewDecision
         reviewThreads(first: $threads) { nodes { isResolved } }
       }
     }
@@ -199,6 +212,7 @@ fragment Row on PullRequest {
   url
   isDraft
   createdAt
+  reviewDecision
   repository { id nameWithOwner }
   author { __typename login avatarUrl }
 }

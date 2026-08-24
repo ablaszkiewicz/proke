@@ -2,6 +2,7 @@ import {
   GithubInboxPullRequest,
   GithubInbox,
 } from './github-inbox-data.service';
+import { InboxFilters } from './core/entities/inbox-filters.interface';
 import {
   InboxPullRequest,
   InboxSectionContent,
@@ -121,18 +122,46 @@ function group(
   }));
 }
 
+/**
+ * Whether somebody else's pull request is still worth putting in front of you.
+ *
+ * Two rules, and they are different in kind. The first is not negotiable: a pull request you
+ * opened and were then asked to review - GitHub allows it, and teams with review assignment on
+ * do it - is already sitting under "Yours", and appearing twice would read as two pieces of
+ * work.
+ *
+ * The second is the reader's to make. A pull request whose review decision is already APPROVED
+ * has had the thing it was asking for, so by default it leaves the pile; anyone who wants to see
+ * them anyway says so once in the settings. Only the *waiting on you* half is filtered - your
+ * own approved pull requests are the ones with a button left to press, which is the opposite of
+ * finished.
+ *
+ * Note what APPROVED does not mean: it is GitHub's decision for the pull request, not a record
+ * of whether *you* reviewed it. A pull request approved by a colleague while your review is
+ * still outstanding is exactly the case this filter is for.
+ */
+function isWaitingOnYou(
+  pullRequest: GithubInboxPullRequest,
+  viewerLogin: string,
+  filters: InboxFilters,
+): boolean {
+  if (pullRequest.authorLogin.toLowerCase() === viewerLogin.toLowerCase()) {
+    return false;
+  }
+
+  return filters.includeApproved || pullRequest.reviewDecision !== 'APPROVED';
+}
+
 export function classify(
   inbox: GithubInbox,
   teammates: Set<string> | null,
+  filters: InboxFilters,
 ): { yours: InboxSectionContent[]; waitingOnYou: InboxSectionContent[] } {
   return {
     yours: group(inbox.yours, YOURS_SECTIONS, yoursSection),
-    // A pull request you opened and were then asked to review - GitHub allows it, teams with
-    // review assignment do it - would otherwise appear in both piles. It is already in yours.
     waitingOnYou: group(
-      inbox.waitingOnYou.filter(
-        (pullRequest) =>
-          pullRequest.authorLogin.toLowerCase() !== inbox.viewerLogin.toLowerCase(),
+      inbox.waitingOnYou.filter((pullRequest) =>
+        isWaitingOnYou(pullRequest, inbox.viewerLogin, filters),
       ),
       WAITING_SECTIONS,
       (pullRequest) => waitingSection(pullRequest, teammates),

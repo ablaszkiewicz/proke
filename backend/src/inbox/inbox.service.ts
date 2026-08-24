@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InboxFilters } from './core/entities/inbox-filters.interface';
 import {
   InboxSectionContent,
   InboxSectionKey,
@@ -37,12 +38,12 @@ export class InboxService {
    *
    * No staleness check on purpose: age is the client's to judge, and it has `refreshedAt` to
    * judge it with. An absent `refreshedAt` is the one thing worth reading closely - it means
-   * nothing has been built for this person *in this process*, which covers a first-ever visit
-   * and the first visit after a deploy alike. Either way it is "not known yet" rather than
-   * "nothing to do", and the client says so.
+   * nothing has been built for this person *in this process*, which covers a first-ever visit,
+   * the first visit after a deploy, and the first read after they changed a filter. Either way
+   * it is "not known yet" rather than "nothing to do", and the client says so.
    */
-  public async readForUser(userId: string): Promise<InboxResponse> {
-    const stored = this.inboxStoreService.read(userId);
+  public async readForUser(userId: string, filters: InboxFilters): Promise<InboxResponse> {
+    const stored = this.inboxStoreService.read(userId, filters);
 
     return stored
       ? respond(stored, { stale: false, githubReauthRequired: false })
@@ -50,15 +51,15 @@ export class InboxService {
   }
 
   /** Goes and asks GitHub. The only path in this module that costs a request. */
-  public async refreshForUser(userId: string): Promise<InboxResponse> {
-    const refreshed = await this.inboxRefreshService.refresh(userId);
+  public async refreshForUser(userId: string, filters: InboxFilters): Promise<InboxResponse> {
+    const refreshed = await this.inboxRefreshService.refresh(userId, filters);
 
     if (refreshed.ok) {
       return respond(refreshed.snapshot, { stale: false, githubReauthRequired: false });
     }
 
     const githubReauthRequired = refreshed.reason === 'no-token';
-    const stored = this.inboxStoreService.read(userId);
+    const stored = this.inboxStoreService.read(userId, filters);
 
     // Something the user has seen before beats an empty page, every time. The rows are real -
     // they were true when GitHub last answered - so they go out with `stale` set rather than

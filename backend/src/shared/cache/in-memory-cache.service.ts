@@ -103,6 +103,22 @@ export class InMemoryCacheService implements OnModuleDestroy {
     this.entries.delete(key);
   }
 
+  /**
+   * Every key under a prefix, for the case where one thing is cached under several keys - a
+   * per-user document written once per set of options, say. Deleting only the key you can name
+   * would leave the variants behind to be served afterwards.
+   *
+   * A scan of the whole map, which is fine at MAX_ENTRIES and would not be at a hundred times
+   * it. Nothing calls this on a hot path, and nothing should.
+   */
+  public deleteByPrefix(prefix: string): void {
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(prefix)) {
+        this.entries.delete(key);
+      }
+    }
+  }
+
   /** Including loads in flight. For tests, so one spec cannot prime the next. */
   public clear(): void {
     this.entries.clear();

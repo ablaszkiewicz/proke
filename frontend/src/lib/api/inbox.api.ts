@@ -37,6 +37,38 @@ export interface InboxSectionData {
   pullRequests: InboxPullRequest[];
 }
 
+/**
+ * Every filter, in the order they are drawn, and the shape the server takes them in.
+ *
+ * The names read as what they *include* rather than what they hide, which is the only way a
+ * toggle can be labelled without a double negative under it.
+ *
+ * Adding one is a name here, a default below, and an entry in components/inbox/filters.ts for
+ * the words. The server owns the rule itself - "already approved" needs GitHub's review
+ * decision, which no browser can see - so nothing about the filtering happens in this file.
+ */
+export const INBOX_FILTER_KEYS = ["includeApproved"] as const;
+
+export type InboxFilterKey = (typeof INBOX_FILTER_KEYS)[number];
+
+export type InboxFilters = { [Key in InboxFilterKey]: boolean };
+
+/**
+ * What somebody who has never opened the settings gets. Kept in step with the server's own
+ * defaults, though nothing breaks if they drift: every request sends every filter explicitly.
+ */
+export const DEFAULT_INBOX_FILTERS: InboxFilters = {
+  includeApproved: false,
+};
+
+/**
+ * Sent in full on every request rather than only where they differ from the default, so what
+ * the page is showing is never a matter of what the two sides happen to agree the default is.
+ */
+function filterParams(filters: InboxFilters): Record<string, boolean> {
+  return Object.fromEntries(INBOX_FILTER_KEYS.map((key) => [key, filters[key]]));
+}
+
 export interface InboxResult {
   /** ISO 8601. Absent only when GitHub has never answered for this user. */
   refreshedAt?: string;
@@ -55,17 +87,30 @@ export interface InboxResult {
   waitingOnYou: InboxSectionData[];
 }
 
-function authHeaders(jwtToken: string) {
-  return { headers: { Authorization: `Bearer ${jwtToken}` } };
+function authRequest(jwtToken: string, filters: InboxFilters) {
+  return {
+    headers: { Authorization: `Bearer ${jwtToken}` },
+    params: filterParams(filters),
+  };
 }
 
 export class InboxApi {
   /**
-   * The stored snapshot. One database lookup on the server - it never calls GitHub, at any age,
+   * The stored snapshot. One cache lookup on the server - it never calls GitHub, at any age,
    * so this is what the page paints from.
+   *
+   * The filters go on this one too, and not as decoration: a snapshot is built under one set of
+   * them, so asking with different settings is a miss rather than a differently-filtered answer.
+   * Which is exactly right - the refresh chained behind this fills it in.
    */
-  public static async read(jwtToken: string): Promise<InboxResult> {
-    const response = await axios.get<InboxResult>("/inbox", authHeaders(jwtToken));
+  public static async read(
+    jwtToken: string,
+    filters: InboxFilters
+  ): Promise<InboxResult> {
+    const response = await axios.get<InboxResult>(
+      "/inbox",
+      authRequest(jwtToken, filters)
+    );
 
     return response.data;
   }
@@ -74,11 +119,14 @@ export class InboxApi {
    * Asks GitHub and answers with what it said. Slow by nature - a round trip to another API -
    * which is why it runs behind rows that are already on screen rather than in front of them.
    */
-  public static async refresh(jwtToken: string): Promise<InboxResult> {
+  public static async refresh(
+    jwtToken: string,
+    filters: InboxFilters
+  ): Promise<InboxResult> {
     const response = await axios.post<InboxResult>(
       "/inbox/refresh",
       {},
-      authHeaders(jwtToken)
+      authRequest(jwtToken, filters)
     );
 
     return response.data;

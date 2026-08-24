@@ -12,8 +12,9 @@ import { InboxPage } from "./InboxPage";
  * inboxLogic.
  */
 export function Inbox() {
-  const { result, settled, refreshing, hasAnswer } = useValues(inboxLogic);
-  const { loadInbox } = useActions(inboxLogic);
+  const { result, settled, refreshing, hasAnswer, filters } =
+    useValues(inboxLogic);
+  const { loadInbox, setFilter } = useActions(inboxLogic);
 
   useEffect(() => {
     loadInbox();
@@ -28,6 +29,10 @@ export function Inbox() {
       settled={settled}
       hasAnswer={hasAnswer}
       githubReauthRequired={result.githubReauthRequired}
+      filters={filters}
+      // Nothing is fetched here either: the logic chains the refresh off the change, for the
+      // same reason it chains it off the read.
+      onFilterChange={setFilter}
     />
   );
 }

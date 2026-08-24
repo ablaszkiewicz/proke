@@ -1,3 +1,5 @@
+import { InboxFilters } from './inbox-filters.interface';
+
 /**
  * Which pile a pull request landed in, and in what order the piles are read.
  *
@@ -76,6 +78,14 @@ export interface InboxSectionContent {
 export interface InboxSnapshot {
   userId: string;
   refreshedAt: Date;
+  /**
+   * The settings this was built under, carried rather than inferred.
+   *
+   * A filter removes its rows before they are ever written down, so a snapshot is only an answer
+   * to the question that produced it. Keeping the filters on it is what lets the store file it
+   * where it will be found again - see InboxStoreService.
+   */
+  filters: InboxFilters;
   yours: InboxSectionContent[];
   waitingOnYou: InboxSectionContent[];
 }

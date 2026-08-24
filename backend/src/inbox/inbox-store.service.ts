@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MetricsService } from '../analytics/metrics.service';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
+import { InboxFilters, inboxFiltersKey } from './core/entities/inbox-filters.interface';
 import { InboxSnapshot } from './core/entities/inbox.interface';
 
 /**
@@ -25,7 +26,20 @@ const SNAPSHOT_TTL_MS = 30 * 60_000;
  * source of truth is somewhere else entirely, and cost a collection, two services, an index and
  * a TTL sweep to maintain it.
  *
- * ## What that costs, honestly
+ * ## Why the filters are in the key
+ *
+ * Because a snapshot is *built* under one set of filters rather than served through them: the
+ * rows a filter removes are not in the stored document at all. Two people reading the same
+ * account with different settings hold two genuinely different answers, so one key would hand
+ * whoever asked second the other's inbox. Keyed this way a change of setting is an ordinary
+ * miss, filled by the refresh the client fires at the same moment.
+ *
+ * The cost of that is one cached document per combination somebody actually uses, which is why
+ * filters are booleans a person sets once rather than anything free-form: a filter with an open
+ * set of values would multiply this cache by its cardinality, and should be applied when the
+ * snapshot is served instead.
+ *
+ * ## What it all costs, honestly
  *
  * A restart drops every snapshot, so the first person to load the page after a deploy sees an
  * empty column for about a second while their refresh lands, rather than a stale one instantly.
@@ -45,12 +59,16 @@ export class InboxStoreService {
     private readonly metrics: MetricsService,
   ) {}
 
-  public read(userId: string): InboxSnapshot | null {
-    const snapshot = this.cache.get<InboxSnapshot>(key(userId)) ?? null;
+  public read(userId: string, filters: InboxFilters): InboxSnapshot | null {
+    const snapshot = this.cache.get<InboxSnapshot>(key(userId, filters)) ?? null;
 
     // The closest thing there is to a measure of how often this page paints instantly. A miss is
     // a person watching an empty column until GitHub answers, and if that stops being rare it is
     // either the sweep having stopped or the process restarting more than anybody thinks.
+    //
+    // Undimensioned by filters on purpose. What this is watching for is the snapshot mechanism
+    // failing, and splitting the series by setting would only make each one smaller and every
+    // one of them harder to read.
     this.metrics.count('proke.cache.lookups', {
       namespace: 'inbox-snapshot',
       result: snapshot ? 'hit' : 'miss',
@@ -59,20 +77,31 @@ export class InboxStoreService {
     return snapshot;
   }
 
+  /** Filed under the filters it was built with, which the snapshot carries for exactly this. */
   public write(snapshot: InboxSnapshot): void {
-    this.cache.set(key(snapshot.userId), snapshot, SNAPSHOT_TTL_MS);
+    this.cache.set(key(snapshot.userId, snapshot.filters), snapshot, SNAPSHOT_TTL_MS);
   }
 
-  /** For a user being deleted, and for anything else that should not answer from a stale build. */
+  /**
+   * For a user being deleted, and for anything else that should not answer from a stale build.
+   *
+   * By prefix rather than by key: one person has as many snapshots as they have combinations of
+   * settings, and forgetting only the default one would leave the rest to be served afterwards.
+   */
   public forget(userId: string): void {
-    this.cache.delete(key(userId));
+    this.cache.deleteByPrefix(prefix(userId));
   }
 }
 
 /**
  * Namespaced `github:` like every other key in this cache, because that is what it is a copy of.
- * The middle segment is what the cache metric labels on, so it has to stay in CACHE_NAMESPACES.
+ * The middle segment is what the cache metric labels on, so it has to stay in CACHE_NAMESPACES -
+ * and anything appended after the user id leaves that segment alone.
  */
-function key(userId: string): string {
-  return `github:inbox-snapshot:${userId}`;
+function prefix(userId: string): string {
+  return `github:inbox-snapshot:${userId}:`;
+}
+
+function key(userId: string, filters: InboxFilters): string {
+  return `${prefix(userId)}${inboxFiltersKey(filters)}`;
 }
