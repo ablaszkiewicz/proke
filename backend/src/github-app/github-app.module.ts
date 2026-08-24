@@ -6,6 +6,7 @@ import { GithubAppTokenService } from './github-app-token.service';
 import { GithubCommentAuthorDataService } from './github-comment-author-data.service';
 import { GithubPullRequestDataService } from './github-pull-request-data.service';
 import { GithubTeamMembersDataService } from './github-team-members-data.service';
+import { GithubThreadParticipantsDataService } from './github-thread-participants-data.service';
 
 @Module({
   imports: [InMemoryCacheModule],
@@ -16,6 +17,7 @@ import { GithubTeamMembersDataService } from './github-team-members-data.service
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
     GithubCommentAuthorDataService,
+    GithubThreadParticipantsDataService,
   ],
   exports: [
     GithubAppJwtService,
@@ -24,6 +26,7 @@ import { GithubTeamMembersDataService } from './github-team-members-data.service
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
     GithubCommentAuthorDataService,
+    GithubThreadParticipantsDataService,
   ],
 })
 export class GithubAppModule {}

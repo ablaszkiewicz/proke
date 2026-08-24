@@ -7,6 +7,7 @@ import {
   GithubTeamMember,
   GithubTeamMembersDataService,
 } from '../../github-app/github-team-members-data.service';
+import { GithubThreadParticipantsDataService } from '../../github-app/github-thread-participants-data.service';
 import {
   GithubDiffStat,
   GithubNotificationNormalized,
@@ -38,8 +39,9 @@ interface PokeRecipient {
   githubLogin?: string;
   team?: MentionedTeam;
   /**
-   * Whoever wrote this comment - a reply names its parent by id and nothing else, so the person
-   * is a question for GitHub rather than something the payload already answered.
+   * Whoever is in the thread this comment opened - a reply names it by id and nothing else, so
+   * the people are a question for GitHub and for what we watched happen, rather than something
+   * the payload already answered. Resolves to one poke each.
    */
   replyToCommentId?: string;
 }
@@ -114,6 +116,7 @@ export class GithubWebhookRouterService {
     private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
     private readonly pullRequestDataService: GithubPullRequestDataService,
     private readonly commentAuthorDataService: GithubCommentAuthorDataService,
+    private readonly threadParticipantsDataService: GithubThreadParticipantsDataService,
     private readonly pokeResolutionService: PokeResolutionService,
     private readonly metrics: MetricsService,
   ) {}
@@ -134,12 +137,13 @@ export class GithubWebhookRouterService {
   }
 
   /**
-   * Files away who wrote this comment, so a reply to it later need not ask GitHub.
+   * Files away who wrote this comment and who it puts in the thread, so a reply to either later
+   * need not ask GitHub.
    *
    * Only review comments: they are the only kind GitHub threads, and so the only kind anything
    * can be a reply *to*. Conversation comments are flat and carry no parent at all.
    */
-  private rememberCommentAuthor(event: string, payload: any): void {
+  private rememberComment(event: string, payload: any): void {
     if (event !== 'pull_request_review_comment' || payload?.action !== 'created') {
       return;
     }
@@ -150,25 +154,52 @@ export class GithubWebhookRouterService {
       return;
     }
 
+    const author = payload?.comment?.user;
+
     this.commentAuthorDataService.remember(
       owner,
       name,
       identifier(payload?.comment?.id),
-      identifier(payload?.comment?.user?.id),
+      identifier(author?.id),
     );
+
+    // Only a reply puts somebody in somebody else's thread. A comment that opens one is its
+    // author's alone, and that is the author cache's answer rather than this one's.
+    //
+    // Bots are left out where they are only remembered here, unlike above: a bot in the set is a
+    // recipient that costs a lookup on every later reply and is dropped at the end of it every
+    // time. Their comments still open threads and still get answered - what a bot cannot be is
+    // the reason somebody else gets poked.
+    if (!isBot(author)) {
+      this.threadParticipantsDataService.remember(
+        owner,
+        name,
+        identifier(payload?.comment?.in_reply_to_id),
+        identifier(author?.id),
+      );
+    }
   }
 
   /**
-   * Turns "whoever wrote comment 4" into a person.
+   * Turns "whoever is in the thread under comment 4" into people.
    *
-   * A parent we cannot resolve pokes nobody - a deleted comment, a revoked token, a thread from
-   * before this app was installed. The reply still reaches the pull request author and anybody
-   * it named, because those candidates were resolved from the payload and never needed this.
+   * Two answers, from two places, because GitHub only names one of them. Every reply points at
+   * the comment that opened the thread, so its author is exact and comes back by id; everybody
+   * else who has been talking in that thread is not in the payload at all and comes out of what
+   * we watched happen. They are separated for the reader, not for the router - the person who
+   * opened the thread is told somebody replied *to them*, and the rest are told the conversation
+   * they are in moved on.
+   *
+   * A thread we can resolve nobody in pokes nobody - a deleted parent, a revoked token, a thread
+   * from before this app was installed. The reply still reaches the pull request author and
+   * anybody it named, because those candidates were resolved from the payload and never needed
+   * this.
    */
   private async resolveReplyTargets(
     pokes: Poke[],
     installationId: string,
     repository: any,
+    senderGithubId: string,
   ): Promise<Poke[]> {
     if (!pokes.some((poke) => poke.recipient.replyToCommentId)) {
       return pokes;
@@ -190,20 +221,39 @@ export class GithubWebhookRouterService {
         continue;
       }
 
-      const githubId = await this.commentAuthorDataService.readAuthor(
+      const starterGithubId = await this.commentAuthorDataService.readAuthor(
         installationId,
         owner,
         name,
         commentId,
       );
 
-      if (!githubId) {
+      // Whoever else has spoken in the thread, minus the two people who must not be in it: the
+      // person who opened it, who is being poked more precisely a line below, and the person
+      // writing this very reply, who was added to the set moments ago by `rememberComment`. The
+      // sender would be dropped downstream either way - but as a candidate rather than as a
+      // non-event, and every reply in a thread you are in would spend a lookup saying so.
+      const others = new Set(this.threadParticipantsDataService.read(owner, name, commentId));
+
+      others.delete(senderGithubId);
+
+      if (starterGithubId) {
+        others.delete(starterGithubId);
+
+        resolved.push({
+          recipient: { githubId: starterGithubId },
+          notification: { ...poke.notification, threadStarter: true },
+        });
+      } else {
+        // Counted even where the rest of the thread carries the poke on: whoever the reply was
+        // aimed at is the one that was lost, and that is what this number is about.
         this.dropped('reply_unresolved');
         this.logger.debug(`Could not resolve the author of comment ${commentId}`);
-        continue;
       }
 
-      resolved.push({ recipient: { githubId }, notification: poke.notification });
+      for (const githubId of others) {
+        resolved.push({ recipient: { githubId }, notification: poke.notification });
+      }
     }
 
     return resolved;
@@ -248,7 +298,7 @@ export class GithubWebhookRouterService {
     // Before everything, including the early returns. This event may poke nobody and still be
     // the only time we are told who wrote this comment - the reply that makes it matter can
     // arrive hours later, and asking GitHub then costs a call this line just saved.
-    this.rememberCommentAuthor(event, payload);
+    this.rememberComment(event, payload);
     await this.editOutstandingPokes(event, payload);
 
     const candidates = this.suppressBotChatter(
@@ -280,11 +330,18 @@ export class GithubWebhookRouterService {
       payload?.organization?.login,
     );
 
+    const senderGithubId = String(payload?.sender?.id ?? '');
+
     // Same position and for the same reason: this decides *who* a reply is for, so unlike the
     // diff and the access check it cannot wait until after preferences. It is the one lookup in
     // this method that is not merely presentation, and the write-through above means it usually
     // resolves out of the cache without a call.
-    const addressed = await this.resolveReplyTargets(expanded, installationId, payload?.repository);
+    const addressed = await this.resolveReplyTargets(
+      expanded,
+      installationId,
+      payload?.repository,
+      senderGithubId,
+    );
     const pokes = withoutAuthorReviewRequests(addressed, payload?.pull_request);
 
     // Counted from the difference rather than inside the filter, which is a module-level
@@ -299,7 +356,6 @@ export class GithubWebhookRouterService {
       payload?.repository?.id === undefined || payload?.repository?.id === null
         ? undefined
         : String(payload.repository.id);
-    const senderGithubId = String(payload?.sender?.id ?? '');
 
     for (const { user, notifications } of (await this.groupByUser(pokes)).values()) {
       // Nobody wants to be told about their own action - including mentioning themselves.

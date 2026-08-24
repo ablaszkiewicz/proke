@@ -1688,6 +1688,22 @@ describe('Webhooks (github)', () => {
       return user;
     };
 
+    /** A second voice in the thread - neither the pull request's author nor whoever opened it. */
+    const setupParticipant = async () => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '6666',
+        githubLogin: 'participant',
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    /** Lets whatever is in flight land and be flushed, so the next send starts from nothing. */
+    const settle = async () => {
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await bootstrap.services.reviewBatchService.flushAll();
+    };
+
     const onlyNotification = async () => {
       await waitFor(() => deliverSpy.mock.calls.length > 0);
       await bootstrap.services.reviewBatchService.flushAll();
@@ -1786,6 +1802,105 @@ describe('Webhooks (github)', () => {
 
       // then
       await expectNoPoke();
+    });
+
+    it('pokes everybody in the thread, not only whoever started it', async () => {
+      // given - the gap this closes. GitHub points every reply at the comment that *opened* the
+      // thread, so routing from the payload alone reaches one person and leaves everybody who
+      // has been answering in it to find out on their own.
+      await setupReviewer();
+      await setupParticipant();
+      mockDiff();
+
+      // when - our reviewer opens a thread and our participant answers in it
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({ id: 10, senderGithubId: 5555, senderLogin: 'ablaszkiewicz' }),
+      );
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 20,
+          inReplyTo: 10,
+          senderGithubId: 6666,
+          senderLogin: 'participant',
+        }),
+      );
+      await settle();
+      deliverSpy.mockClear();
+
+      // ... and then a third person answers the same thread
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 30, inReplyTo: 10 }));
+
+      // then - both of them hear about it, and only the one who opened the thread is told they
+      // were replied *to*
+      await waitFor(() => deliverSpy.mock.calls.length === 2);
+      await bootstrap.services.reviewBatchService.flushAll();
+
+      const byGithubId = new Map(deliverSpy.mock.calls.map((call) => [call[0].githubId, call[1]]));
+      expect(byGithubId.get('5555')).toMatchObject({
+        type: NotificationType.CommentReply,
+        threadStarter: true,
+      });
+      expect(byGithubId.get('6666')).toMatchObject({ type: NotificationType.CommentReply });
+      expect(byGithubId.get('6666').threadStarter).toBeUndefined();
+    });
+
+    it('does not poke you for a reply you wrote in a thread you were already in', async () => {
+      // given - the participant set holds whoever wrote this very reply, since it is written to
+      // before the event is routed. Left alone they would be their own audience.
+      await setupParticipant();
+      mockDiff();
+      mockCommentAuthor(10, 4242);
+
+      // when - our participant answers twice in somebody else's thread
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 20,
+          inReplyTo: 10,
+          senderGithubId: 6666,
+          senderLogin: 'participant',
+        }),
+      );
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 30,
+          inReplyTo: 10,
+          senderGithubId: 6666,
+          senderLogin: 'participant',
+        }),
+      );
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('still reaches the thread when its opening comment is gone', async () => {
+      // given - a thread whose first comment was deleted. Who was replied to is now unknowable,
+      // but the conversation under it is not, and it is still going.
+      await setupParticipant();
+      mockDiff();
+      mockCommentAuthor(10, null);
+
+      // when - our participant answers, and afterwards somebody else does
+      await send(
+        'pull_request_review_comment',
+        reviewCommentPayload({
+          id: 20,
+          inReplyTo: 10,
+          senderGithubId: 6666,
+          senderLogin: 'participant',
+        }),
+      );
+      await send('pull_request_review_comment', reviewCommentPayload({ id: 30, inReplyTo: 10 }));
+
+      // then - worded as the thread moving on rather than as an answer to them, which is all
+      // that can honestly be said once the comment they would have been answering is gone
+      const notification = await onlyNotification();
+      expect(notification).toMatchObject({ type: NotificationType.CommentReply });
+      expect(notification.threadStarter).toBeUndefined();
     });
 
     it('says replied rather than commented when it is both', async () => {

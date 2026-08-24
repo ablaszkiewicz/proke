@@ -183,6 +183,29 @@ describe('Slack delivery', () => {
       expect(lead(posts)).not.toContain('❌');
     });
 
+    it('tells the person replied to apart from the rest of the thread', async () => {
+      // given - one reply reaches two kinds of person, and only one of them was answered.
+      // GitHub points every reply at the comment that opened the thread, so "replied to you" is
+      // true for exactly one reader and a small lie for everybody else in it.
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+
+      // when
+      await delivery().deliver(
+        user,
+        notification({ type: NotificationType.CommentReply, threadStarter: true }),
+      );
+      await delivery().deliver(user, notification({ type: NotificationType.CommentReply }));
+
+      // then - "also" is what carries the second one: it only parses for somebody already in the
+      // conversation, which is the only person who receives it.
+      expect(lead(posts)).toContain('<https://github.com/ada|@ada> replied to you on *<');
+      expect(posts[1].blocks[0].text.text).toContain(
+        '<https://github.com/ada|@ada> also replied on *<',
+      );
+      expect(posts[1].blocks[0].text.text).not.toContain('replied to you');
+    });
+
     it('words an issue mention exactly like a pull request one', async () => {
       // given - being mentioned is being mentioned; the link says which it was
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });

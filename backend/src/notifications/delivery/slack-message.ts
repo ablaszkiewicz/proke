@@ -68,7 +68,17 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
   [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
   // "replied to you", not "replied to your comment": the link goes straight to the reply, and
   // which of your comments it was is one click away rather than something to word around.
-  [NotificationType.CommentReply]: () => ({ verb: 'replied to you', preposition: 'on' }),
+  //
+  // "also replied" for everybody else in the thread, who was not replied *to* - GitHub points
+  // every reply at the comment that opened the thread, so only one person in it was. The "also"
+  // is the whole clause: it only parses for somebody already in the conversation, which is
+  // exactly who receives this one. Longer wordings that name the thread outright read as
+  // "replied in a thread you're in on Wire up webhooks #9" once the link follows the
+  // preposition, and the collision is worse than the brevity.
+  [NotificationType.CommentReply]: (notification) =>
+    notification.threadStarter
+      ? { verb: 'replied to you', preposition: 'on' }
+      : { verb: 'also replied', preposition: 'on' },
   [NotificationType.PullRequestMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
   [NotificationType.IssueMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
   // Says the team: "mentioned you" would be a small lie, and why you got this is the one thing

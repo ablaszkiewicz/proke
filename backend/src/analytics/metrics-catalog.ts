@@ -165,6 +165,7 @@ export const CACHE_NAMESPACES = [
   'installation-token',
   'repo-access',
   'comment-author',
+  'thread-participants',
   'team-members',
   'pr-diff',
   'teammates',

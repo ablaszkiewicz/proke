@@ -91,6 +91,15 @@ export interface GithubNotificationNormalized {
    */
   commentId?: string;
   /**
+   * Whether the person being poked is the one who opened the thread, on a reply only.
+   *
+   * The type says somebody answered in a thread you are in; this says whether the comment they
+   * answered was yours. That is the difference between "replied to you" and "also replied", and
+   * the only thing separating the two kinds of person a reply reaches - so it is set per
+   * recipient rather than per event, and one reply goes out carrying both values.
+   */
+  threadStarter?: boolean;
+  /**
    * What the rest of the review held, set only where a poke stands for more than one event.
    * Absent means this poke is about exactly one thing, which is every poke that was never
    * batched with anything.
