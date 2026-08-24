@@ -256,25 +256,38 @@ function Setting({
   }
 }
 
+/** The same breakpoint the two columns appear at, which is not a coincidence: squishing is worth
+ *  doing exactly when there are two columns to squish. */
+const WIDE = "(min-width: 80rem)";
+
 /**
  * Whether there is width to take, which is the whole difference between the drawer's two
  * behaviours.
  *
  * A media query rather than a resize listener with a comparison in it: the browser already knows
- * when this changes and will say so, and `xl` is the same breakpoint the two columns appear at -
- * which is not a coincidence. Squishing is worth doing exactly when there are two columns to
- * squish.
+ * when this changes and will say so.
  *
- * Starts false on the server and on the first render, so a page rendered before the query can be
- * asked draws the drawer shut and off to the side rather than as a zero-width column. Both are
- * invisible; only one of them cannot be wrong.
+ * ## Why it is read during the first render rather than in the effect
+ *
+ * Because it used to be read in the effect, and the page slid sideways every time anybody opened
+ * it. The first render believed it was the narrow kind, so the drawer was drawn as an overlay
+ * 344 pixels wide; the effect then corrected it to the in-flow kind at zero width, and motion
+ * did what it is for and animated the difference. What that looks like is the whole inbox
+ * starting a quarter-page to the left and sliding right into place - an entrance nobody asked
+ * for, on a page whose entire argument is that nothing may delay somebody seeing their data.
+ *
+ * Read here, the first paint already knows, `initial={false}` has nothing to animate from, and
+ * the drawer is simply shut. A real change of breakpoint still animates, which is correct: that
+ * one is a thing that happened rather than a thing we had not got round to asking.
  */
 function useSquishes(): boolean {
-  const [squishes, setSquishes] = useState(false);
+  const [squishes, setSquishes] = useState(matchesWide);
 
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 80rem)");
+    const query = window.matchMedia(WIDE);
 
+    // In case the window changed between that first render and this. Same value is a no-op, so
+    // the common path costs nothing and does not re-render.
     setSquishes(query.matches);
 
     const onChange = (event: MediaQueryListEvent) => setSquishes(event.matches);
@@ -285,6 +298,11 @@ function useSquishes(): boolean {
   }, []);
 
   return squishes;
+}
+
+/** False where there is no window to ask, which is a render outside a browser and nothing else. */
+function matchesWide(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(WIDE).matches;
 }
 
 /**
