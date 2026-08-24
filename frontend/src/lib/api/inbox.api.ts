@@ -61,26 +61,87 @@ export const RECENT_DRAFTS_VALUES: readonly RecentDrafts[] = [
 ];
 
 /**
- * Every filter, in the order they are drawn, and the shape the server takes them in.
+ * One of the viewer's GitHub teams, as the server established it.
  *
- * The names read as what they *include* rather than what they hide, which is the only way a
- * toggle can be labelled without a double negative under it.
- *
- * Adding one is a field here, a default below, an entry in components/inbox/filters.ts for the
- * words, and a line in components/inbox/search.ts for the address bar. The server owns the rule
- * itself - "already approved" needs GitHub's review decision, and "touched in the last six
- * hours" needs GitHub's `updatedAt`, neither of which a browser can see - so nothing about the
- * filtering happens in this file.
+ * Arrives on the inbox itself rather than from a request of its own: the server works these out
+ * to do the grouping anyway, so carrying them costs nothing and the settings can list them
+ * without a second round trip. Absent until GitHub has answered - see `InboxResult.teams`.
  */
-export interface InboxFilters {
+export interface InboxTeam {
+  /** `org/slug`, lowercased. What `excludedTeams` names, and the render key. */
+  key: string;
+  org: string;
+  slug: string;
+  /** GitHub's display name for the team, which is not its slug. */
+  name: string;
+}
+
+/**
+ * Every filter, in two kinds, and the shape the server takes them in.
+ *
+ * ## Why they are in two kinds
+ *
+ * A **build** filter is about the pull request - its review decision, when it last moved. The
+ * server bakes those into the snapshot it stores, so changing one means a new answer from
+ * GitHub.
+ *
+ * A **view** filter is about its author - machine, teammate, someone you never want to see. The
+ * server applies those to a stored snapshot on the way out, so changing one is answered from
+ * what it already has, in a millisecond and with no trip to GitHub.
+ *
+ * The client cares because those are two different things to do about a switch being pressed:
+ * one is a refresh and one is a re-read. See inboxLogic. It is the only reason this distinction
+ * is on this side at all - the server would be perfectly correct if the client refreshed for
+ * everything, just slower for four of the six.
+ *
+ * ## The names
+ *
+ * They read as what they *include* rather than what they hide, which is the only way a toggle
+ * can be labelled without a double negative under it. `excludedTeams` and `ignoredAuthors` are
+ * the exception: their default is everything, so a list of what to keep would silently drop the
+ * team you join next month.
+ *
+ * Adding one is a field in the right interface here, a default below, an entry in
+ * components/inbox/filters.ts for the words, and a line in components/inbox/search.ts for the
+ * address bar. The server owns every rule itself - each needs something no browser can see - so
+ * nothing about the filtering happens in this file.
+ */
+export interface InboxBuildFilters {
   includeApproved: boolean;
   recentDrafts: RecentDrafts;
 }
+
+export interface InboxViewFilters {
+  separateTeam: boolean;
+  separateBots: boolean;
+  /** `org/slug` keys of your teams that should not count as yours. */
+  excludedTeams: string[];
+  /** Logins whose pull requests never reach you, lowercased. */
+  ignoredAuthors: string[];
+}
+
+export type InboxFilters = InboxBuildFilters & InboxViewFilters;
 
 export type InboxFilterKey = keyof InboxFilters;
 
 /** Typed as a window rather than as a `RecentDrafts`, so the default can never be `off`. */
 export const DEFAULT_RECENT_DRAFT_WINDOW: RecentDraftWindow = "1d";
+
+export const DEFAULT_BUILD_FILTERS: InboxBuildFilters = {
+  includeApproved: false,
+  recentDrafts: DEFAULT_RECENT_DRAFT_WINDOW,
+};
+
+/**
+ * Both headings on, and nothing removed. Every default here is the one that shows the most and
+ * assumes the least; the opposite would be an inbox quietly missing rows on a guess.
+ */
+export const DEFAULT_VIEW_FILTERS: InboxViewFilters = {
+  separateTeam: true,
+  separateBots: true,
+  excludedTeams: [],
+  ignoredAuthors: [],
+};
 
 /**
  * What somebody who has never touched the settings gets. Kept in step with the server's own
@@ -91,11 +152,15 @@ export const DEFAULT_RECENT_DRAFT_WINDOW: RecentDraftWindow = "1d";
  * and nothing more.
  */
 export const DEFAULT_INBOX_FILTERS: InboxFilters = {
-  includeApproved: false,
-  recentDrafts: DEFAULT_RECENT_DRAFT_WINDOW,
+  ...DEFAULT_BUILD_FILTERS,
+  ...DEFAULT_VIEW_FILTERS,
 };
 
-/** Every filter's name, taken from the defaults so there is no second list to forget one in. */
+/** Each filter's name, taken from the defaults so there is no second list to forget one in. */
+export const INBOX_BUILD_FILTER_KEYS = Object.keys(
+  DEFAULT_BUILD_FILTERS
+) as (keyof InboxBuildFilters)[];
+
 export const INBOX_FILTER_KEYS = Object.keys(
   DEFAULT_INBOX_FILTERS
 ) as InboxFilterKey[];
@@ -114,15 +179,33 @@ export type InboxFilterChange = <Key extends InboxFilterKey>(
 
 /** Whether two sets of choices ask for the same thing. */
 export function sameInboxFilters(a: InboxFilters, b: InboxFilters): boolean {
-  return INBOX_FILTER_KEYS.every((key) => a[key] === b[key]);
+  return INBOX_FILTER_KEYS.every((key) => {
+    const left = a[key];
+    const right = b[key];
+
+    return Array.isArray(left) && Array.isArray(right)
+      ? left.length === right.length && left.every((value, i) => value === right[i])
+      : left === right;
+  });
 }
 
 /**
  * Sent in full on every request rather than only where they differ from the default, so what
  * the page is showing is never a matter of what the two sides happen to agree the default is.
+ *
+ * Lists go comma-separated rather than as axios's repeated `key[]=` form, which is what the
+ * server reads and what keeps them legible in the address bar beside it. An empty list sends an
+ * empty string, which the server takes as "nobody" - the distinction matters, because "always
+ * send everything" is the whole point of this function.
  */
 function filterParams(filters: InboxFilters): Record<string, string | boolean> {
-  return Object.fromEntries(INBOX_FILTER_KEYS.map((key) => [key, filters[key]]));
+  return Object.fromEntries(
+    INBOX_FILTER_KEYS.map((key) => {
+      const value = filters[key];
+
+      return [key, Array.isArray(value) ? value.join(",") : value];
+    })
+  );
 }
 
 export interface InboxResult {
@@ -139,6 +222,14 @@ export interface InboxResult {
    * the user out of a working account.
    */
   githubReauthRequired: boolean;
+  /**
+   * The teams the "your team" grouping is built from, for the settings to list.
+   *
+   * Three states rather than two. Absent is "not established" - GitHub has not answered yet, or
+   * would not say, which is a missing permission as often as an outage. An empty array is "you
+   * are in none". They look identical and mean opposite things to whoever is reading the panel.
+   */
+  teams?: InboxTeam[];
   yours: InboxSectionData[];
   waitingOnYou: InboxSectionData[];
 }

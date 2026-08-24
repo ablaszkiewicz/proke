@@ -2,6 +2,7 @@ import type {
   InboxFilterChange,
   InboxFilters,
   InboxSectionData,
+  InboxTeam,
 } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
@@ -69,6 +70,14 @@ export interface InboxPageProps {
    * toggles in their right positions and for nothing else.
    */
   filters: InboxFilters;
+  /**
+   * The teams the "your team" heading is built from, for the settings to list.
+   *
+   * Comes down with the rows rather than from a request of its own - the server works them out
+   * to do the grouping anyway. Undefined until GitHub has answered, which the panel says rather
+   * than drawing as an empty list.
+   */
+  teams?: InboxTeam[];
   /**
    * Takes effect immediately: the address bar is rewritten, and a new answer is fetched behind
    * the rows already on screen.
@@ -311,6 +320,7 @@ export function InboxPage({
   hasAnswer,
   githubReauthRequired,
   filters,
+  teams,
   onFilterChange,
 }: InboxPageProps) {
   const animateEntrances = useHasPainted(
@@ -346,7 +356,12 @@ export function InboxPage({
           </div>
 
           <div className="ml-auto">
-            <InboxSettings filters={filters} onChange={onFilterChange} />
+            <InboxSettings
+              filters={filters}
+              teams={teams}
+              teamsAsked={hasAnswer}
+              onChange={onFilterChange}
+            />
           </div>
         </header>
 

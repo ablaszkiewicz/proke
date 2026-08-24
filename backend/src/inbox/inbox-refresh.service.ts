@@ -1,13 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { UserReadService } from '../user/read/user-read.service';
 import { UserWriteService } from '../user/write/user-write.service';
-import { InboxFilters } from './core/entities/inbox-filters.interface';
+import { InboxBuildFilters } from './core/entities/inbox-filters.interface';
 import { InboxSnapshot } from './core/entities/inbox.interface';
 import {
   GithubInboxDataService,
   GithubInboxTokenRejectedError,
 } from './github-inbox-data.service';
-import { GithubViewerTeammatesDataService } from './github-viewer-teammates-data.service';
+import { GithubViewerTeamsDataService } from './github-viewer-teams-data.service';
 import { classify } from './inbox-classifier';
 import { InboxStoreService } from './inbox-store.service';
 
@@ -34,10 +34,14 @@ export type InboxRefreshResult =
  * The snapshot it writes lives in this process only, filed under the filters it was built with.
  * See InboxStoreService for why both of those are so, and what they cost.
  *
- * The filters change what is written, never what is asked for: the same GitHub answer is
+ * The build filters change what is written, never what is asked for: the same GitHub answer is
  * classified differently under different settings. Which means the sweep can refresh somebody
  * under one set of filters for the price of one query and, if it ever needs to, write a second
  * snapshot under another for free.
+ *
+ * The view filters are not here at all. They are applied to the stored document when it is
+ * served, so a snapshot written under one reader's is equally an answer for any other - which is
+ * what stops a checkbox costing a GitHub query. See inbox-filters.interface.ts.
  */
 @Injectable()
 export class InboxRefreshService {
@@ -47,11 +51,11 @@ export class InboxRefreshService {
     private readonly userReadService: UserReadService,
     private readonly userWriteService: UserWriteService,
     private readonly inboxDataService: GithubInboxDataService,
-    private readonly teammatesDataService: GithubViewerTeammatesDataService,
+    private readonly teamsDataService: GithubViewerTeamsDataService,
     private readonly inboxStoreService: InboxStoreService,
   ) {}
 
-  public async refresh(userId: string, filters: InboxFilters): Promise<InboxRefreshResult> {
+  public async refresh(userId: string, filters: InboxBuildFilters): Promise<InboxRefreshResult> {
     const user = await this.userReadService.readByIdOrThrow(userId);
 
     if (!user.githubAccessToken) {
@@ -83,14 +87,18 @@ export class InboxRefreshService {
     }
 
     // Not awaited alongside the inbox query on purpose: this one is allowed to fail. A null
-    // teammate list costs a worse grouping, and nothing else.
-    const teammates = await this.teammatesDataService.read(userId, accessToken);
+    // team list costs a worse grouping, and nothing else.
+    const teams = await this.teamsDataService.read(userId, accessToken);
 
     const snapshot: InboxSnapshot = {
       userId,
       refreshedAt: new Date(),
       filters,
-      ...classify(inbox, teammates, filters),
+      // Carried on the snapshot so the settings can list them without a request of their own.
+      // They are established here anyway, and a read that had to go and find them would be a
+      // read that calls GitHub - which is the one thing reading this must never do.
+      teams: teams?.map((membership) => membership.team) ?? null,
+      ...classify(inbox, teams, filters),
     };
 
     this.inboxStoreService.write(snapshot);

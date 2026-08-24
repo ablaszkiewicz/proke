@@ -3,7 +3,7 @@ import { InMemoryCacheModule } from '../shared/cache/in-memory-cache.module';
 import { UserReadModule } from '../user/read/user-read.module';
 import { UserWriteModule } from '../user/write/user-write.module';
 import { GithubInboxDataService } from './github-inbox-data.service';
-import { GithubViewerTeammatesDataService } from './github-viewer-teammates-data.service';
+import { GithubViewerTeamsDataService } from './github-viewer-teams-data.service';
 import { InboxController } from './inbox.controller';
 import { InboxRefreshService } from './inbox-refresh.service';
 import { InboxStoreService } from './inbox-store.service';
@@ -23,7 +23,7 @@ import { InboxService } from './inbox.service';
     InboxRefreshService,
     InboxStoreService,
     GithubInboxDataService,
-    GithubViewerTeammatesDataService,
+    GithubViewerTeamsDataService,
   ],
   exports: [InboxRefreshService],
 })

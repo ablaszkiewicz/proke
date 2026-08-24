@@ -2,6 +2,7 @@ import {
   DEFAULT_RECENT_DRAFT_WINDOW,
   type InboxFilterChange,
   type InboxFilters,
+  type InboxTeam,
   type RecentDraftWindow,
 } from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,9 @@ import {
   INBOX_FILTER_OPTIONS,
   switchPosition,
   valueWhenPressed,
+  type AuthorsOption,
   type SwitchOption,
+  type TeamsOption,
   type WindowOption,
 } from "./filters";
 
@@ -47,9 +50,25 @@ import {
  */
 export function InboxSettings({
   filters,
+  teams,
+  teamsAsked,
   onChange,
 }: {
   filters: InboxFilters;
+  /**
+   * The teams the "your team" heading is built from, for the reader to strike one out.
+   *
+   * Undefined is "not established yet", which the panel says out loud rather than drawing as an
+   * empty list - see the note on TeamsFilter.
+   */
+  teams?: InboxTeam[];
+  /**
+   * Whether GitHub has answered for this person at all.
+   *
+   * Only ever consulted about the teams, and only to separate "not yet" from "would not say" -
+   * absent teams after a real answer is a missing permission rather than a slow one.
+   */
+  teamsAsked: boolean;
   /** Applied immediately. There is nothing to confirm. */
   onChange: InboxFilterChange;
 }) {
@@ -107,27 +126,58 @@ export function InboxSettings({
             className={cn(
               // Capped against the viewport as well as sized, or on a narrow phone a panel hung
               // off the right edge of the header runs off the left one.
-              "absolute right-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-4rem)] origin-top-right",
+              "absolute right-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-4rem)] origin-top-right",
+              // Capped and scrolling, because it is no longer a panel of switches: a long team
+              // list plus a field of chips can outgrow a laptop viewport, and the page it hangs
+              // from is `overflow-hidden` from `xl` up - so anything past the bottom would be
+              // clipped by the page rather than reachable.
+              "max-h-[min(34rem,calc(100dvh-6rem))] overflow-y-auto overscroll-contain",
               "rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
             )}
           >
-            {INBOX_FILTER_OPTIONS.map((option) =>
-              option.kind === "window" ? (
-                <WindowFilter
-                  key={option.key}
-                  option={option}
-                  value={filters[option.key]}
-                  onChange={onChange}
-                />
-              ) : (
-                <SwitchFilter
-                  key={option.key}
-                  option={option}
-                  filters={filters}
-                  onChange={onChange}
-                />
-              )
-            )}
+            {INBOX_FILTER_OPTIONS.map((option) => {
+              switch (option.kind) {
+                case "window":
+                  return (
+                    <WindowFilter
+                      key={option.key}
+                      option={option}
+                      value={filters[option.key]}
+                      onChange={onChange}
+                    />
+                  );
+                case "teams":
+                  return (
+                    <TeamsFilter
+                      key={option.key}
+                      option={option}
+                      on={filters[option.key]}
+                      excluded={filters[option.membersKey]}
+                      teams={teams}
+                      asked={teamsAsked}
+                      onChange={onChange}
+                    />
+                  );
+                case "authors":
+                  return (
+                    <AuthorsFilter
+                      key={option.key}
+                      option={option}
+                      authors={filters[option.key]}
+                      onChange={onChange}
+                    />
+                  );
+                default:
+                  return (
+                    <SwitchFilter
+                      key={option.key}
+                      option={option}
+                      filters={filters}
+                      onChange={onChange}
+                    />
+                  );
+              }
+            })}
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -208,41 +258,369 @@ function WindowFilter({
         }
       />
 
-      {/*
-        `initial={false}` so a panel opened on a filter that is already on does not play the
-        spans unrolling. They were there before it opened; only a press should move them.
-      */}
-      <AnimatePresence initial={false}>
-        {on ? (
-          <motion.div
-            // Height, which is the one animation on this page that is not position or opacity.
-            // A row of buttons appearing between a toggle and the edge of a panel has to push
-            // something, and the panel growing under its own corner is the whole gesture - see
-            // the note on the page about why nothing in the *list* animates its size.
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.16, ease: [0.2, 0.7, 0.2, 1] }}
-            className="overflow-hidden"
-          >
-            <div
-              role="group"
-              aria-label={option.choicesLabel}
-              className="flex gap-1 px-2.5 pb-2 pt-0.5"
-            >
-              {option.choices.map((choice) => (
-                <WindowChoice
-                  key={choice}
-                  choice={choice}
-                  selected={choice === value}
-                  onPick={() => onChange(option.key, choice)}
-                />
-              ))}
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <Reveal show={on}>
+        <div
+          role="group"
+          aria-label={option.choicesLabel}
+          className="flex gap-1 px-2.5 pb-2 pt-0.5"
+        >
+          {option.choices.map((choice) => (
+            <WindowChoice
+              key={choice}
+              choice={choice}
+              selected={choice === value}
+              onPick={() => onChange(option.key, choice)}
+            />
+          ))}
+        </div>
+      </Reveal>
     </div>
+  );
+}
+
+/**
+ * The "your team" heading, and the teams it is built from.
+ *
+ * ## Why the list is here at all
+ *
+ * Because "your team" is the one heading on the page whose rule is invisible, and the person it
+ * gets wrong is exactly the person who cannot see why. Somebody in a company-wide GitHub team
+ * has a "your team" that means "everybody" and an "everyone else" that is empty, and nothing
+ * anywhere says so. Showing the teams turns that from a bug report into a checkbox.
+ *
+ * ## Ticked means counts
+ *
+ * The filter behind this is `excludedTeams` - a list of what does *not* count - and the boxes
+ * read the other way round, which is the same inversion the approved switch makes and for the
+ * same reason. A list of what to keep would have to be complete the day it was written, so a
+ * team joined next month would silently not count; a list of what to remove has no such problem.
+ * The reader should not have to hold that: they see their teams, and they untick one.
+ *
+ * ## Four states, not two
+ *
+ * A list, and three ways of having none. Absent teams before GitHub has answered anything is
+ * "not yet"; absent teams *after* it has answered the rest of the inbox is "it would not say",
+ * which is a missing organisation permission far more often than an outage and is the only one
+ * of the three anybody can act on; an empty array is "you are in none". All three draw as the
+ * same nothing and mean different things, so all three say which they are.
+ *
+ * The middle one is worked out here rather than sent, because the server cannot tell them apart
+ * without a second field: a cold read has not asked, and a 403 asked and was refused, and both
+ * leave it with no teams to send. What separates them from here is whether the *inbox* came
+ * back - if it did, GitHub was reached, and the teams are missing for a reason.
+ */
+function TeamsFilter({
+  option,
+  on,
+  excluded,
+  teams,
+  asked,
+  onChange,
+}: {
+  option: TeamsOption;
+  on: boolean;
+  excluded: string[];
+  teams?: InboxTeam[];
+  asked: boolean;
+  onChange: InboxFilterChange;
+}) {
+  return (
+    <div>
+      <FilterItem
+        label={option.label}
+        detail={option.detail}
+        checked={on}
+        onToggle={() => onChange(option.key, !on)}
+      />
+
+      <Reveal show={on}>
+        {teams === undefined ? (
+          <Note>{asked ? option.unavailable : option.waiting}</Note>
+        ) : teams.length === 0 ? (
+          <Note>{option.none}</Note>
+        ) : (
+          <div role="group" aria-label={option.label} className="px-1 pb-1.5">
+            {teams.map((team) => (
+              <TeamRow
+                key={team.key}
+                team={team}
+                counts={!excluded.includes(team.key)}
+                onToggle={() =>
+                  onChange(
+                    option.membersKey,
+                    excluded.includes(team.key)
+                      ? excluded.filter((key) => key !== team.key)
+                      : [...excluded, team.key]
+                  )
+                }
+              />
+            ))}
+          </div>
+        )}
+      </Reveal>
+    </div>
+  );
+}
+
+/**
+ * One team.
+ *
+ * `role="checkbox"` rather than the switch used above it, because these are not settings that
+ * turn something on - they are members of a set, and a column of switches would read as five
+ * independent features. The organisation is beside the name rather than under it: two teams
+ * called "Core" in different organisations is the ordinary case, and the name alone would be
+ * two identical rows.
+ */
+function TeamRow({
+  team,
+  counts,
+  onToggle,
+}: {
+  team: InboxTeam;
+  counts: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={counts}
+      onClick={onToggle}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors",
+        "hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2"
+      )}
+    >
+      <Tick checked={counts} />
+
+      <span className="min-w-0 flex-1 truncate text-[13px] leading-snug text-foreground">
+        {team.name}
+        <span className="ml-1.5 text-[12px] text-muted-foreground">{team.org}</span>
+      </span>
+    </button>
+  );
+}
+
+/** The state of a checkbox, and never the control - the row above is the control. */
+function Tick({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-[15px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+        checked
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-foreground/25"
+      )}
+    >
+      {checked ? (
+        <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.8" />
+        </svg>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The logins whose pull requests never arrive.
+ *
+ * ## Why chips rather than a comma-separated field
+ *
+ * Because a name is either in the list or it is not, and a text field makes that a question
+ * about punctuation. A chip is committed - it has been accepted, it is on screen, and it has an
+ * × - where "dependabot, renov" is a half-typed state that has to mean something and cannot.
+ *
+ * It also decides when the inbox reloads. Every commit here is one round trip, so a field that
+ * fired as you typed would be a request per keystroke; a chip fires once, when you say so.
+ *
+ * ## What is accepted
+ *
+ * A login, lowercased, with a leading `@` forgiven - somebody typing a GitHub handle types the
+ * `@`, and refusing it teaches nothing. Anything already in the list is a no-op rather than a
+ * duplicate, and the field clears either way: pressing Enter twice on the same name should feel
+ * like it worked twice, because it did.
+ */
+function AuthorsFilter({
+  option,
+  authors,
+  onChange,
+}: {
+  option: AuthorsOption;
+  authors: string[];
+  onChange: InboxFilterChange;
+}) {
+  const [draft, setDraft] = useState("");
+  const inputId = useId();
+
+  const commit = () => {
+    const login = normalizeLogin(draft);
+
+    setDraft("");
+
+    if (login && !authors.includes(login)) {
+      onChange(option.key, [...authors, login]);
+    }
+  };
+
+  // The panel unmounts when it closes, and React does not fire blur on an element it is
+  // removing - so without this, a name typed and then dismissed with a click outside the panel
+  // would be dropped on the floor, while the same name typed and dismissed with a click inside
+  // it would be kept. Two ways of leaving one field behaving differently is worse than either.
+  //
+  // Through a ref because the cleanup runs once, holding whichever closure it was created with,
+  // and the draft it needs to commit is the last one rather than the first.
+  const pending = useRef(commit);
+  pending.current = commit;
+  useEffect(() => () => pending.current(), []);
+
+  return (
+    <div className="px-2.5 py-2">
+      <label htmlFor={inputId} className="block cursor-default">
+        <span className="block text-[13px] font-medium leading-snug text-foreground">
+          {option.label}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+          {option.detail}
+        </span>
+      </label>
+
+      {authors.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {authors.map((login) => (
+            <AuthorChip
+              key={login}
+              login={login}
+              onRemove={() =>
+                onChange(
+                  option.key,
+                  authors.filter((kept) => kept !== login)
+                )
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <input
+        id={inputId}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          // Comma as well as Enter, because somebody pasting a list types the separator they
+          // would have used in a text field - and the address bar this ends up in uses it too.
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            commit();
+
+            return;
+          }
+
+          // Backspace on an empty field takes the last chip, which is what every field of chips
+          // anywhere does and the only way to correct a mistake without reaching for the mouse.
+          if (event.key === "Backspace" && !draft && authors.length > 0) {
+            onChange(option.key, authors.slice(0, -1));
+          }
+        }}
+        // Committed on the way out, like every field of chips anywhere: a name typed and then
+        // left is a name somebody meant. See the unmount above for the other way out.
+        onBlur={commit}
+        placeholder={option.placeholder}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        className={cn(
+          "mt-2 w-full rounded-lg bg-foreground/[0.06] px-2 py-1.5 text-[13px] text-foreground",
+          "placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
+        )}
+      />
+    </div>
+  );
+}
+
+/** One committed login. The × is the control; the word beside it is not. */
+function AuthorChip({
+  login,
+  onRemove,
+}: {
+  login: string;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="flex items-center gap-1 rounded-md bg-foreground/10 py-0.5 pl-1.5 pr-1 text-[12px] text-foreground">
+      <span className="max-w-[10rem] truncate">{login}</span>
+
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Stop ignoring ${login}`}
+        className={cn(
+          "flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
+          "hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
+        )}
+      >
+        <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+          <path d="M3 3l6 6M9 3l-6 6" />
+        </svg>
+      </button>
+    </span>
+  );
+}
+
+/**
+ * The one spelling that reaches the wire.
+ *
+ * Lowercased because GitHub logins differ only in case and the reader typed theirs by hand; the
+ * `@` forgiven because a handle is written with one everywhere else. Matched the same way on the
+ * server - see normalizeFilterList - so the chip on screen and the rows removed agree.
+ */
+function normalizeLogin(value: string): string {
+  return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+/**
+ * What a control says instead of a list, when there is no list to show.
+ *
+ * A sentence rather than an empty box, because an empty box is indistinguishable from a broken
+ * one - and both of the things this says are things the reader can act on.
+ */
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-2.5 pb-2 pt-0.5 text-[12px] leading-snug text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The part of a control that is only there while its switch is on.
+ *
+ * Shared by the two that have one, so the spans under "Recent drafts" and the teams under "Your
+ * team" open at the same speed and in the same way - two controls in one panel behaving
+ * differently would read as one of them being broken.
+ *
+ * `initial={false}` so a panel opened on a filter that is already on does not play its contents
+ * unrolling. They were there before it opened; only a press should move them.
+ */
+function Reveal({ show, children }: { show: boolean; children: React.ReactNode }) {
+  return (
+    <AnimatePresence initial={false}>
+      {show ? (
+        <motion.div
+          // Height, which is the one animation on this page that is not position or opacity.
+          // Something appearing between a toggle and the edge of a panel has to push something,
+          // and the panel growing under its own corner is the whole gesture - see the note on
+          // the page about why nothing in the *list* animates its size.
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.16, ease: [0.2, 0.7, 0.2, 1] }}
+          className="overflow-hidden"
+        >
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

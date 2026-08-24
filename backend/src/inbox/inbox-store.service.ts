@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MetricsService } from '../analytics/metrics.service';
 import { InMemoryCacheService } from '../shared/cache/in-memory-cache.service';
-import { InboxFilters, inboxFiltersKey } from './core/entities/inbox-filters.interface';
+import { InboxBuildFilters, inboxFiltersKey } from './core/entities/inbox-filters.interface';
 import { InboxSnapshot } from './core/entities/inbox.interface';
 
 /**
@@ -26,19 +26,24 @@ const SNAPSHOT_TTL_MS = 30 * 60_000;
  * source of truth is somewhere else entirely, and cost a collection, two services, an index and
  * a TTL sweep to maintain it.
  *
- * ## Why the filters are in the key
+ * ## Why the build filters are in the key, and only those
  *
- * Because a snapshot is *built* under one set of filters rather than served through them: the
- * rows a filter removes are not in the stored document at all. Two people reading the same
- * account with different settings hold two genuinely different answers, so one key would hand
- * whoever asked second the other's inbox. Keyed this way a change of setting is an ordinary
- * miss, filled by the refresh the client fires at the same moment.
+ * Because a snapshot is *built* under them rather than served through them: the rows a build
+ * filter removes are not in the stored document at all. Two people reading the same account with
+ * different settings hold two genuinely different answers, so one key would hand whoever asked
+ * second the other's inbox. Keyed this way a change of setting is an ordinary miss, filled by
+ * the refresh the client fires at the same moment.
  *
  * The cost of that is one cached document per combination somebody actually uses, which is why
- * every filter's value comes from a closed set - a boolean, or one of six named windows. The
- * ceiling is the product of those cardinalities, and it is a number we can name. A filter with
- * an open set of values - a number of hours, a date - would multiply this cache by whatever
- * anybody thought to type, and should be applied when the snapshot is served instead.
+ * a build filter's value has to come from a closed set - a boolean, or one of six named windows.
+ * The ceiling is the product of those cardinalities, and it is a number we can name.
+ *
+ * The view filters are not in the key and must never be. Two of them - the teams somebody has
+ * struck out, the authors they ignore - are open sets, and either in a key would file a separate
+ * copy of this document per combination anybody thought to type. That is not a slow cache, it is
+ * an eviction machine: entries here share one process-wide ceiling, so one reader churning a
+ * list would throw away everybody else's snapshots. They are applied to the stored document on
+ * the way out instead, which costs one pass over fifty rows and files nothing.
  *
  * ## What it all costs, honestly
  *
@@ -60,7 +65,7 @@ export class InboxStoreService {
     private readonly metrics: MetricsService,
   ) {}
 
-  public read(userId: string, filters: InboxFilters): InboxSnapshot | null {
+  public read(userId: string, filters: InboxBuildFilters): InboxSnapshot | null {
     const snapshot = this.cache.get<InboxSnapshot>(key(userId, filters)) ?? null;
 
     // The closest thing there is to a measure of how often this page paints instantly. A miss is
@@ -103,6 +108,6 @@ function prefix(userId: string): string {
   return `github:inbox-snapshot:${userId}:`;
 }
 
-function key(userId: string, filters: InboxFilters): string {
+function key(userId: string, filters: InboxBuildFilters): string {
   return `${prefix(userId)}${inboxFiltersKey(filters)}`;
 }

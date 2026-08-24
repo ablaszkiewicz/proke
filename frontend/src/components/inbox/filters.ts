@@ -1,6 +1,7 @@
 import {
   INBOX_FILTER_KEYS,
   RECENT_DRAFT_WINDOWS,
+  type InboxFilterKey,
   type InboxFilters,
   type RecentDraftWindow,
 } from "@/lib/api/inbox.api";
@@ -10,18 +11,23 @@ import {
  *
  * The only thing about filters the client owns, for the same reason it owns only the words over
  * a section: the rules behind them need things a browser cannot see - GitHub's review decision,
- * GitHub's idea of when a pull request last moved. What a filter does, and what happens to the
- * rows it removes, is the server's.
+ * its idea of when a pull request last moved, its idea of who is on your team. What a filter
+ * does, and what happens to the rows it removes, is the server's.
  *
  * `label` is what the toggle is called and `detail` is what it does - two lines rather than one
  * long one, because a filter that has to be read twice is a filter nobody touches.
  *
- * ## The two shapes a filter comes in
+ * ## The shapes a filter comes in
  *
  * `switch` is on or off and nothing else. `window` is on or off and, when on, says how far back
- * it reaches - a switch with a row of spans under it. They are one list rather than two because
- * the panel draws them in order and a second list would be a second place to forget one; the
- * `kind` is what tells the panel which control to draw.
+ * it reaches. `teams` is on or off and, when on, lists the teams it is built from so one can be
+ * struck out. `authors` is a list of logins with no switch over it, because an empty list is
+ * already off.
+ *
+ * One list rather than four, because the panel draws them in order and a second list would be a
+ * second place to forget one; the `kind` is what tells the panel which control to draw. Every
+ * one of them is words plus the shape of the control, and never a rule - the rules are all on
+ * the server, because each of them needs something a browser cannot see.
  */
 
 interface FilterOptionBase {
@@ -32,7 +38,7 @@ interface FilterOptionBase {
 /** A filter that is on or off. */
 export interface SwitchOption extends FilterOptionBase {
   kind: "switch";
-  key: "includeApproved";
+  key: "includeApproved" | "separateBots";
   /**
    * Whether the switch reads the opposite way round from the filter behind it.
    *
@@ -59,7 +65,52 @@ export interface WindowOption extends FilterOptionBase {
   choices: readonly RecentDraftWindow[];
 }
 
-export type InboxFilterOption = SwitchOption | WindowOption;
+/**
+ * The "your team" heading: a switch, and under it the teams the heading is built from.
+ *
+ * Two filters behind one control, which is the only place in here that happens and is worth the
+ * exception. `separateTeam` is whether the heading exists and `excludedTeams` is what counts as
+ * your team, and the second is meaningless without the first - so they are drawn as one thing
+ * and the panel hides the list when the switch is off, exactly as it hides the spans.
+ */
+export interface TeamsOption extends FilterOptionBase {
+  kind: "teams";
+  key: "separateTeam";
+  /** The list the switch governs. Named rather than assumed, so the pairing is readable. */
+  membersKey: "excludedTeams";
+  /**
+   * The three things this can say instead of a list, which are three and not two.
+   *
+   * `waiting` is before GitHub has answered at all. `unavailable` is after it has answered the
+   * rest of the inbox and still not said - which is proke missing the "Members" organisation
+   * permission far more often than it is an outage, and is the one of the three somebody can do
+   * something about. `none` is GitHub saying you are in no teams.
+   *
+   * Told apart because "still loading" and "this will never load" draw as the same nothing and
+   * mean opposite things to whoever is waiting on it.
+   */
+  waiting: string;
+  unavailable: string;
+  none: string;
+}
+
+/**
+ * A list of logins, typed in.
+ *
+ * No switch: an empty list is off, and a toggle over it would be a second way to say the same
+ * thing and a state where the list is set but not in force.
+ */
+export interface AuthorsOption extends FilterOptionBase {
+  kind: "authors";
+  key: "ignoredAuthors";
+  placeholder: string;
+}
+
+export type InboxFilterOption =
+  | SwitchOption
+  | WindowOption
+  | TeamsOption
+  | AuthorsOption;
 
 export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
   {
@@ -86,6 +137,40 @@ export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
     choicesLabel: "How recently a draft moved",
     choices: RECENT_DRAFT_WINDOWS,
   },
+  {
+    kind: "teams",
+    key: "separateTeam",
+    membersKey: "excludedTeams",
+    label: "Your team",
+    // Same sentence shape as the others, and for the same reason: the thing nobody would guess
+    // is that off is a merge rather than a removal.
+    detail:
+      "Their pull requests, above everyone else's. Off puts them in with everyone else.",
+    waiting: "Asking GitHub which teams you are in…",
+    unavailable:
+      "GitHub would not say which teams you are in. proke may be missing the Members permission.",
+    none: "GitHub says you are in no teams, so nothing lands here.",
+  },
+  {
+    kind: "switch",
+    key: "separateBots",
+    label: "Bots",
+    // Points at the setting below it, because "off" here and "ignore" there are the two things
+    // somebody who is sick of a bot might mean, and only one of them makes it go away.
+    detail:
+      "Machines, under their own heading. Off puts them in with everyone else.",
+  },
+  {
+    kind: "authors",
+    key: "ignoredAuthors",
+    label: "Ignore authors",
+    // "Never see" rather than "hide", because this one really does remove the row - it is the
+    // only setting in the panel that does, and the difference is the whole reason it is worded
+    // apart from the two above it.
+    detail:
+      "Their pull requests never reach you. For the bot that opens nine a week.",
+    placeholder: "Add a login…",
+  },
 ];
 
 /**
@@ -99,11 +184,15 @@ export const INBOX_FILTER_OPTIONS: InboxFilterOption[] = [
  * buttons' business, not the switch's.
  */
 export function switchPosition(
-  option: InboxFilterOption,
+  option: SwitchOption | WindowOption | TeamsOption,
   filters: InboxFilters
 ): boolean {
   if (option.kind === "window") {
     return filters[option.key] !== "off";
+  }
+
+  if (option.kind === "teams") {
+    return filters[option.key];
   }
 
   return option.inverted ? !filters[option.key] : filters[option.key];
@@ -126,7 +215,18 @@ export function valueWhenPressed(option: SwitchOption, on: boolean): boolean {
  * silently missing rather than a build that fails.
  */
 if (import.meta.env.DEV) {
-  const drawn = new Set(INBOX_FILTER_OPTIONS.map((option) => option.key));
+  const drawn = new Set<InboxFilterKey>();
+
+  for (const option of INBOX_FILTER_OPTIONS) {
+    drawn.add(option.key);
+
+    // The one control that governs two filters. Counted as drawing both, or the guard would
+    // report `excludedTeams` missing forever and stop being read.
+    if (option.kind === "teams") {
+      drawn.add(option.membersKey);
+    }
+  }
+
   const missing = INBOX_FILTER_KEYS.filter((key) => !drawn.has(key));
 
   if (missing.length > 0) {

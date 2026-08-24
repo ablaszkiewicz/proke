@@ -3,6 +3,7 @@ import { loaders } from "kea-loaders";
 
 import {
   DEFAULT_INBOX_FILTERS,
+  INBOX_BUILD_FILTER_KEYS,
   InboxApi,
   sameInboxFilters,
   type InboxFilters,
@@ -46,23 +47,34 @@ const EMPTY: InboxResult = {
  * and nothing is stored in the browser, so this logic never has an opinion about what the
  * settings are; it is told, and `setFilters` is the only way in.
  *
- * That is also why `setFilters` decides between a read and a refresh rather than the page
- * deciding. The first one is the page opening on whatever the link was carrying, and the two
- * passes above are exactly what a page opening wants. Every later one is somebody moving a
- * switch, and that goes straight to GitHub - see below. A component holding a "have I mounted
- * yet" flag would be the same decision made somewhere it cannot be read next to its reason.
+ * That is also why `setFilters` decides what to do about a change rather than the page deciding.
+ * The first one is the page opening on whatever the link was carrying, and the two passes above
+ * are exactly what a page opening wants. Every later one is somebody moving a switch, and what
+ * that costs depends on which switch - see below. A component holding a "have I mounted yet"
+ * flag, or an opinion about which filters are cheap, would be those decisions made somewhere
+ * they cannot be read next to their reasons.
  *
- * ## Why changing a filter refreshes rather than re-reads
+ * ## Why a build filter refreshes and a view filter re-reads
  *
- * Because a snapshot is built under one set of filters, so the stored one for the settings you
- * have just switched to is either absent or older than the one on screen. Reading it first would
- * blank the page and then fill it back in; going straight to GitHub leaves every row where it is
- * until the real answer lands, and the rows the filter removes then animate out under somebody
- * who is already looking at them - which is the one moment on this page where movement is
- * telling them something.
+ * A snapshot is built under the build filters, so the stored one for the settings you have just
+ * switched to is either absent or older than the one on screen. Reading it first would blank the
+ * page and then fill it back in; going straight to GitHub leaves every row where it is until the
+ * real answer lands, and the rows the filter removes then animate out under somebody who is
+ * already looking at them - which is the one moment on this page where movement is telling them
+ * something.
  *
- * The read is not skipped for correctness reasons either way: `refreshInbox` writes the same
- * value, and its breakpoint drops any older refresh still in flight.
+ * A view filter is not in that key. The server applies it to the stored snapshot on the way out,
+ * so the answer for the new settings is already sitting in its memory: a re-read is a map lookup
+ * and comes back in a millisecond, where a refresh would be a round trip to GitHub to be told
+ * the same thing. Unticking a team should not cost a second and a half.
+ *
+ * The one thing a re-read can do that a refresh cannot is find nothing - the snapshot expired,
+ * or the process restarted. That is rare by construction rather than certain like the build case
+ * is, and `rereadInbox` keeps the rows on screen and asks GitHub instead of showing an empty
+ * page. Which is the same two passes the page opens with, arriving late.
+ *
+ * Ordering is safe either way: all three write the same value, and the two that can be slow drop
+ * their answers through breakpoints if a newer one started while they were in flight.
  *
  * ## Why the rows are replaced rather than merged
  *
@@ -80,7 +92,7 @@ export const inboxLogic = kea<inboxLogicType>([
     setFilters: (filters: InboxFilters) => ({ filters }),
   }),
 
-  loaders(({ values }) => ({
+  loaders(({ actions, values }) => ({
     result: [
       EMPTY,
       {
@@ -92,6 +104,38 @@ export const inboxLogic = kea<inboxLogicType>([
           }
 
           return InboxApi.read(jwtToken, values.filters);
+        },
+        /**
+         * The stored snapshot again, under settings the server can answer from the one it has.
+         *
+         * Distinct from `loadInbox` in what happens afterwards: that one is the page opening and
+         * always chains a refresh behind itself, where this one usually has nothing to chain -
+         * what came back is the same rows GitHub would give, in different piles.
+         *
+         * The exception is a read that found nothing, which means the stored snapshot expired
+         * under a tab left open or its process restarted. That is handled here rather than in a
+         * listener because this is the only place that can see both halves of it at once: the
+         * empty answer, and the real rows it would otherwise replace. Keeping those on screen
+         * and going to ask is the same two passes the page opens with, arriving late - and it is
+         * much better than blanking somebody's inbox to answer a checkbox.
+         */
+        rereadInbox: async (_: void, breakpoint): Promise<InboxResult> => {
+          const jwtToken = authLogic.values.jwtToken;
+
+          if (!jwtToken) {
+            return EMPTY;
+          }
+
+          const result = await InboxApi.read(jwtToken, values.filters);
+          breakpoint();
+
+          if (result.refreshedAt) {
+            return result;
+          }
+
+          actions.refreshInbox();
+
+          return values.result;
         },
         // `void` payload rather than none at all: the second argument is the breakpoint, and
         // there is no way to reach it without naming the first. Typed this way the action is
@@ -190,6 +234,9 @@ export const inboxLogic = kea<inboxLogicType>([
   listeners(({ actions }) => ({
     loadInboxSuccess: () => actions.refreshInbox(),
     loadInboxFailure: () => actions.refreshInbox(),
+    // A re-read that found nothing handles itself - see the loader. This is the other way it can
+    // come back without an answer, and it wants the same thing.
+    rereadInboxFailure: () => actions.refreshInbox(),
     setFilters: ({ filters }, _breakpoint, _action, previousState) => {
       // The page opening. Read the stored snapshot first; the refresh chains off it above.
       if (!inboxLogic.selectors.opened(previousState)) {
@@ -198,16 +245,39 @@ export const inboxLogic = kea<inboxLogicType>([
         return;
       }
 
+      const previous = inboxLogic.selectors.filters(previousState);
+
       // The address bar saying again what is already on screen. A router is entitled to hand
       // the same location back - a re-render, a press on the span that is already chosen - and
-      // a GitHub round trip per repetition is a cost nobody asked for.
-      if (sameInboxFilters(inboxLogic.selectors.filters(previousState), filters)) {
+      // a request per repetition is a cost nobody asked for.
+      if (sameInboxFilters(previous, filters)) {
         return;
       }
 
-      // Straight to GitHub, deliberately - see the note above the logic. The rows on screen stay
-      // where they are until the answer for the new settings lands.
-      actions.refreshInbox();
+      // What actually changed decides which of the two it costs. Anything that alters what the
+      // server *stored* needs a new answer from GitHub; anything that only alters how the stored
+      // answer is served is already in its memory. See the note above the logic.
+      if (changedABuildFilter(previous, filters)) {
+        actions.refreshInbox();
+
+        return;
+      }
+
+      actions.rereadInbox();
     },
   })),
 ]);
+
+/**
+ * Whether the difference between two sets of settings is one the server has to rebuild for.
+ *
+ * Compared filter by filter rather than by asking which one the panel touched, because the
+ * address bar is what feeds this and a navigation can move more than one at a time - a bookmark,
+ * a back button, a link somebody sent. One build filter among them is enough.
+ *
+ * `!==` is sound here and would not be over the whole set: every build filter's value is a
+ * boolean or a word, and the two that are lists are both view filters.
+ */
+function changedABuildFilter(previous: InboxFilters, next: InboxFilters): boolean {
+  return INBOX_BUILD_FILTER_KEYS.some((key) => previous[key] !== next[key]);
+}

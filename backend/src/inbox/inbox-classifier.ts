@@ -2,14 +2,20 @@ import {
   GithubInboxPullRequest,
   GithubInbox,
 } from './github-inbox-data.service';
-import { InboxFilters, recentDraftWindowMs } from './core/entities/inbox-filters.interface';
+import {
+  InboxBuildFilters,
+  InboxViewFilters,
+  recentDraftWindowMs,
+} from './core/entities/inbox-filters.interface';
 import {
   InboxPullRequest,
   InboxSectionContent,
   InboxSectionKey,
+  InboxStoredPullRequest,
   WAITING_SECTIONS,
   YOURS_SECTIONS,
 } from './core/entities/inbox.interface';
+import { ViewerTeamMembership } from './github-viewer-teams-data.service';
 
 /**
  * Where every pull request goes, and in what order within a pile.
@@ -17,6 +23,16 @@ import {
  * Pure, and kept apart from both the fetch and the store, because these are the rules people
  * will argue about - "is an approved pull request with one stray open thread approved?" - and an
  * argument is easier to have against a function than against a GraphQL string.
+ *
+ * Two entry points, and the difference between them is the whole shape of the feature.
+ * `classify` runs once with GitHub's answer in hand and produces what gets stored. Its half of
+ * the rules reads facts about the pull request that the stored row does not keep - the review
+ * decision, the timestamp - so it cannot be run again later.
+ *
+ * `groupWaitingOnYou` runs every time a stored snapshot is served. Its half reads facts about
+ * the author, all of which the stored row does keep, so it can be run again as often as somebody
+ * moves a switch - which is exactly why the settings it answers to cost neither a trip to GitHub
+ * nor a place in the cache key. See inbox-filters.interface.ts.
  */
 
 /**
@@ -39,7 +55,7 @@ import {
  */
 function yoursSection(
   pullRequest: GithubInboxPullRequest,
-  filters: InboxFilters,
+  filters: InboxBuildFilters,
   now: number,
 ): InboxSectionKey {
   if (pullRequest.isDraft) {
@@ -64,22 +80,43 @@ function yoursSection(
 /**
  * Bots before teammates, deliberately: a machine that happens to be a member of a team is still
  * a machine, and the point of the bots pile is that nothing in it is a person waiting.
+ *
+ * Both headings are the reader's to switch off, and off means "in with everyone else" rather
+ * than "gone". A heading is a claim that a group is worth looking at separately, and somebody
+ * whose teams do not line up with who they actually review for is better served by one pile
+ * than by a wrong one - but they still have to review the pull requests.
+ *
+ * "Everyone else" is where both fall back to, so it is never empty when the others are: it is
+ * the pile that means "waiting on you", and the other two are refinements of it.
  */
 function waitingSection(
-  pullRequest: GithubInboxPullRequest,
-  teammates: Set<string> | null,
+  pullRequest: InboxStoredPullRequest,
+  filters: InboxViewFilters,
 ): InboxSectionKey {
   if (pullRequest.authorIsBot) {
-    return InboxSectionKey.Bots;
+    return filters.separateBots ? InboxSectionKey.Bots : InboxSectionKey.Others;
   }
 
-  // Null is "we could not ask", not "you have no teammates" - so everyone human falls through to
-  // the middle pile rather than being wrongly promoted to the top one.
-  if (teammates?.has(pullRequest.authorLogin.toLowerCase())) {
+  // An empty `authorTeams` covers both "not on your team" and "we could not ask GitHub" - the
+  // second being a missing permission as often as an outage. Neither is a reason to promote
+  // somebody into the top pile, so both fall through to the middle one.
+  if (filters.separateTeam && sharesTeam(pullRequest, filters.excludedTeams)) {
     return InboxSectionKey.Team;
   }
 
   return InboxSectionKey.Others;
+}
+
+/**
+ * Whether any team this author is in still counts.
+ *
+ * `some` rather than "none of them are excluded": somebody in the company-wide team *and* in
+ * your own team is your teammate on the strength of the second, whatever you did to the first.
+ * The other reading would have striking out one broad team quietly remove people it was never
+ * about.
+ */
+function sharesTeam(pullRequest: InboxStoredPullRequest, excludedTeams: string[]): boolean {
+  return pullRequest.authorTeams.some((key) => !excludedTeams.includes(key));
 }
 
 /**
@@ -134,6 +171,48 @@ function toPullRequest(pullRequest: GithubInboxPullRequest): InboxPullRequest {
 }
 
 /**
+ * The same row, plus the two facts about its author that the view filters read later.
+ *
+ * This is where the cost of making those settings free is paid, and it is two fields on fifty
+ * rows. Anything heavier than that belongs in a build filter instead.
+ */
+function toStoredPullRequest(
+  pullRequest: GithubInboxPullRequest,
+  teamsByMember: Map<string, string[]>,
+): InboxStoredPullRequest {
+  return {
+    ...toPullRequest(pullRequest),
+    authorIsBot: pullRequest.authorIsBot,
+    authorTeams: teamsByMember.get(pullRequest.authorLogin.toLowerCase()) ?? [],
+  };
+}
+
+/**
+ * Login to the keys of the viewer's teams they are in.
+ *
+ * Built once per refresh rather than asked per row, because the alternative is a scan of every
+ * team's membership for every pull request - fifty rows against twenty-five teams of a hundred
+ * people each, to answer a question that is the same shape every time.
+ */
+function teamsByMember(teams: ViewerTeamMembership[] | null): Map<string, string[]> {
+  const byMember = new Map<string, string[]>();
+
+  for (const { team, members } of teams ?? []) {
+    for (const member of members) {
+      const existing = byMember.get(member);
+
+      if (existing) {
+        existing.push(team.key);
+      } else {
+        byMember.set(member, [team.key]);
+      }
+    }
+  }
+
+  return byMember;
+}
+
+/**
  * Every section is present, empty ones included.
  *
  * The client renders headings from this list, so a section that vanished when it emptied would
@@ -180,7 +259,7 @@ function group(
 function isWaitingOnYou(
   pullRequest: GithubInboxPullRequest,
   viewerLogin: string,
-  filters: InboxFilters,
+  filters: InboxBuildFilters,
 ): boolean {
   if (pullRequest.authorLogin.toLowerCase() === viewerLogin.toLowerCase()) {
     return false;
@@ -190,25 +269,74 @@ function isWaitingOnYou(
 }
 
 /**
+ * What gets stored: the yours half in piles, the waiting half in order and not yet in piles.
+ *
  * `now` is a parameter rather than a `Date.now()` inside, so that the one rule here that depends
  * on the clock - which drafts are recent - can be asserted against a fixed one.
  */
 export function classify(
   inbox: GithubInbox,
-  teammates: Set<string> | null,
-  filters: InboxFilters,
+  teams: ViewerTeamMembership[] | null,
+  filters: InboxBuildFilters,
   now: number = Date.now(),
-): { yours: InboxSectionContent[]; waitingOnYou: InboxSectionContent[] } {
+): { yours: InboxSectionContent[]; waitingOnYou: InboxStoredPullRequest[] } {
+  const byMember = teamsByMember(teams);
+
   return {
     yours: group(inbox.yours, YOURS_SECTIONS, (pullRequest) =>
       yoursSection(pullRequest, filters, now),
     ),
-    waitingOnYou: group(
-      inbox.waitingOnYou.filter((pullRequest) =>
-        isWaitingOnYou(pullRequest, inbox.viewerLogin, filters),
-      ),
-      WAITING_SECTIONS,
-      (pullRequest) => waitingSection(pullRequest, teammates),
-    ),
+    // Sorted here rather than at serve time, because the order does not depend on any setting -
+    // and sorting once when the snapshot is written beats sorting on every read of it.
+    waitingOnYou: inbox.waitingOnYou
+      .filter((pullRequest) => isWaitingOnYou(pullRequest, inbox.viewerLogin, filters))
+      .sort(byRecency)
+      .map((pullRequest) => toStoredPullRequest(pullRequest, byMember)),
   };
+}
+
+/**
+ * The stored waiting-on-you rows, in headings, as one reader has asked to see them.
+ *
+ * Runs on the way out rather than on the way in. Nothing here needs GitHub, so a reader who
+ * strikes out a team or ignores an author sees the effect immediately, against the snapshot
+ * already in hand - and every combination of these settings is served from the one stored
+ * document instead of building a copy per combination.
+ *
+ * The ignored authors go first and go entirely, because that is what "ignore" means; the rest is
+ * a question of which heading. Order within a heading is the order the rows arrive in, which
+ * `classify` has already made recency.
+ */
+export function groupWaitingOnYou(
+  pullRequests: InboxStoredPullRequest[],
+  filters: InboxViewFilters,
+): InboxSectionContent[] {
+  const kept = pullRequests.filter(
+    (pullRequest) => !filters.ignoredAuthors.includes(pullRequest.author.login.toLowerCase()),
+  );
+
+  const buckets = new Map<InboxSectionKey, InboxPullRequest[]>(
+    WAITING_SECTIONS.map((key) => [key, []]),
+  );
+
+  for (const pullRequest of kept) {
+    buckets.get(waitingSection(pullRequest, filters))?.push(toSentPullRequest(pullRequest));
+  }
+
+  return WAITING_SECTIONS.map((key) => ({ key, pullRequests: buckets.get(key) ?? [] }));
+}
+
+/**
+ * A stored row stripped back to what a row renders.
+ *
+ * The two extra fields are how the grouping was decided, not something the page draws - and a
+ * client that received "which of your teams this author is in" would be a client somebody would
+ * eventually be tempted to group in.
+ */
+function toSentPullRequest({
+  authorIsBot: _authorIsBot,
+  authorTeams: _authorTeams,
+  ...pullRequest
+}: InboxStoredPullRequest): InboxPullRequest {
+  return pullRequest;
 }

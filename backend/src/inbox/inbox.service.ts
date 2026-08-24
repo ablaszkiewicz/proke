@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InboxFilters } from './core/entities/inbox-filters.interface';
+import { InboxFilters, InboxViewFilters } from './core/entities/inbox-filters.interface';
 import {
   InboxSectionContent,
   InboxSectionKey,
@@ -7,6 +7,7 @@ import {
   WAITING_SECTIONS,
   YOURS_SECTIONS,
 } from './core/entities/inbox.interface';
+import { groupWaitingOnYou } from './inbox-classifier';
 import { InboxResponse } from './dto/inbox.response';
 import { InboxRefreshService } from './inbox-refresh.service';
 import { InboxStoreService } from './inbox-store.service';
@@ -46,7 +47,7 @@ export class InboxService {
     const stored = this.inboxStoreService.read(userId, filters);
 
     return stored
-      ? respond(stored, { stale: false, githubReauthRequired: false })
+      ? respond(stored, filters, { stale: false, githubReauthRequired: false })
       : blank({ stale: false, githubReauthRequired: false });
   }
 
@@ -55,7 +56,7 @@ export class InboxService {
     const refreshed = await this.inboxRefreshService.refresh(userId, filters);
 
     if (refreshed.ok) {
-      return respond(refreshed.snapshot, { stale: false, githubReauthRequired: false });
+      return respond(refreshed.snapshot, filters, { stale: false, githubReauthRequired: false });
     }
 
     const githubReauthRequired = refreshed.reason === 'no-token';
@@ -65,25 +66,38 @@ export class InboxService {
     // they were true when GitHub last answered - so they go out with `stale` set rather than
     // being thrown away because the refresh behind them did not land.
     if (stored) {
-      return respond(stored, { stale: true, githubReauthRequired });
+      return respond(stored, filters, { stale: true, githubReauthRequired });
     }
 
     return blank({ stale: false, githubReauthRequired });
   }
 }
 
+/**
+ * A stored snapshot, as this reader has asked to see it.
+ *
+ * The waiting half is put into headings here rather than having been stored in them, because
+ * every rule that decides which heading is a setting somebody can move without anything about
+ * GitHub's answer changing - see `groupWaitingOnYou`. It is one pass over fifty rows, and it is
+ * what lets a checkbox take effect against the snapshot already in hand.
+ */
 function respond(
   snapshot: InboxSnapshot,
+  filters: InboxViewFilters,
   flags: { stale: boolean; githubReauthRequired: boolean },
 ): InboxResponse {
   return {
     refreshedAt: snapshot.refreshedAt.toISOString(),
     ...flags,
+    // Absent rather than empty where GitHub would not say, so the settings can tell "you are in
+    // no teams" apart from "we could not find out" - which are the same picture and opposite
+    // instructions to the person reading it.
+    teams: snapshot.teams ?? undefined,
     // Filled out against the canonical list rather than passed through, so a snapshot written by
     // an older deploy - before a section existed - still answers with every heading the client
     // knows how to draw.
     yours: fill(snapshot.yours, YOURS_SECTIONS),
-    waitingOnYou: fill(snapshot.waitingOnYou, WAITING_SECTIONS),
+    waitingOnYou: fill(groupWaitingOnYou(snapshot.waitingOnYou, filters), WAITING_SECTIONS),
   };
 }
 

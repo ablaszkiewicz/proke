@@ -35,6 +35,20 @@ export class InboxPullRequestResponse {
   author: InboxAuthorResponse;
 }
 
+export class InboxTeamResponse {
+  @ApiProperty({ description: '`org/slug`, lowercased. What `excludedTeams` names.' })
+  key: string;
+
+  @ApiProperty()
+  org: string;
+
+  @ApiProperty()
+  slug: string;
+
+  @ApiProperty({ description: "GitHub's display name for the team, which is not its slug." })
+  name: string;
+}
+
 export class InboxSectionResponse {
   @ApiProperty({
     enum: InboxSectionKey,
@@ -77,6 +91,17 @@ export class InboxResponse {
       'the user reconnects. Deliberately not a 401 - the proke session is perfectly good.',
   })
   githubReauthRequired: boolean;
+
+  @ApiPropertyOptional({
+    type: InboxTeamResponse,
+    isArray: true,
+    description:
+      'The teams the "your team" grouping is built from, so the settings can list them. Absent ' +
+      'means not established - GitHub has not been asked yet, or would not say, which is a ' +
+      'missing "Members: Read" permission as often as an outage. An empty array means you are ' +
+      'in none, which is a different instruction to whoever is reading it.',
+  })
+  teams?: InboxTeamResponse[];
 
   @ApiProperty({ type: InboxSectionResponse, isArray: true })
   yours: InboxSectionResponse[];

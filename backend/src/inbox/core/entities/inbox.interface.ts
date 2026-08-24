@@ -1,4 +1,4 @@
-import { InboxFilters } from './inbox-filters.interface';
+import { InboxBuildFilters } from './inbox-filters.interface';
 
 /**
  * Which pile a pull request landed in, and in what order the piles are read.
@@ -72,6 +72,46 @@ export interface InboxSectionContent {
 }
 
 /**
+ * One of the viewer's GitHub teams.
+ *
+ * Carried out to the client so the settings can show somebody the teams their own grouping is
+ * built from and let them strike one out. Without the list, "your team" is a heading whose rule
+ * is invisible - and the person it groups wrongly is exactly the person who cannot see why.
+ */
+export interface ViewerTeam {
+  /** `org/slug`, lowercased. What `excludedTeams` names, and the render key. */
+  key: string;
+  org: string;
+  slug: string;
+  /** GitHub's display name for the team, which is not its slug. For the words on the row. */
+  name: string;
+}
+
+/**
+ * A waiting-on-you row as it is stored, which is a little more than a row as it is sent.
+ *
+ * The two extra fields are the whole reason the view filters can be view filters. Which pile
+ * this lands in is decided when the snapshot is served, so the facts that decision needs have
+ * to survive in the stored document - GitHub is not going to be asked again to answer a
+ * question about a checkbox.
+ *
+ * They are small on purpose. Anything expensive to keep per row belongs in a build filter
+ * instead, where it is applied once and thrown away.
+ */
+export interface InboxStoredPullRequest extends InboxPullRequest {
+  /** GitHub calls a GitHub App's account a Bot. Decided at fetch time, kept for `separateBots`. */
+  authorIsBot: boolean;
+  /**
+   * The keys of the viewer's teams this author is in - usually none, occasionally several.
+   *
+   * A list rather than a boolean because `excludedTeams` asks which ones. Somebody who strikes
+   * out the company-wide team still shares their own team with half these authors, and a stored
+   * "is a teammate" would have thrown away exactly the distinction they are making.
+   */
+  authorTeams: string[];
+}
+
+/**
  * Everything one person's inbox holds, as of one moment.
  *
  * A whole snapshot rather than a set of rows, because that is how it is produced: one GraphQL
@@ -82,13 +122,31 @@ export interface InboxSnapshot {
   userId: string;
   refreshedAt: Date;
   /**
-   * The settings this was built under, carried rather than inferred.
+   * The build settings this was made under, carried rather than inferred.
    *
-   * A filter removes its rows before they are ever written down, so a snapshot is only an answer
-   * to the question that produced it. Keeping the filters on it is what lets the store file it
-   * where it will be found again - see InboxStoreService.
+   * A build filter removes its rows before they are ever written down, so a snapshot is only an
+   * answer to the question that produced it. Keeping those filters on it is what lets the store
+   * file it where it will be found again - see InboxStoreService. The view filters are not here
+   * because they had no say in what was written.
    */
-  filters: InboxFilters;
+  filters: InboxBuildFilters;
+  /**
+   * Already in piles, because what splits them is facts about the pull request that the reader
+   * cannot change without a new answer from GitHub anyway.
+   */
   yours: InboxSectionContent[];
-  waitingOnYou: InboxSectionContent[];
+  /**
+   * Not in piles, and ordered.
+   *
+   * What splits *these* is facts about the author, and every one of those is a setting somebody
+   * can move without anything about GitHub's answer changing. Grouping them here would have
+   * meant rebuilding the snapshot to answer a checkbox. So the rows are kept in the order they
+   * will be shown in and sorted into headings when they are served - see `groupWaitingOnYou`.
+   */
+  waitingOnYou: InboxStoredPullRequest[];
+  /**
+   * The viewer's teams, or null where GitHub would not say - which is a missing permission as
+   * often as it is an outage, and either way is "not established" rather than "you are in none".
+   */
+  teams: ViewerTeam[] | null;
 }

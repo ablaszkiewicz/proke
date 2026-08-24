@@ -57,6 +57,31 @@ describe('Inbox', () => {
   const mockNoTeams = () =>
     nock('https://api.github.com').get('/user/teams').query(true).reply(200, []);
 
+  /** Teams of one organisation and who is in each, as the two endpoints behind them answer. */
+  const mockTeams = (members: Record<string, string[]>) => {
+    nock('https://api.github.com')
+      .get('/user/teams')
+      .query(true)
+      .reply(
+        200,
+        Object.keys(members).map((slug) => ({
+          slug,
+          name: slug.charAt(0).toUpperCase() + slug.slice(1),
+          organization: { login: 'acme' },
+        })),
+      );
+
+    for (const [slug, logins] of Object.entries(members)) {
+      nock('https://api.github.com')
+        .get(`/orgs/acme/teams/${slug}/members`)
+        .query(true)
+        .reply(
+          200,
+          logins.map((login) => ({ login })),
+        );
+    }
+  };
+
   const section = (body: any, half: 'yours' | 'waitingOnYou', key: string) =>
     body[half].find((s: any) => s.key === key);
 
@@ -263,6 +288,202 @@ describe('Inbox', () => {
       expect(
         section(body, 'waitingOnYou', 'bots').pullRequests.map((p: any) => p.number),
       ).toEqual([13, 12]);
+    });
+
+    it('merges the team and bots headings into "everyone else" when they are switched off', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 10, author: { __typename: 'User', login: 'bob' } }),
+          pullRequest({ number: 11, author: { __typename: 'User', login: 'carol' } }),
+          pullRequest({ number: 12, author: { __typename: 'Bot', login: 'renovate' } }),
+        ],
+      });
+      mockTeams({ core: ['bob'] });
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ separateTeam: 'false', separateBots: 'false' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // Off means "in with everyone else", never "gone": every one of the three is still a pull
+      // request waiting on this reader, and a switch about headings must not remove work.
+      expect(section(body, 'waitingOnYou', 'team').pullRequests).toEqual([]);
+      expect(section(body, 'waitingOnYou', 'bots').pullRequests).toEqual([]);
+      expect(
+        section(body, 'waitingOnYou', 'others').pullRequests.map((p: any) => p.number).sort(),
+      ).toEqual([10, 11, 12]);
+    });
+
+    it('stops a struck-out team making somebody a teammate', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 10, author: { __typename: 'User', login: 'bob' } }),
+          pullRequest({ number: 11, author: { __typename: 'User', login: 'carol' } }),
+        ],
+      });
+      // Bob is only in the company-wide team; Carol is in that and in the reader's own.
+      mockTeams({ everyone: ['bob', 'carol'], core: ['carol'] });
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ excludedTeams: 'acme/everyone' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(section(body, 'waitingOnYou', 'others').pullRequests[0].number).toBe(10);
+      // Still a teammate on the strength of the team that was not struck out. Excluding one
+      // broad team must not quietly remove the people it was never about.
+      expect(section(body, 'waitingOnYou', 'team').pullRequests[0].number).toBe(11);
+    });
+
+    it('drops pull requests from an ignored author entirely', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 10, author: { __typename: 'Bot', login: 'Dependabot' } }),
+          pullRequest({ number: 11, author: { __typename: 'User', login: 'carol' } }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        // Cased the other way round from GitHub's answer, because the reader typed it.
+        .query({ ignoredAuthors: 'dependabot' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(
+        body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
+      ).toEqual([11]);
+    });
+
+    it('serves every combination of the author settings from one stored snapshot', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [
+          pullRequest({ number: 10, author: { __typename: 'User', login: 'bob' } }),
+          pullRequest({ number: 11, author: { __typename: 'Bot', login: 'renovate' } }),
+        ],
+      });
+      mockTeams({ core: ['bob'] });
+
+      await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(nock.isDone()).toBe(true);
+
+      // The point of the whole build/view split: these are applied to the stored document on the
+      // way out, so a reader moving one of them is answered from what is already here. No GitHub
+      // interceptor is armed, so anything that went and asked would fail this outright.
+      const { body } = await request(app.getHttpServer())
+        .get('/inbox')
+        .query({ separateTeam: 'false', ignoredAuthors: 'renovate' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(body.refreshedAt).toBeDefined();
+      expect(
+        body.waitingOnYou.flatMap((s: any) => s.pullRequests).map((p: any) => p.number),
+      ).toEqual([10]);
+      expect(section(body, 'waitingOnYou', 'others').pullRequests[0].number).toBe(10);
+    });
+
+    it('answers with the teams the grouping was built from', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({});
+      mockTeams({ core: ['bob'] });
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // So the settings can list them and let somebody strike one out. Without this the "your
+      // team" rule is invisible to exactly the person it groups wrongly.
+      expect(body.teams).toEqual([
+        { key: 'acme/core', org: 'acme', slug: 'core', name: 'Core' },
+      ]);
+    });
+
+    it('leaves the teams out rather than empty when GitHub would not say', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({});
+      nock('https://api.github.com').get('/user/teams').query(true).reply(403);
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // Absent and empty are the same picture and opposite instructions: one says "you are in no
+      // teams", the other says "we could not find out". The settings say different things about
+      // each, so the response has to keep them apart.
+      expect(body.teams).toBeUndefined();
+    });
+
+    it('rejects a name list that is too long or full of the wrong characters', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      await request(app.getHttpServer())
+        .get('/inbox')
+        .query({ ignoredAuthors: 'someone with spaces' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .get('/inbox')
+        .query({
+          excludedTeams: Array.from({ length: 51 }, (_, i) => `acme/team-${i}`).join(','),
+        })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(400);
+    });
+
+    it('takes an empty name list as ignoring nobody', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        waitingOnYou: [pullRequest({ number: 10, author: { __typename: 'User', login: 'bob' } })],
+      });
+      mockNoTeams();
+
+      // The shape a client that always sends every filter produces. It has to mean "nobody"
+      // rather than "a list with one empty name in it", which would match nothing and look fine.
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .query({ ignoredAuthors: '', excludedTeams: '' })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(section(body, 'waitingOnYou', 'others').pullRequests[0].number).toBe(10);
     });
 
     it('puts everyone human in "everyone else" when teams cannot be read', async () => {

@@ -43,6 +43,7 @@ export function Inbox({
       hasAnswer={hasAnswer}
       githubReauthRequired={result.githubReauthRequired}
       filters={filters}
+      teams={result.teams}
       onFilterChange={onFilterChange}
     />
   );

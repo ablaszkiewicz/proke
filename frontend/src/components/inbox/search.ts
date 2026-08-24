@@ -1,8 +1,6 @@
 import {
   DEFAULT_INBOX_FILTERS,
-  INBOX_FILTER_KEYS,
   RECENT_DRAFTS_VALUES,
-  type InboxFilterKey,
   type InboxFilters,
   type RecentDrafts,
 } from "@/lib/api/inbox.api";
@@ -27,10 +25,33 @@ import {
  * So that the page as it comes is `/app/inbox` and nothing else. Writing every setting down
  * would put a query string on a page nobody has configured, freeze today's defaults into every
  * bookmark ever made, and make an ordinary link look like a filtered one.
+ *
+ * ## Why the lists are one comma-separated word
+ *
+ * Because somebody is meant to be able to read their own address bar. `?ignoredAuthors=
+ * dependabot,renovate` says what it does; the JSON array a router would otherwise write -
+ * `?ignoredAuthors=%5B%22dependabot%22%5D` - says nothing to anyone. It is also exactly the
+ * shape the server reads, so the query string the page carries and the query string it sends
+ * are the same string.
  */
 
-/** Everything optional: the address bar carries a setting only when it is not the default. */
-export type InboxSearch = Partial<InboxFilters>;
+/**
+ * Everything optional: the address bar carries a setting only when it is not the default.
+ *
+ * The two lists are strings here and arrays everywhere else, which is the one place those two
+ * spellings meet. Nothing downstream sees the joined form.
+ */
+export interface InboxSearch {
+  includeApproved?: boolean;
+  recentDrafts?: RecentDrafts;
+  separateTeam?: boolean;
+  separateBots?: boolean;
+  excludedTeams?: string;
+  ignoredAuthors?: string;
+}
+
+/** Whatever the address bar might have had under each name, before any of it is believed. */
+type RawSearch = Partial<Record<keyof InboxSearch, unknown>>;
 
 /**
  * What the address bar was carrying, filled out with the defaults.
@@ -42,52 +63,99 @@ export type InboxSearch = Partial<InboxFilters>;
  * Written out field by field on purpose: each value needs its own check, and the return type is
  * the complete `InboxFilters`, so a filter added and forgotten here does not compile.
  */
-export function inboxFiltersFromSearch(search: {
-  includeApproved?: unknown;
-  recentDrafts?: unknown;
-}): InboxFilters {
+export function inboxFiltersFromSearch(search: RawSearch): InboxFilters {
   return {
-    includeApproved:
-      typeof search.includeApproved === "boolean"
-        ? search.includeApproved
-        : DEFAULT_INBOX_FILTERS.includeApproved,
+    includeApproved: flag(search.includeApproved, DEFAULT_INBOX_FILTERS.includeApproved),
     recentDrafts: isRecentDrafts(search.recentDrafts)
       ? search.recentDrafts
       : DEFAULT_INBOX_FILTERS.recentDrafts,
+    separateTeam: flag(search.separateTeam, DEFAULT_INBOX_FILTERS.separateTeam),
+    separateBots: flag(search.separateBots, DEFAULT_INBOX_FILTERS.separateBots),
+    excludedTeams: list(search.excludedTeams),
+    ignoredAuthors: list(search.ignoredAuthors),
   };
 }
 
 /**
  * What to put in the address bar for a given set of choices.
  *
- * A loop rather than a field-by-field list, because unlike reading there is one rule for every
- * filter whatever its type: if it is the default it is not written down.
+ * Field by field for the same reason as reading it, and because the two lists have to be joined
+ * on the way out - there is no one rule covering every filter here the way there is on the wire.
  */
 export function inboxSearchFromFilters(filters: InboxFilters): InboxSearch {
   const search: InboxSearch = {};
 
-  for (const key of INBOX_FILTER_KEYS) {
-    carry(search, filters, key);
+  if (filters.includeApproved !== DEFAULT_INBOX_FILTERS.includeApproved) {
+    search.includeApproved = filters.includeApproved;
+  }
+
+  if (filters.recentDrafts !== DEFAULT_INBOX_FILTERS.recentDrafts) {
+    search.recentDrafts = filters.recentDrafts;
+  }
+
+  if (filters.separateTeam !== DEFAULT_INBOX_FILTERS.separateTeam) {
+    search.separateTeam = filters.separateTeam;
+  }
+
+  if (filters.separateBots !== DEFAULT_INBOX_FILTERS.separateBots) {
+    search.separateBots = filters.separateBots;
+  }
+
+  if (filters.excludedTeams.length > 0) {
+    search.excludedTeams = filters.excludedTeams.join(",");
+  }
+
+  if (filters.ignoredAuthors.length > 0) {
+    search.ignoredAuthors = filters.ignoredAuthors.join(",");
   }
 
   return search;
 }
 
 /**
- * One filter, written down or left out.
+ * A boolean, or the default.
  *
- * A function of its own only so the key is a type parameter rather than the union of every key:
- * `search[key] = filters[key]` is an assignment TypeScript can check when both sides are
- * indexed by the same `Key`, and cannot when `key` could be any of them.
+ * The string forms are here because the address bar is hand-editable and a router is entitled to
+ * hand back whatever it found: `?separateTeam=false` typed by a person parses to the word rather
+ * than the value under some parsers and the value under others, and the page should not depend
+ * on which.
  */
-function carry<Key extends InboxFilterKey>(
-  search: InboxSearch,
-  filters: InboxFilters,
-  key: Key
-): void {
-  if (filters[key] !== DEFAULT_INBOX_FILTERS[key]) {
-    search[key] = filters[key];
+function flag(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
   }
+
+  if (value === "true" || value === "false") {
+    return value === "true";
+  }
+
+  return fallback;
+}
+
+/**
+ * A comma-separated word as the list it stands for.
+ *
+ * Normalised the same way the server normalises it - trimmed, lowercased, deduplicated - so that
+ * what the panel draws as ticked and what the server actually matched on are the same thing. A
+ * hand-typed `?ignoredAuthors=Dependabot` must not leave a chip on screen that the rows disagree
+ * with.
+ */
+function list(value: unknown): string[] {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const seen = new Set<string>();
+
+  for (const part of value.split(",")) {
+    const normalized = part.trim().toLowerCase();
+
+    if (normalized) {
+      seen.add(normalized);
+    }
+  }
+
+  return [...seen];
 }
 
 function isRecentDrafts(value: unknown): value is RecentDrafts {
