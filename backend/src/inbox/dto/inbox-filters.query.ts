@@ -77,14 +77,14 @@ const MAX_LIST_ENTRY_LENGTH = 120;
 const LIST_ENTRY = /^[A-Za-z0-9._/-]+$/;
 
 /**
- * A filter carrying several names, comma-separated.
+ * A filter carrying several names: comma-separated on a query string, an array in a body.
  *
- * Comma-separated rather than the repeated `?a=1&a=2` form, because these end up in the address
- * bar and a reader is meant to be able to see what their inbox is filtered by. `dependabot,
- * renovate` says it; `ignoredAuthors=%5B%22dependabot%22%5D` does not.
+ * Comma-separated rather than the repeated `?a=1&a=2` form, because a route here is meant to be
+ * pasteable into a terminal and read. `ignoredAuthors=dependabot,renovate` says what it does;
+ * `ignoredAuthors=%5B%22dependabot%22%5D` does not.
  *
- * The repeated form is accepted anyway - it costs one line, and it is what somebody hand-editing
- * a URL is likely to reach for.
+ * An array is accepted as well - it costs one line, it is what the repeated form arrives as,
+ * and it is what JSON has.
  */
 function FilterList(description: string): PropertyDecorator {
   return applyDecorators(
@@ -126,14 +126,10 @@ function toList(value: unknown): unknown {
 /**
  * The build filters as they come off the wire, on their own.
  *
- * A class of their own because two routes take only these: the ones that keep a view ready. A
- * pin is a set of build filters and nothing else - view filters are applied to a stored snapshot
- * on the way out, so they change nothing about what is warmed - and this is what makes that a
- * shape the validator enforces rather than a paragraph somebody has to read.
- *
- * The pipe runs with `whitelist: true` and without `forbidNonWhitelisted`, so a client sending
- * every filter to those routes has the view ones quietly dropped rather than rejected. That is
- * deliberate: it means the frontend builds one query string for all four routes.
+ * A class of their own so the split in inbox-filters.interface.ts - build filters go into the
+ * snapshot and its key, view filters are applied on the way out - is a shape the type system
+ * knows about here too, and `toInboxBuildFilters` has something to take. Nothing on the wire is
+ * only this half any more; the whole set goes to every route.
  */
 export class InboxBuildFiltersQuery implements Partial<InboxBuildFilters> {
   @FilterFlag(
@@ -159,8 +155,11 @@ export class InboxBuildFiltersQuery implements Partial<InboxBuildFilters> {
  * that quietly never arrives.
  *
  * Extends the build half rather than restating it, so the two can never disagree about what a
- * build filter is called or what it accepts - and so adding one to `InboxBuildFiltersQuery`
- * reaches both the inbox routes and the warm ones at once.
+ * build filter is called or what it accepts.
+ *
+ * Also the body of `PUT /inbox/settings`, and deliberately the same class: the coercions here
+ * pass a JSON boolean or array through untouched and reject the same things they reject on a
+ * query string, so a setting cannot be spelled one way when read and another when stored.
  */
 export class InboxFiltersQuery extends InboxBuildFiltersQuery implements Partial<InboxFilters> {
   @FilterFlag(
@@ -194,7 +193,7 @@ export class InboxFiltersQuery extends InboxBuildFiltersQuery implements Partial
  * Written out field by field for the same reason as `toInboxFilters`: the return type is the
  * complete `InboxBuildFilters`, so a build filter added to the interface and forgotten here does
  * not compile. Which matters more here than anywhere - a build filter missing from this is a
- * build filter missing from the cache key, and a person warming one view and reading another.
+ * build filter missing from the cache key, and a page reading a snapshot built for another.
  */
 export function toInboxBuildFilters(query: InboxBuildFiltersQuery): InboxBuildFilters {
   return {

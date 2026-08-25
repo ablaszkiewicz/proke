@@ -24,8 +24,7 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     UserCoreModule,
     ConnectionsModule,
     InboxModule,
-    // The scheduler InboxModule's export comment refers to, plus the routes that say what
-    // it should be sweeping.
+    // The scheduler InboxModule's export comment refers to.
     InboxWarmModule,
     SlackModule,
     GithubWebhookModule,

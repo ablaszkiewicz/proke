@@ -229,3 +229,68 @@ export function inboxFiltersKey(filters: InboxBuildFilters): string {
 function keyPart(value: InboxBuildFilters[InboxBuildFilterName]): string {
   return typeof value === 'boolean' ? (value ? '1' : '0') : value;
 }
+
+/**
+ * The settings as they sit on the user row: every filter optional, and `recentDrafts` a plain
+ * string rather than a member of the closed set.
+ *
+ * Optional because a row written before a filter existed has no value for it, and loose because
+ * a row written by a newer deploy than this one may hold a value this one does not know. Both
+ * are answered on the way out by `normalizeInboxSettings`, which is what makes adding a filter -
+ * or renaming a window - a change with no migration behind it.
+ */
+export interface InboxStoredSettings {
+  includeApproved?: boolean;
+  recentDrafts?: string;
+  separateTeam?: boolean;
+  separateBots?: boolean;
+  excludedTeams?: string[];
+  ignoredAuthors?: string[];
+}
+
+/**
+ * Stored settings, filled out from the defaults.
+ *
+ * The same job normalizePreferences does for subscriptions, and for the same reason: nothing
+ * downstream should have to decide what an absent filter meant. Absent is the whole row for
+ * somebody who has never touched a switch, so this is also what "the defaults" means in
+ * practice.
+ *
+ * Written out field by field rather than spread over the defaults, so a filter added to
+ * InboxFilters and forgotten here does not compile - and so a stored `recentDrafts` this deploy
+ * does not recognise reads as the default rather than reaching the classifier.
+ */
+export function normalizeInboxSettings(
+  stored: InboxStoredSettings | null | undefined,
+): InboxFilters {
+  return {
+    includeApproved: stored?.includeApproved ?? DEFAULT_INBOX_FILTERS.includeApproved,
+    recentDrafts: isRecentDrafts(stored?.recentDrafts)
+      ? stored.recentDrafts
+      : DEFAULT_INBOX_FILTERS.recentDrafts,
+    separateTeam: stored?.separateTeam ?? DEFAULT_INBOX_FILTERS.separateTeam,
+    separateBots: stored?.separateBots ?? DEFAULT_INBOX_FILTERS.separateBots,
+    excludedTeams: normalizeFilterList(stored?.excludedTeams ?? DEFAULT_INBOX_FILTERS.excludedTeams),
+    ignoredAuthors: normalizeFilterList(
+      stored?.ignoredAuthors ?? DEFAULT_INBOX_FILTERS.ignoredAuthors,
+    ),
+  };
+}
+
+export function isRecentDrafts(value: unknown): value is RecentDrafts {
+  return RECENT_DRAFTS_VALUES.includes(value as RecentDrafts);
+}
+
+/**
+ * The build half of a complete set of settings: what a snapshot is built under and filed by.
+ *
+ * Picked out explicitly rather than passing the whole set where only this half is wanted, so a
+ * snapshot's `filters` never carries a view filter it was not built under - and so the type
+ * says which half a caller is holding.
+ */
+export function buildFiltersOf(filters: InboxFilters): InboxBuildFilters {
+  return {
+    includeApproved: filters.includeApproved,
+    recentDrafts: filters.recentDrafts,
+  };
+}

@@ -43,16 +43,16 @@ const EMPTY: InboxResult = {
  *
  * ## Where the filters come from
  *
- * The address bar, by way of the page - see components/inbox/search.ts. Nothing is stored here
- * and nothing is stored in the browser, so this logic never has an opinion about what the
- * settings are; it is told, and `setFilters` is the only way in.
+ * The account, by way of inboxSettingsLogic and the page. Nothing is stored here, so this logic
+ * never has an opinion about what the settings are; it is told, and `setFilters` is the only way
+ * in.
  *
  * That is also why `setFilters` decides what to do about a change rather than the page deciding.
- * The first one is the page opening on whatever the link was carrying, and the two passes above
- * are exactly what a page opening wants. Every later one is somebody moving a switch, and what
- * that costs depends on which switch - see below. A component holding a "have I mounted yet"
- * flag, or an opinion about which filters are cheap, would be those decisions made somewhere
- * they cannot be read next to their reasons.
+ * The first one is the page opening on whatever the account says, and the two passes above are
+ * exactly what a page opening wants. Every later one is somebody moving a switch, and what that
+ * costs depends on which switch - see below. A component holding a "have I mounted yet" flag,
+ * or an opinion about which filters are cheap, would be those decisions made somewhere they
+ * cannot be read next to their reasons.
  *
  * ## Why a build filter refreshes and a view filter re-reads
  *
@@ -88,7 +88,7 @@ export const inboxLogic = kea<inboxLogicType>([
   path(["src", "lib", "logics", "inboxLogic"]),
 
   actions({
-    /** What the address bar says the settings are now. The only way filters get in here. */
+    /** What the settings are now, complete. The only way filters get in here. */
     setFilters: (filters: InboxFilters) => ({ filters }),
   }),
 
@@ -162,9 +162,9 @@ export const inboxLogic = kea<inboxLogicType>([
     /**
      * The settings every request is made under.
      *
-     * Complete rather than partial, and not persisted: the page hands over a whole set worked
-     * out from the address bar and the defaults, so nothing here ever has to decide what an
-     * absent filter meant or what a filter added in a later deploy should be.
+     * Complete rather than partial, and not persisted here: the page hands over a whole set,
+     * filled out by the server from the account and its defaults, so nothing here ever has to
+     * decide what an absent filter meant or what a filter added in a later deploy should be.
      */
     filters: [
       DEFAULT_INBOX_FILTERS as InboxFilters,
@@ -247,9 +247,9 @@ export const inboxLogic = kea<inboxLogicType>([
 
       const previous = inboxLogic.selectors.filters(previousState);
 
-      // The address bar saying again what is already on screen. A router is entitled to hand
-      // the same location back - a re-render, a press on the span that is already chosen - and
-      // a request per repetition is a cost nobody asked for.
+      // The settings saying again what is already on screen - a re-render, a press on the span
+      // that is already chosen, the server's answer agreeing with the optimistic one - and a
+      // request per repetition is a cost nobody asked for.
       if (sameInboxFilters(previous, filters)) {
         return;
       }
@@ -271,9 +271,9 @@ export const inboxLogic = kea<inboxLogicType>([
 /**
  * Whether the difference between two sets of settings is one the server has to rebuild for.
  *
- * Compared filter by filter rather than by asking which one the panel touched, because the
- * address bar is what feeds this and a navigation can move more than one at a time - a bookmark,
- * a back button, a link somebody sent. One build filter among them is enough.
+ * Compared filter by filter rather than by asking which one the panel touched, because a whole
+ * set is what feeds this and it can differ in more than one place at a time - the account
+ * arriving, the server's answer to a save tidying a list. One build filter among them is enough.
  *
  * `!==` is sound here and would not be over the whole set: every build filter's value is a
  * boolean or a word, and the two that are lists are both view filters.

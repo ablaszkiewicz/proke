@@ -1,10 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
+import {
+  InboxFilters,
+  normalizeInboxSettings,
+} from '../../inbox/core/entities/inbox-filters.interface';
 import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
 import { UserSerializer } from '../core/entities/user.serializer';
+
+/** One person the warmer should build an inbox for, and the settings to build it under. */
+export interface InboxWarmTarget {
+  userId: string;
+  settings: InboxFilters;
+}
 
 @Injectable()
 export class UserReadService {
@@ -48,29 +58,30 @@ export class UserReadService {
   }
 
   /**
-   * Of the given users, the ones there is any point asking GitHub about: seen since `activeSince`
-   * and still holding a token.
+   * Everybody whose inbox is worth keeping ready: asked for it since `usedSince`, and still
+   * holding a token.
    *
-   * Ids in and ids out, deliberately. The inbox warmer asks this about everybody holding a pin
-   * every five minutes, and the two things it needs to know are a date and whether a field is
-   * present - so normalizing would put every stored GitHub token through the cipher to answer
-   * neither of them.
+   * A projection rather than normalised users, deliberately. The inbox warmer asks this every
+   * five minutes, and the two things it needs are a date and a settings object - so normalising
+   * would put every stored GitHub token through the cipher to answer neither of them.
    *
    * `$exists` and `$ne: null` together rather than either alone: clearGithubAccessToken unsets
    * the field, while a row that never had one has it absent, and both must be excluded.
    */
-  public async readRefreshableIds(ids: string[], activeSince: Date): Promise<string[]> {
+  public async readInboxWarmTargets(usedSince: Date): Promise<InboxWarmTarget[]> {
     const users = await this.userModel
       .find({
-        _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
-        lastActivityDate: { $gte: activeSince },
+        inboxLastUsedAt: { $gte: usedSince },
         githubAccessToken: { $exists: true, $ne: null },
       })
-      .select({ _id: 1 })
-      .lean<{ _id: Types.ObjectId }[]>()
+      .select({ _id: 1, inboxSettings: 1 })
+      .lean<Pick<UserEntity, '_id' | 'inboxSettings'>[]>()
       .exec();
 
-    return users.map((user) => user._id.toString());
+    return users.map((user) => ({
+      userId: user._id.toString(),
+      settings: normalizeInboxSettings(user.inboxSettings),
+    }));
   }
 
   private normalize(user: UserEntity): UserNormalized {

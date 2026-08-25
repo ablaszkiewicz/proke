@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { InboxWarmWriteModule } from '../../inbox/warm/write/inbox-warm-write.module';
 import { PokeMessageWriteModule } from '../../notifications/messages/write/poke-message-write.module';
 import { SlackLinkWriteModule } from '../../slack/links/write/slack-link-write.module';
 import { SlackWorkspaceWriteModule } from '../../slack/workspaces/write/slack-workspace-write.module';
@@ -19,7 +18,6 @@ import { UserDeletionService } from './user-deletion.service';
     SlackLinkWriteModule,
     SlackWorkspaceWriteModule,
     PokeMessageWriteModule,
-    InboxWarmWriteModule,
   ],
   controllers: [UserCoreController],
   providers: [UserDeletionService],

@@ -51,7 +51,7 @@ export type RecentDraftWindow = (typeof RECENT_DRAFT_WINDOWS)[number];
  * The `recentDrafts` filter: a window, or `off`.
  *
  * `off` is a member of the same field rather than a flag beside it, so a window that is not in
- * force cannot be written down - not here, not on the wire, and not in the address bar.
+ * force cannot be written down - not here, not on the wire, and not on the account.
  */
 export type RecentDrafts = RecentDraftWindow | "off";
 
@@ -101,10 +101,11 @@ export interface InboxTeam {
  * the exception: their default is everything, so a list of what to keep would silently drop the
  * team you join next month.
  *
- * Adding one is a field in the right interface here, a default below, an entry in
- * components/inbox/filters.ts for the words, and a line in components/inbox/search.ts for the
- * address bar. The server owns every rule itself - each needs something no browser can see - so
- * nothing about the filtering happens in this file.
+ * Adding one is a field in the right interface here, a default below, and an entry in
+ * components/inbox/filters.ts for the words. It reaches the page on the profile - see
+ * user.api.ts - and the server fills it in for every account saved before it existed, so there
+ * is nothing to migrate. The server owns every rule itself - each needs something no browser
+ * can see - so nothing about the filtering happens in this file.
  */
 export interface InboxBuildFilters {
   includeApproved: boolean;
@@ -145,11 +146,12 @@ export const DEFAULT_VIEW_FILTERS: InboxViewFilters = {
 
 /**
  * What somebody who has never touched the settings gets. Kept in step with the server's own
- * defaults, though nothing breaks if they drift: every request sends every filter explicitly.
+ * defaults, though nothing breaks if they drift: every request sends every filter explicitly,
+ * and the set the page runs under comes from the account rather than from here.
  *
- * It is also what decides how short the address bar is. Only settings that differ from these
- * are written into it - see components/inbox/search.ts - so the page as it comes is `/app/inbox`
- * and nothing more.
+ * What these are for is the moment before the account has been read. The page holds these
+ * until then and asks for nothing, so a request is never made under settings that are about to
+ * be replaced - see inboxSettingsLogic.
  */
 export const DEFAULT_INBOX_FILTERS: InboxFilters = {
   ...DEFAULT_BUILD_FILTERS,
@@ -194,9 +196,8 @@ export function sameInboxFilters(a: InboxFilters, b: InboxFilters): boolean {
  * the page is showing is never a matter of what the two sides happen to agree the default is.
  *
  * Lists go comma-separated rather than as axios's repeated `key[]=` form, which is what the
- * server reads and what keeps them legible in the address bar beside it. An empty list sends an
- * empty string, which the server takes as "nobody" - the distinction matters, because "always
- * send everything" is the whole point of this function.
+ * server reads. An empty list sends an empty string, which the server takes as "nobody" - the
+ * distinction matters, because "always send everything" is the whole point of this function.
  */
 function filterParams(filters: InboxFilters): Record<string, string | boolean> {
   return Object.fromEntries(
@@ -281,107 +282,28 @@ export class InboxApi {
 }
 
 /**
- * One view somebody has asked proke to keep ready.
+ * Where the settings are kept: on the account, and nowhere else.
  *
- * Only the build filters, and that is the whole shape of the feature rather than a shortcut. The
- * server files a snapshot under the build filters and applies the view ones to it on the way
- * out, so keeping one build set ready makes every combination of teams, bots and ignored authors
- * on top of it instant as well. A pin carrying those would be recording something that changes
- * nothing.
+ * Not in the address bar, which is where they lived before. That kept the page's own URL clean
+ * and made a view linkable, and it also meant every fresh open of `/app/inbox` came up on the
+ * defaults - so anyone who always wanted approved pull requests shown was living off a bookmark.
+ * A setting on the account survives a new tab, a new machine and a deploy, and it is also what
+ * the server refreshes the inbox under between visits, so the view somebody actually uses is
+ * the one that is warm when they come back.
  *
- * Which is also why the switch stays lit as somebody changes the settings below it in the
- * drawer: it is telling the truth. Those really are all the same kept view.
+ * The complete set is sent every time rather than the one that moved, for the same reason the
+ * inbox requests send every filter: what is stored is never a matter of what the two sides
+ * happen to agree the default is. The answer is the set as the server stored it - lists
+ * lowercased and deduplicated - and that answer is what the page ends up showing.
  */
-export interface InboxWarmPin {
-  /** Opaque. The server's identity and sort order for a pin; compare `filters`, not this. */
-  key: string;
-  filters: InboxBuildFilters;
-  /** ISO 8601. */
-  pinnedAt: string;
-}
-
-export interface InboxWarmResult {
-  pins: InboxWarmPin[];
-  /** How many are allowed. Sent by the server rather than assumed, so there is no second copy. */
-  max: number;
-}
-
-/** Whether two sets of build filters name the same kept view. */
-export function sameBuildFilters(
-  a: InboxBuildFilters,
-  b: InboxBuildFilters
-): boolean {
-  return INBOX_BUILD_FILTER_KEYS.every((key) => a[key] === b[key]);
-}
-
-/** The build half of a set of filters, which is all a pin is made of. */
-export function toBuildFilters(filters: InboxFilters): InboxBuildFilters {
-  return {
-    includeApproved: filters.includeApproved,
-    recentDrafts: filters.recentDrafts,
-  };
-}
-
-/** Whether a set of build filters is among the ones being kept ready. */
-export function isKeptWarm(
-  pins: InboxWarmPin[],
-  filters: InboxBuildFilters
-): boolean {
-  return pins.some((pin) => sameBuildFilters(pin.filters, filters));
-}
-
-function warmRequest(jwtToken: string, filters: InboxBuildFilters) {
-  return {
-    headers: { Authorization: `Bearer ${jwtToken}` },
-    // The same shape the inbox routes take. The server keeps only the build half and drops the
-    // rest, so one set of parameters serves every route on this page.
-    params: filters as unknown as Record<string, string | boolean>,
-  };
-}
-
-/**
- * The views being kept ready.
- *
- * Every route here answers with the whole list, so nothing on this side has to work out what its
- * own request did - a press on a switch that was already on, a removal of something already
- * removed, and a refusal at capacity all come back as the truth and the panel simply draws it.
- *
- * Deliberately not folded into the inbox response. It would save a request and would put a
- * database round trip onto the read the whole page paints from, which is the one call on this
- * page that is never allowed to be slow.
- */
-export class InboxWarmApi {
-  public static async list(jwtToken: string): Promise<InboxWarmResult> {
-    const response = await axios.get<InboxWarmResult>("/inbox/warm", {
+export class InboxSettingsApi {
+  public static async update(
+    jwtToken: string,
+    filters: InboxFilters
+  ): Promise<InboxFilters> {
+    const response = await axios.put<InboxFilters>("/inbox/settings", filters, {
       headers: { Authorization: `Bearer ${jwtToken}` },
     });
-
-    return response.data;
-  }
-
-  /** Idempotent. Throws with a 409 when the reader already holds `max` others. */
-  public static async add(
-    jwtToken: string,
-    filters: InboxBuildFilters
-  ): Promise<InboxWarmResult> {
-    const response = await axios.put<InboxWarmResult>(
-      "/inbox/warm",
-      {},
-      warmRequest(jwtToken, filters)
-    );
-
-    return response.data;
-  }
-
-  /** Idempotent: removing something that is not kept answers with the list unchanged. */
-  public static async remove(
-    jwtToken: string,
-    filters: InboxBuildFilters
-  ): Promise<InboxWarmResult> {
-    const response = await axios.delete<InboxWarmResult>(
-      "/inbox/warm",
-      warmRequest(jwtToken, filters)
-    );
 
     return response.data;
   }

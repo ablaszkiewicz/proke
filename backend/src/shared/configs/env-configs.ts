@@ -58,7 +58,7 @@ interface EnvConfig {
   };
   inbox: {
     /**
-     * How often the pinned views are rebuilt, and nought to turn the sweep off entirely.
+     * How often everybody's inbox is rebuilt, and nought to turn the sweep off entirely.
      *
      * Off is what the e2e suite wants: a timer reaching for GitHub in the background would make
      * every spec's mocks a race, so specs drive InboxWarmerService.sweep themselves.
@@ -131,9 +131,9 @@ export function getEnvConfig(): EnvConfig {
       host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com',
     },
     inbox: {
-      // Five minutes. Comfortably inside SNAPSHOT_TTL_MS, so a pinned view never expires between
-      // sweeps, and slow enough that three pins cost a user 36 of their 5,000 hourly GraphQL
-      // points. Configurable so a deploy can turn it off without a release.
+      // Five minutes. Comfortably inside SNAPSHOT_TTL_MS, so a warmed inbox never expires between
+      // sweeps, and slow enough that being kept warm costs a user 12 of their 5,000 hourly
+      // GraphQL points. Configurable so a deploy can turn it off without a release.
       warmSweepIntervalMs: Number(process.env.INBOX_WARM_SWEEP_INTERVAL_MS ?? 5 * 60_000),
     },
     notifications: {

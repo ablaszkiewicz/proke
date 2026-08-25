@@ -1,16 +1,16 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { MetricsService } from '../../analytics/metrics.service';
 import { getEnvConfig } from '../../shared/configs/env-configs';
-import { UserReadService } from '../../user/read/user-read.service';
+import { InboxWarmTarget, UserReadService } from '../../user/read/user-read.service';
+import { buildFiltersOf } from '../core/entities/inbox-filters.interface';
 import { InboxRefreshService } from '../inbox-refresh.service';
-import { InboxWarmReadService, UserWarmPins } from './read/inbox-warm-read.service';
 
 /**
  * How long after boot the first sweep runs.
  *
- * There is one at all because without it a deploy leaves every warm view cold for a whole
- * interval - and the first load after a deploy is precisely the case this feature exists to fix.
- * The snapshots live in this process, so they go with it.
+ * There is one at all because without it a deploy leaves every inbox cold for a whole interval -
+ * and the first load after a deploy is precisely the case this feature exists to fix. The
+ * snapshots live in this process, so they go with it.
  *
  * Twenty seconds because a container that has just started is answering its first requests,
  * opening its first Mongo connections and being health-checked, and firing every GitHub query
@@ -21,10 +21,6 @@ const FIRST_SWEEP_DELAY_MS = 20_000;
 /**
  * How many users are refreshed at once.
  *
- * Across users rather than within one: a person's pins go one after another, so the teammate
- * lookup the first one does is a cache hit for the rest, and nobody with three pins takes three
- * slots while somebody with one waits.
- *
  * Four because the ceiling on this is not GitHub - each query is against the user's own
  * 5,000-an-hour budget - it is this process. Every refresh parses a large GraphQL response and
  * classifies it, which is synchronous work on the same event loop serving webhooks, and
@@ -33,21 +29,22 @@ const FIRST_SWEEP_DELAY_MS = 20_000;
 const CONCURRENCY = 4;
 
 /**
- * How recently somebody must have used proke for their pins to be swept.
+ * How recently somebody must have asked for their inbox for it to be kept ready.
  *
- * Without a gate the sweep only ever grows: three pins belonging to somebody who signed up once
- * and left cost 36 GitHub queries an hour, for ever, on behalf of nobody. `lastActivityDate` is
- * stamped by the auth guard on every authenticated request, so this tracks genuine use.
+ * Read against `inboxLastUsedAt`, which POST /inbox/refresh stamps, rather than against
+ * `lastActivityDate`, which any request does. The difference is everybody who uses proke for
+ * pokes and never opens the inbox: gated on activity alone they would cost a GitHub query every
+ * five minutes, for ever, for a page they do not look at.
  *
  * Forty-eight hours covers a working week and deliberately not a weekend - somebody who stops on
  * Friday evening and returns on Monday morning arrives to a cold inbox, which costs them about a
- * second and a half once. A pin is not forgotten while they are away, only left unswept, so the
- * first request they make warms it again for the next two days.
+ * second and a half once. Their settings are not forgotten while they are away, only left
+ * unswept, so the first refresh they make warms them again for the next two days.
  */
 const ACTIVE_WITHIN_MS = 48 * 60 * 60_000;
 
 /**
- * Rebuilds the views people have asked to be kept ready, on a timer.
+ * Rebuilds everybody's inbox on a timer, under the settings they have stored.
  *
  * ## What it is and is not
  *
@@ -58,8 +55,16 @@ const ACTIVE_WITHIN_MS = 48 * 60 * 60_000;
  *
  * It does not make the client's own refresh unnecessary, and is not meant to. The page still
  * asks GitHub behind rows that are already on screen. What this buys is that the rows are
- * *there* for the first frame - after a deploy, after a night away, and under a set of filters
- * somebody uses rarely, which are the three cases where today they are not.
+ * *there* for the first frame - after a deploy and after a night away, which are the two cases
+ * where otherwise they are not.
+ *
+ * ## Why there is nothing to configure
+ *
+ * There used to be: a list of views per person, pinned by hand. That asked people to predict
+ * which settings they would want ready, which is a question nobody has an answer to, and it
+ * warmed nothing for the majority who never pressed the button. Now the thing warmed is the
+ * thing the page will open on - the settings on the user row - and the only decision left is
+ * whether somebody has been here lately, which is made by Mongo in the query.
  *
  * ## Why a plain timer, and why no leader election
  *
@@ -69,8 +74,9 @@ const ACTIVE_WITHIN_MS = 48 * 60 * 60_000;
  *
  * No leader election because the thing being warmed is a cache inside this process. A second
  * replica warming its own is correct rather than duplicated work; there is nothing shared to
- * coordinate over. The cost is that GitHub calls multiply by replica count, which is worth
- * knowing before scaling out and is not a reason to coordinate.
+ * coordinate over - the sweep reads Mongo and never writes it. The cost is that GitHub calls
+ * multiply by replica count, which is worth knowing before scaling out and is not a reason to
+ * coordinate.
  *
  * ## What it is careful about
  *
@@ -87,7 +93,6 @@ export class InboxWarmerService implements OnApplicationBootstrap, OnModuleDestr
   private sweeping = false;
 
   constructor(
-    private readonly warmReadService: InboxWarmReadService,
     private readonly userReadService: UserReadService,
     private readonly inboxRefreshService: InboxRefreshService,
     private readonly metrics: MetricsService,
@@ -118,7 +123,7 @@ export class InboxWarmerService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * One pass over everybody's pins.
+   * One pass over everybody who has been here lately.
    *
    * Public so a spec can drive it without a timer, and so the shape under test is the shape that
    * ships. It resolves rather than rejects whatever happens inside it - see the note above.
@@ -150,68 +155,45 @@ export class InboxWarmerService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   private async run(): Promise<void> {
-    const everybody = await this.warmReadService.readAll();
-
-    if (everybody.length === 0) {
-      return;
-    }
-
     /*
-     * Which of them have been here lately and still have a token, decided by Mongo rather than
-     * here. A projection of ids costs nothing and, more to the point, decrypts nothing: reading
-     * the users themselves would run every stored GitHub token through the cipher to answer a
-     * question about a date.
+     * Who is due, decided by Mongo rather than here: asked for their inbox lately and still
+     * holding a token. One query, projected down to an id and a settings object, so no stored
+     * token is decrypted to answer a question about a date.
      */
-    const eligible = new Set(
-      await this.userReadService.readRefreshableIds(
-        everybody.map((entry) => entry.userId),
-        new Date(Date.now() - ACTIVE_WITHIN_MS),
-      ),
+    const due = await this.userReadService.readInboxWarmTargets(
+      new Date(Date.now() - ACTIVE_WITHIN_MS),
     );
 
-    const due: UserWarmPins[] = [];
-
-    for (const entry of everybody) {
-      if (eligible.has(entry.userId)) {
-        due.push(entry);
-        continue;
-      }
-
-      // Counted per pin rather than per person, so this series and the outcomes below are in the
-      // same unit and can be read against each other.
-      this.metrics.count('proke.inbox.warmed', { result: 'skipped_inactive' }, entry.pins.length);
-    }
-
-    await pool(due, CONCURRENCY, (entry) => this.warmUser(entry));
+    await pool(due, CONCURRENCY, (target) => this.warm(target));
   }
 
-  /** One person's pins, one after another, so the teammate lookup is shared between them. */
-  private async warmUser(entry: UserWarmPins): Promise<void> {
-    for (const pin of entry.pins) {
-      try {
-        const result = await this.inboxRefreshService.refresh(entry.userId, pin.filters);
+  /**
+   * One person's inbox, under the build half of their settings.
+   *
+   * Only the build half, because that is what a snapshot is filed under - see
+   * InboxStoreService. The view half is applied to the stored document on the way out, so
+   * warming one build key makes every reading of it instant.
+   */
+  private async warm(target: InboxWarmTarget): Promise<void> {
+    try {
+      const result = await this.inboxRefreshService.refresh(
+        target.userId,
+        buildFiltersOf(target.settings),
+      );
 
-        this.metrics.count('proke.inbox.warmed', {
-          result: result.ok
-            ? 'refreshed'
-            : result.reason === 'no-token'
-              ? 'no_token'
-              : 'github_unavailable',
-        });
-
-        // A revoked token stops the rest of this person's pins immediately: refresh has already
-        // cleared it, so every remaining one would take the same trip to Mongo to be told the
-        // same thing, and the next sweep will not see them at all.
-        if (!result.ok && result.reason === 'no-token') {
-          return;
-        }
-      } catch (error) {
-        // One person's inbox failing must not end the sweep for everybody behind them in the
-        // pool. Logged rather than swallowed silently, because this is the branch that means a
-        // bug rather than GitHub being GitHub - `refresh` handles that itself and returns.
-        this.metrics.count('proke.inbox.warmed', { result: 'failed' });
-        this.logger.error(`Failed to warm ${pin.key} for user ${entry.userId}: ${describe(error)}`);
-      }
+      this.metrics.count('proke.inbox.warmed', {
+        result: result.ok
+          ? 'refreshed'
+          : result.reason === 'no-token'
+            ? 'no_token'
+            : 'github_unavailable',
+      });
+    } catch (error) {
+      // One person's inbox failing must not end the sweep for everybody behind them in the
+      // pool. Logged rather than swallowed silently, because this is the branch that means a
+      // bug rather than GitHub being GitHub - `refresh` handles that itself and returns.
+      this.metrics.count('proke.inbox.warmed', { result: 'failed' });
+      this.logger.error(`Failed to warm the inbox of user ${target.userId}: ${describe(error)}`);
     }
   }
 }
@@ -220,7 +202,7 @@ export class InboxWarmerService implements OnApplicationBootstrap, OnModuleDestr
  * Runs `work` over `items`, at most `limit` at a time.
  *
  * Workers pulling from a shared cursor rather than fixed slices, so one slow user delays the
- * next item and not a whole quarter of the list. Never rejects: `warmUser` handles its own
+ * next item and not a whole quarter of the list. Never rejects: `warm` handles its own
  * failures, and a pool that threw would take the sweep down with it.
  */
 async function pool<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {

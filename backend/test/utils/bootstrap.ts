@@ -6,7 +6,6 @@ import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InboxModule } from '../../src/inbox/inbox.module';
-import { InboxWarmPinEntity } from '../../src/inbox/warm/core/entities/inbox-warm-pin.entity';
 import { InboxWarmModule } from '../../src/inbox/warm/inbox-warm.module';
 import { InboxWarmerService } from '../../src/inbox/warm/inbox-warmer.service';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
@@ -109,9 +108,6 @@ export async function createTestApp() {
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
-  const inboxWarmPinModel: Model<InboxWarmPinEntity> = module.get(
-    getModelToken(InboxWarmPinEntity.name),
-  );
   const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
@@ -121,7 +117,6 @@ export async function createTestApp() {
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
-    await inboxWarmPinModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -147,7 +142,6 @@ export async function createTestApp() {
       slackWorkspaceModel,
       slackLinkModel,
       pokeMessageModel,
-      inboxWarmPinModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),

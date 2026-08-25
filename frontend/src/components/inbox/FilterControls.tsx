@@ -70,9 +70,9 @@ export function SwitchFilter({
  *
  * The cost is that a window turned off and on again comes back at the default rather than where
  * it was. That is the honest answer rather than a shortcoming: nothing on this page keeps a
- * setting that is not in force, because the address bar is the only place settings are kept and
- * it carries only what is in force. Somebody who wants a different span presses it, which is
- * the same press they made the first time.
+ * setting that is not in force - what is saved is the settings as they stand, and a window that
+ * is off has no span. Somebody who wants a different span presses it, which is the same press
+ * they made the first time.
  *
  * ## Why the spans are buttons rather than radios
  *
@@ -353,7 +353,7 @@ export function AuthorsFilter({
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           // Comma as well as Enter, because somebody pasting a list types the separator they
-          // would have used in a text field - and the address bar this ends up in uses it too.
+          // would have used in a text field - and it is the one the inbox request uses too.
           if (event.key === "Enter" || event.key === ",") {
             event.preventDefault();
             commit();

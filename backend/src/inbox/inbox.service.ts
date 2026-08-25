@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { UserWriteService } from '../user/write/user-write.service';
 import { InboxFilters, InboxViewFilters } from './core/entities/inbox-filters.interface';
 import {
   InboxSectionContent,
@@ -24,14 +25,17 @@ import { InboxStoreService } from './inbox-store.service';
  * Fast most of the time and slow unpredictably is worse than fast always plus a visible refresh:
  * the reader can start on the top of the list either way, and now they always can.
  *
- * The scheduled sweep that is coming does not change this. It writes the same document, so it
- * only makes the client's `refresh` a no-op most of the time.
+ * The scheduled sweep does not change this. It writes the same document, so it only makes the
+ * client's `refresh` a no-op most of the time - see InboxWarmerService.
  */
 @Injectable()
 export class InboxService {
+  private readonly logger = new Logger(InboxService.name);
+
   constructor(
     private readonly inboxStoreService: InboxStoreService,
     private readonly inboxRefreshService: InboxRefreshService,
+    private readonly userWriteService: UserWriteService,
   ) {}
 
   /**
@@ -53,6 +57,8 @@ export class InboxService {
 
   /** Goes and asks GitHub. The only path in this module that costs a request. */
   public async refreshForUser(userId: string, filters: InboxFilters): Promise<InboxResponse> {
+    await this.recordUse(userId);
+
     const refreshed = await this.inboxRefreshService.refresh(userId, filters);
 
     if (refreshed.ok) {
@@ -70,6 +76,32 @@ export class InboxService {
     }
 
     return blank({ stale: false, githubReauthRequired });
+  }
+
+  /** What the page will open on next time, and what the sweep builds meanwhile. */
+  public async updateSettingsForUser(userId: string, settings: InboxFilters): Promise<InboxFilters> {
+    return this.userWriteService.updateInboxSettings(userId, settings);
+  }
+
+  /**
+   * What tells the warmer this person wants their inbox kept ready.
+   *
+   * Stamped here and only here. The sweep calls InboxRefreshService directly, so it can never
+   * count as its own reader and keep somebody warm for ever on the strength of having warmed
+   * them. Before the GitHub call rather than after, because this is a fact about what the person
+   * asked for and not about whether GitHub was up to answer.
+   *
+   * Never allowed to fail the refresh. A Mongo hiccup here costs a cold first frame some morning;
+   * turning it into a 500 would cost the rows the person is waiting for right now.
+   */
+  private async recordUse(userId: string): Promise<void> {
+    try {
+      await this.userWriteService.recordInboxUse(userId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not record inbox use for user ${userId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
 

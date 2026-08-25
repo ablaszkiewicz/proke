@@ -123,20 +123,18 @@ export type PokeDropReason =
 export type WebhookOutcome = 'ok' | 'failed';
 
 /**
- * What became of one pinned view on one pass of the inbox warmer.
+ * What became of one person's inbox on one pass of the inbox warmer.
  *
- * Per pin throughout, including `skipped_inactive`, which is counted once per pin belonging to
- * somebody the activity gate excluded rather than once per person. Mixing the two units is the
- * mistake PokeDropReason above documents the hard way: these are meant to be readable against
- * each other, so they all have to count the same thing.
+ * One per person per sweep, which is also one per GitHub query - the sweep builds one view
+ * each, the one their settings say. Nobody the activity gate excluded appears here at all: that
+ * decision is made by Mongo in the query, so there is nothing on this side to count.
  *
  * `no_token` and `github_unavailable` are apart because only one of them is anybody's problem.
  * The first is a revoked authorization and stays broken until the person reconnects; the second
  * is GitHub having a bad minute and fixes itself by the next sweep. `failed` is neither - it is
  * this code throwing, which is a bug.
  */
-export type WarmOutcome =
-  'refreshed' | 'no_token' | 'github_unavailable' | 'failed' | 'skipped_inactive';
+export type WarmOutcome = 'refreshed' | 'no_token' | 'github_unavailable' | 'failed';
 
 /**
  * Whether a whole pass ran.

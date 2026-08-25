@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AnalyticsService } from '../../analytics/analytics.service';
-import { InboxWarmWriteService } from '../../inbox/warm/write/inbox-warm-write.service';
 import { PokeMessageWriteService } from '../../notifications/messages/write/poke-message-write.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
@@ -28,7 +27,6 @@ export class UserDeletionService {
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
     private readonly pokeMessageWriteService: PokeMessageWriteService,
-    private readonly inboxWarmWriteService: InboxWarmWriteService,
     private readonly analytics: AnalyticsService,
   ) {}
 
@@ -45,10 +43,8 @@ export class UserDeletionService {
     // repository names and pull request titles denormalised onto those rows.
     await this.pokeMessageWriteService.deleteForUser(userId);
 
-    // The views they asked to be kept ready. The snapshots those pins were warming are in the
-    // process cache and expire on their own, but the pins are a stated choice and would
-    // otherwise keep a deleted account's inbox being fetched from GitHub every five minutes.
-    await this.inboxWarmWriteService.deleteForUser(userId);
+    // Nothing to do for the inbox: its settings and the stamp the warmer reads are on the user
+    // row and go with it, and the snapshots are in the process cache and expire on their own.
 
     // Who they are inside every Slack workspace, and the cached DM channel with them.
     await this.slackLinkWriteService.deleteForUser(userId);

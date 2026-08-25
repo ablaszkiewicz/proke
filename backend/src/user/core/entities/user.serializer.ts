@@ -1,3 +1,4 @@
+import { normalizeInboxSettings } from '../../../inbox/core/entities/inbox-filters.interface';
 import { UserEntity } from './user.entity';
 import { UserNormalized, UserSerialized } from './user.interface';
 
@@ -16,6 +17,7 @@ export class UserSerializer {
       authMethod: entity.authMethod,
       avatarUrl: entity.avatarUrl,
       githubAccessToken: entity.githubAccessToken ? decrypt(entity.githubAccessToken) : undefined,
+      inboxSettings: normalizeInboxSettings(entity.inboxSettings),
     };
   }
 
@@ -28,6 +30,7 @@ export class UserSerializer {
       email: normalized.email,
       authMethod: normalized.authMethod,
       avatarUrl: normalized.avatarUrl,
+      inboxSettings: normalized.inboxSettings,
     };
   }
 }

@@ -30,8 +30,8 @@ import { INBOX_FILTER_OPTIONS, type InboxFilterOption } from "./filters";
  *
  * ## Why this is only the contents
  *
- * The aside around it is InboxDrawer, shared with the panel that lists the views being kept
- * ready. See there for everything about how the drawer behaves; nothing in this file knows.
+ * The aside around it is InboxDrawer. See there for everything about how the drawer behaves;
+ * nothing in this file knows.
  *
  * ## What is deliberately absent
  *
@@ -59,12 +59,11 @@ export function InboxFiltersPanel({
     <>
       <DrawerHeader
         title="Filters"
-        // Not a disclaimer. Somebody who has just spent a minute unticking teams is owed the
-        // fact that closing the tab undoes it, and owed it *before* they find out - and the same
-        // sentence carries the thing to do about it. The address bar is the store: everything
-        // set here is in it, so a bookmark is the save button, and it is one the reader can also
-        // send to somebody else.
-        note="Nothing here is saved. Bookmark the URL to keep these settings."
+        // Not a disclaimer. A setting made here is on the account from the moment it is made,
+        // and the reader is owed that fact *before* they find it out: the section they hid on a
+        // Tuesday is still hidden the following month, on another machine, with nothing on the
+        // page saying why. One sentence, so nobody has to wonder where the save button is.
+        note="Saved to your account, so what you set here stays set."
         onClose={onClose}
       />
 

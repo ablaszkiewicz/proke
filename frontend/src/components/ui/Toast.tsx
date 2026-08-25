@@ -6,11 +6,12 @@ import { createPortal } from "react-dom";
 /**
  * A line that says what just happened, and sometimes offers to take it back.
  *
- * ## Why this exists rather than a confirmation
+ * ## Why this exists rather than a dialog
  *
- * Because the thing it reports - a kept view being dropped - is one press, costs nothing to
- * redo, and is not dangerous. Asking "are you sure?" first taxes every correct press to protect
- * against the rare wrong one. Doing it and offering the way back taxes only the mistake.
+ * Because what it reports - a setting that did not save, and has gone back to what it was - is
+ * one press that costs nothing to make again. A dialog would stop somebody to tell them about
+ * a thing they can see: the switch is already back where it was. A line that says why, and
+ * goes away on its own, is the right size for that.
  *
  * ## Why it is a portal
  *

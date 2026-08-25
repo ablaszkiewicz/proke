@@ -1,15 +1,9 @@
-import {
-  isKeptWarm,
-  toBuildFilters,
-  type InboxBuildFilters,
-  type InboxFilterChange,
-  type InboxFilters,
-  type InboxSectionData,
-  type InboxTeam,
-  type InboxWarmPin,
+import type {
+  InboxFilterChange,
+  InboxFilters,
+  InboxSectionData,
+  InboxTeam,
 } from "@/lib/api/inbox.api";
-import type { WarmUndo } from "@/lib/logics/inboxWarmLogic";
-import { Toast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -17,9 +11,6 @@ import { InboxSection } from "./InboxSection";
 import { SlidersIcon } from "./FilterControls";
 import { InboxDrawer } from "./InboxDrawer";
 import { InboxFiltersPanel } from "./InboxFiltersPanel";
-import { InboxWarmPanel } from "./InboxWarmPanel";
-import { WarmButton } from "./WarmButton";
-import { describeBuildFilters } from "./filters";
 import { LAYOUT_TRANSITION } from "./motion";
 import { useScrollEdges } from "./useScrollEdges";
 
@@ -90,35 +81,11 @@ export interface InboxPageProps {
    */
   teams?: InboxTeam[];
   /**
-   * Takes effect immediately: the address bar is rewritten, and a new answer is fetched behind
-   * the rows already on screen.
+   * Takes effect immediately: the toggle moves, and a new answer is fetched behind the rows
+   * already on screen. Whatever else a change means - saving it, for the real page - is the
+   * caller's, which is what lets /mock-inbox drive this with a `useState`.
    */
   onFilterChange: InboxFilterChange;
-  /**
-   * Everything about keeping views ready, in one object rather than nine props.
-   *
-   * One object because this page is presentational - /mock-inbox drives it with the same props
-   * on fake timings - so the alternative to grouping them is nine more things that page has to
-   * supply to render a stopwatch demo.
-   */
-  warm: InboxWarmControls;
-}
-
-export interface InboxWarmControls {
-  pins: InboxWarmPin[];
-  max: number;
-  /** Whether the list has been read. Until it has, the control shows neither on nor off. */
-  loaded: boolean;
-  /** What the toast is offering to put back, or nothing. */
-  undo: WarmUndo | null;
-  /** Something the server refused, in words, or nothing. Takes the toast over from `undo`. */
-  notice: string | null;
-  onKeep: (filters: InboxBuildFilters) => void;
-  onDrop: (filters: InboxBuildFilters) => void;
-  onUndo: () => void;
-  onDismissUndo: () => void;
-  /** Show a kept view, keeping whatever team and author settings are currently in force. */
-  onShow: (filters: InboxBuildFilters) => void;
 }
 
 /**
@@ -358,26 +325,8 @@ export function InboxPage({
   filters,
   teams,
   onFilterChange,
-  warm,
 }: InboxPageProps) {
-  /*
-   * One drawer, two panels, and which of them was last shown.
-   *
-   * `panel` is deliberately not cleared on close: the drawer animates shut over about a third of
-   * a second, and emptying it first would show a blank panel sliding away. Kept, the closing
-   * animation shows what was being closed, and opening the other panel while one is already open
-   * swaps the contents without the aside moving at all.
-   */
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [panel, setPanel] = useState<"filters" | "warm">("filters");
-
-  const show = (next: "filters" | "warm") => {
-    setDrawerOpen(drawerOpen ? panel !== next : true);
-    setPanel(next);
-  };
-
-  const buildFilters = toBuildFilters(filters);
-  const keptWarm = isKeptWarm(warm.pins, buildFilters);
 
   const animateEntrances = useHasPainted(
     yours.some((section) => section.pullRequests.length > 0) ||
@@ -417,38 +366,23 @@ export function InboxPage({
             <Status stale={stale} githubReauthRequired={githubReauthRequired} />
           </div>
 
-          <div className="ml-auto flex items-center gap-1">
-            <WarmButton
-              on={keptWarm}
-              loaded={warm.loaded}
-              count={warm.pins.length}
-              max={warm.max}
-              full={warm.max > 0 && warm.pins.length >= warm.max}
-              listOpen={drawerOpen && panel === "warm"}
-              onToggle={() =>
-                keptWarm ? warm.onDrop(buildFilters) : warm.onKeep(buildFilters)
-              }
-              onOpenList={() => show("warm")}
-            />
-
-            <button
-              type="button"
-              onClick={() => show("filters")}
-              aria-expanded={drawerOpen && panel === "filters"}
-              aria-label="Filters"
-              className={cn(
-                // The one piece of chrome on the page, so it is sized to be found rather than
-                // seen: muted until it is wanted, and lit by the same `accent` a row uses under
-                // a pointer.
-                "flex size-8 items-center justify-center rounded-lg transition-colors",
-                drawerOpen && panel === "filters"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              )}
-            >
-              <SlidersIcon className="size-[18px]" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(!drawerOpen)}
+            aria-expanded={drawerOpen}
+            aria-label="Filters"
+            className={cn(
+              // The one piece of chrome on the page, so it is sized to be found rather than
+              // seen: muted until it is wanted, and lit by the same `accent` a row uses under
+              // a pointer.
+              "ml-auto flex size-8 items-center justify-center rounded-lg transition-colors",
+              drawerOpen
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            <SlidersIcon className="size-[18px]" />
+          </button>
         </header>
 
         {/*
@@ -492,63 +426,14 @@ export function InboxPage({
         </div>
 
         <InboxDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-          {/*
-            Keyed on the panel so switching remounts and fades the new contents in. Without the
-            key the two panels would swap between frames, which on a drawer that is already the
-            right size reads as the text having been replaced rather than the panel having
-            changed.
-          */}
-          <motion.div
-            key={panel}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.15 }}
-            // `flex-1` rather than `h-full`: this sits between the drawer's own flex column and
-            // a panel whose body scrolls, and a percentage height in the middle of that chain is
-            // the thing that stops `min-h-0` reaching the scroll container.
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            {panel === "filters" ? (
-              <InboxFiltersPanel
-                onClose={() => setDrawerOpen(false)}
-                filters={filters}
-                teams={teams}
-                teamsAsked={hasAnswer}
-                onChange={onFilterChange}
-              />
-            ) : (
-              <InboxWarmPanel
-                onClose={() => setDrawerOpen(false)}
-                pins={warm.pins}
-                max={warm.max}
-                loaded={warm.loaded}
-                filters={filters}
-                onDrop={warm.onDrop}
-                onShow={warm.onShow}
-              />
-            )}
-          </motion.div>
+          <InboxFiltersPanel
+            onClose={() => setDrawerOpen(false)}
+            filters={filters}
+            teams={teams}
+            teamsAsked={hasAnswer}
+            onChange={onFilterChange}
+          />
         </InboxDrawer>
-
-        {/*
-          Outside the drawer and outside the squishing row, because it is a portal - see Toast.
-          A removal is very often followed by closing the drawer, and the offer to undo has to
-          outlive that.
-        */}
-        {warm.notice ? (
-          <Toast
-            message={warm.notice}
-            onDismiss={warm.onDismissUndo}
-            resetKey={warm.notice}
-          />
-        ) : warm.undo ? (
-          <Toast
-            message={`Stopped keeping ${describeBuildFilters(warm.undo.filters)}.`}
-            action={{ label: "Undo", onClick: warm.onUndo }}
-            onDismiss={warm.onDismissUndo}
-            resetKey={warm.undo.id}
-          />
-        ) : null}
       </div>
     </MotionConfig>
   );

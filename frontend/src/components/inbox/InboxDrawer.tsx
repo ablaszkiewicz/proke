@@ -8,15 +8,11 @@ import { useEffect, useState, type ReactNode } from "react";
  *
  * ## Why the shell is separate from its contents
  *
- * Because there are two panels now - the filters, and the views being kept ready - and they are
- * one drawer rather than two. Everything below is the fiddly half: squish-versus-cover at the
- * breakpoint, a scrim that must appear in one of those cases and not the other, `inert` so a
- * shut drawer is not in the tab order, and a first paint that does not slide. A second copy of
- * that would not stay a copy.
- *
- * One aside also settles what happens when somebody opens the second panel while the first is
- * open: the contents swap and the drawer stays where it is. Two asides would have had to slide
- * one shut and the other open, which reads as two things happening when one did.
+ * Because everything below is the fiddly half - squish-versus-cover at the breakpoint, a scrim
+ * that must appear in one of those cases and not the other, `inert` so a shut drawer is not in
+ * the tab order, and a first paint that does not slide - and none of it is about filters. The
+ * panel inside says what the settings are; this says how an aside behaves on this page, and the
+ * next thing to need one gets it without a second copy that would not stay a copy.
  *
  * ## Why the page squishes
  *
@@ -49,9 +45,8 @@ export function InboxDrawer({
   open: boolean;
   onClose: () => void;
   /**
-   * Kept mounted while the drawer animates shut, which is why the page holds on to which panel
-   * was last shown rather than clearing it. Unmounting on close would empty the drawer a frame
-   * before it finished closing.
+   * Kept mounted while the drawer animates shut. Unmounting on close would empty the drawer a
+   * frame before it finished closing, so a blank panel would be what slid away.
    */
   children: ReactNode;
 }) {
@@ -110,9 +105,9 @@ export function InboxDrawer({
 /**
  * What the panel is, and a way out.
  *
- * `note` is optional because only one of the two panels has something nobody would guess about
- * it. Where there is one it is not a disclaimer - it is a fact the reader is owed before they
- * find it out the hard way, carrying the thing to do about it.
+ * `note` is for something nobody would guess about the panel. It is not a disclaimer - it is a
+ * fact the reader is owed before they find it out the hard way, and it is optional because a
+ * panel with no such fact should not have to invent one.
  *
  * `pt-9` rather than the page header's `pt-8`, because the heading beside it sits on a baseline
  * rather than on the top of its box.

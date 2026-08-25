@@ -1,6 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types, UpdateQuery } from 'mongoose';
+import {
+  InboxFilters,
+  normalizeInboxSettings,
+} from '../../inbox/core/entities/inbox-filters.interface';
 import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
@@ -112,6 +116,45 @@ export class UserWriteService {
         lastActivityDate: { $lt: new Date(now.getTime() - ACTIVITY_RESOLUTION_MS) },
       },
       { $set: { lastActivityDate: now } },
+    );
+  }
+
+  /**
+   * Replaces how somebody's inbox is set up, whole.
+   *
+   * Whole rather than merged, because the client always holds and sends the complete set: a
+   * setting put back to its default has to overwrite the stored one, and a merge would leave the
+   * old value sitting there. Answers with what is now stored, normalised, so the caller draws the
+   * truth rather than its own request.
+   */
+  public async updateInboxSettings(userId: string, settings: InboxFilters): Promise<InboxFilters> {
+    const user = await this.userModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(userId) },
+        { $set: { inboxSettings: settings } },
+        { returnDocument: 'after' },
+      )
+      .lean<UserEntity>()
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return normalizeInboxSettings(user.inboxSettings);
+  }
+
+  /**
+   * Marks the inbox as having been asked for.
+   *
+   * Unconditional, unlike recordActivity, and that is a difference in how often it is called
+   * rather than a difference of opinion: this fires when the page opens or a build filter
+   * moves, which is a handful of times a day, so a write per call is cheaper than a guard.
+   */
+  public async recordInboxUse(userId: string, now: Date = new Date()): Promise<void> {
+    await this.userModel.updateOne(
+      { _id: new Types.ObjectId(userId) },
+      { $set: { inboxLastUsedAt: now } },
     );
   }
 

@@ -13,13 +13,13 @@ import { InboxService } from './inbox.service';
  * No Mongoose here, and that is the point: a built inbox is a copy of what GitHub said, so it
  * lives in the process cache rather than in a collection of its own. See InboxStoreService.
  *
- * The pins that say which of those snapshots to keep warm are a different kind of thing - a
- * stated choice, derivable from nothing - so they do have a collection, in InboxWarmModule
- * next door rather than here. The rule this module keeps is about the snapshot, not about the
- * directory.
+ * The settings that say which snapshot to build for somebody are a different kind of thing - a
+ * stated choice, derivable from nothing - so they are stored, on the user row. This module
+ * writes them through UserWriteModule; the rule it keeps is about the snapshot, not about the
+ * settings.
  *
- * InboxRefreshService is exported because it is what a scheduler will call - see
- * InboxWarmerService, which is now that scheduler.
+ * InboxRefreshService is exported because it is what a scheduler calls - see InboxWarmerService
+ * next door, which is that scheduler.
  */
 @Module({
   imports: [InMemoryCacheModule, UserReadModule, UserWriteModule],

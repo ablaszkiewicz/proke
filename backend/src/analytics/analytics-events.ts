@@ -55,16 +55,15 @@ export type AnalyticsEvent =
    */
   | 'poke_annotated'
   /*
-   * Keeping a view ready. Both carry the build filters that were pinned and how many the person
-   * now holds, which between them answer the two questions worth asking of this feature: which
-   * settings anybody actually cares enough about to warm, and whether three is the right cap.
+   * The inbox settings being changed. Carries the complete set as stored, so it answers which
+   * settings anybody actually moves off the defaults - the one question worth asking of a
+   * settings drawer. The two lists go in as counts rather than names, which are somebody else's.
    *
-   * There is deliberately no event for the sweep itself. It fires for everybody who has ever
-   * pressed the button, every five minutes, saying nothing about anyone - that is a metric, and
+   * There is deliberately no event for the warm sweep. It fires for everybody who opened the
+   * inbox lately, every five minutes, saying nothing about anyone - that is a metric, and
    * `proke.inbox.warmed` is it.
    */
-  | 'inbox_warm_added'
-  | 'inbox_warm_removed'
+  | 'inbox_settings_updated'
   | 'account_deleted';
 
 /**

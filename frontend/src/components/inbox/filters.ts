@@ -1,6 +1,5 @@
 import {
   INBOX_FILTER_KEYS,
-  type InboxBuildFilters,
   RECENT_DRAFT_WINDOWS,
   type InboxFilterKey,
   type InboxFilters,
@@ -239,28 +238,4 @@ if (import.meta.env.DEV) {
       `Inbox filters with no entry in INBOX_FILTER_OPTIONS, so nothing draws them: ${missing.join(", ")}`
     );
   }
-}
-
-/**
- * One kept view, in words, for the list in the drawer.
- *
- * Built from the same labels the toggles use rather than from sentences of its own, so a row in
- * that list and the switch it stands for cannot end up describing the same thing differently.
- *
- * Only the two build filters appear, because only they are what a kept view *is* - the rest are
- * applied to a stored answer on the way out, so every combination of them is the same kept view.
- * Saying otherwise in this string would be the one place on the page that got that wrong.
- *
- * `includeApproved` is spoken in the direction its switch is labelled - "Approved hidden" for
- * `false` - because the reader set it by that switch and would have to translate otherwise.
- */
-export function describeBuildFilters(filters: InboxBuildFilters): string {
-  const approved = filters.includeApproved ? "Approved shown" : "Approved hidden";
-
-  const drafts =
-    filters.recentDrafts === "off"
-      ? "drafts together"
-      : `recent drafts ${filters.recentDrafts}`;
-
-  return `${approved} · ${drafts}`;
 }
