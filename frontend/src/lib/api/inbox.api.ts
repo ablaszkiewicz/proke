@@ -279,3 +279,110 @@ export class InboxApi {
     return response.data;
   }
 }
+
+/**
+ * One view somebody has asked proke to keep ready.
+ *
+ * Only the build filters, and that is the whole shape of the feature rather than a shortcut. The
+ * server files a snapshot under the build filters and applies the view ones to it on the way
+ * out, so keeping one build set ready makes every combination of teams, bots and ignored authors
+ * on top of it instant as well. A pin carrying those would be recording something that changes
+ * nothing.
+ *
+ * Which is also why the switch stays lit as somebody changes the settings below it in the
+ * drawer: it is telling the truth. Those really are all the same kept view.
+ */
+export interface InboxWarmPin {
+  /** Opaque. The server's identity and sort order for a pin; compare `filters`, not this. */
+  key: string;
+  filters: InboxBuildFilters;
+  /** ISO 8601. */
+  pinnedAt: string;
+}
+
+export interface InboxWarmResult {
+  pins: InboxWarmPin[];
+  /** How many are allowed. Sent by the server rather than assumed, so there is no second copy. */
+  max: number;
+}
+
+/** Whether two sets of build filters name the same kept view. */
+export function sameBuildFilters(
+  a: InboxBuildFilters,
+  b: InboxBuildFilters
+): boolean {
+  return INBOX_BUILD_FILTER_KEYS.every((key) => a[key] === b[key]);
+}
+
+/** The build half of a set of filters, which is all a pin is made of. */
+export function toBuildFilters(filters: InboxFilters): InboxBuildFilters {
+  return {
+    includeApproved: filters.includeApproved,
+    recentDrafts: filters.recentDrafts,
+  };
+}
+
+/** Whether a set of build filters is among the ones being kept ready. */
+export function isKeptWarm(
+  pins: InboxWarmPin[],
+  filters: InboxBuildFilters
+): boolean {
+  return pins.some((pin) => sameBuildFilters(pin.filters, filters));
+}
+
+function warmRequest(jwtToken: string, filters: InboxBuildFilters) {
+  return {
+    headers: { Authorization: `Bearer ${jwtToken}` },
+    // The same shape the inbox routes take. The server keeps only the build half and drops the
+    // rest, so one set of parameters serves every route on this page.
+    params: filters as unknown as Record<string, string | boolean>,
+  };
+}
+
+/**
+ * The views being kept ready.
+ *
+ * Every route here answers with the whole list, so nothing on this side has to work out what its
+ * own request did - a press on a switch that was already on, a removal of something already
+ * removed, and a refusal at capacity all come back as the truth and the panel simply draws it.
+ *
+ * Deliberately not folded into the inbox response. It would save a request and would put a
+ * database round trip onto the read the whole page paints from, which is the one call on this
+ * page that is never allowed to be slow.
+ */
+export class InboxWarmApi {
+  public static async list(jwtToken: string): Promise<InboxWarmResult> {
+    const response = await axios.get<InboxWarmResult>("/inbox/warm", {
+      headers: { Authorization: `Bearer ${jwtToken}` },
+    });
+
+    return response.data;
+  }
+
+  /** Idempotent. Throws with a 409 when the reader already holds `max` others. */
+  public static async add(
+    jwtToken: string,
+    filters: InboxBuildFilters
+  ): Promise<InboxWarmResult> {
+    const response = await axios.put<InboxWarmResult>(
+      "/inbox/warm",
+      {},
+      warmRequest(jwtToken, filters)
+    );
+
+    return response.data;
+  }
+
+  /** Idempotent: removing something that is not kept answers with the list unchanged. */
+  public static async remove(
+    jwtToken: string,
+    filters: InboxBuildFilters
+  ): Promise<InboxWarmResult> {
+    const response = await axios.delete<InboxWarmResult>(
+      "/inbox/warm",
+      warmRequest(jwtToken, filters)
+    );
+
+    return response.data;
+  }
+}

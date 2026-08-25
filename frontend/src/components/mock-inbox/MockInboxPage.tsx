@@ -1,4 +1,4 @@
-import { InboxPage } from "@/components/inbox/InboxPage";
+import { InboxPage, type InboxWarmControls } from "@/components/inbox/InboxPage";
 import {
   DEFAULT_INBOX_FILTERS,
   type InboxFilterKey,
@@ -34,6 +34,27 @@ import { classifyMockInbox, MOCK_TEAMS } from "./mockInbox";
  * browser - see mockInbox.ts, which says at length why neither of those is allowed anywhere near
  * the real thing.
  */
+/**
+ * Keeping views ready, switched off.
+ *
+ * This page is the visual stopwatch - no session, no server, nothing to keep anything in - so
+ * the control draws in its resting state and does nothing. `loaded: false` is what puts it
+ * there: it is the same state the real page is in for the moment before the list arrives, so
+ * nothing here is a shape the real one never takes.
+ */
+const MOCK_WARM: InboxWarmControls = {
+  pins: [],
+  max: 0,
+  loaded: false,
+  undo: null,
+  notice: null,
+  onKeep: () => {},
+  onDrop: () => {},
+  onUndo: () => {},
+  onDismissUndo: () => {},
+  onShow: () => {},
+};
+
 export function MockInboxPage() {
   const [filters, setFilters] = useState<InboxFilters>(DEFAULT_INBOX_FILTERS);
 
@@ -53,6 +74,7 @@ export function MockInboxPage() {
       githubReauthRequired={false}
       filters={filters}
       teams={MOCK_TEAMS}
+      warm={MOCK_WARM}
       onFilterChange={<Key extends InboxFilterKey>(
         key: Key,
         value: InboxFilters[Key]

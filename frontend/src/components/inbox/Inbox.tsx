@@ -1,5 +1,10 @@
-import type { InboxFilterChange, InboxFilters } from "@/lib/api/inbox.api";
+import type {
+  InboxBuildFilters,
+  InboxFilterChange,
+  InboxFilters,
+} from "@/lib/api/inbox.api";
 import { inboxLogic } from "@/lib/logics/inboxLogic";
+import { inboxWarmLogic } from "@/lib/logics/inboxWarmLogic";
 import { useActions, useValues } from "kea";
 import { useEffect } from "react";
 import { InboxPage } from "./InboxPage";
@@ -19,12 +24,22 @@ import { InboxPage } from "./InboxPage";
 export function Inbox({
   filters,
   onFilterChange,
+  onShowBuildFilters,
 }: {
   filters: InboxFilters;
   onFilterChange: InboxFilterChange;
+  /**
+   * Show a kept view: both build filters at once, keeping whatever team and author settings are
+   * in force. Separate from `onFilterChange`, which sets one filter and would cost two
+   * navigations - and briefly show a set of settings nobody chose in between.
+   */
+  onShowBuildFilters: (filters: InboxBuildFilters) => void;
 }) {
   const { result, settled, refreshing, hasAnswer } = useValues(inboxLogic);
   const { setFilters } = useActions(inboxLogic);
+  const { pins, max, loaded, undo, notice } = useValues(inboxWarmLogic);
+  const { keepWarm, dropWarm, undoDrop, dismissUndo, loadWarm } =
+    useActions(inboxWarmLogic);
 
   // Runs on the first paint and again on every navigation, which is every change of a setting -
   // the panel writes to the address bar and the answer comes back down through here. A repeat
@@ -32,6 +47,12 @@ export function Inbox({
   useEffect(() => {
     setFilters(filters);
   }, [filters, setFilters]);
+
+  // Once, on arrival, and not again as the settings move. The list is about which views are
+  // kept rather than which one is on screen, so a navigation tells it nothing new.
+  useEffect(() => {
+    loadWarm();
+  }, [loadWarm]);
 
   return (
     <InboxPage
@@ -45,6 +66,18 @@ export function Inbox({
       filters={filters}
       teams={result.teams}
       onFilterChange={onFilterChange}
+      warm={{
+        pins,
+        max,
+        loaded,
+        undo,
+        notice,
+        onKeep: keepWarm,
+        onDrop: dropWarm,
+        onUndo: undoDrop,
+        onDismissUndo: dismissUndo,
+        onShow: onShowBuildFilters,
+      }}
     />
   );
 }

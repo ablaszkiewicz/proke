@@ -5,7 +5,11 @@ import {
   normalizeInboxSearch,
   type InboxSearch,
 } from "@/components/inbox/search";
-import type { InboxFilterKey, InboxFilters } from "@/lib/api/inbox.api";
+import type {
+  InboxBuildFilters,
+  InboxFilterKey,
+  InboxFilters,
+} from "@/lib/api/inbox.api";
 import { authLogic } from "@/lib/logics/authLogic";
 import {
   createFileRoute,
@@ -81,6 +85,21 @@ function InboxTanstackPage() {
           // while reading should not be twelve entries between here and wherever somebody came
           // from - and a bookmark takes the address bar as it stands either way.
           replace: true,
+        })
+      }
+      onShowBuildFilters={(build: InboxBuildFilters) =>
+        navigate({
+          to: "/app/inbox",
+          // Both build filters in one navigation rather than two calls to `onFilterChange`,
+          // which would pass through a set of settings nobody chose - and fetch for it.
+          //
+          // Spread over the current filters rather than replacing them, so showing a kept view
+          // keeps the teams and authors the reader has set. Those are not part of what was kept,
+          // because they cost nothing either way - see InboxWarmPanel.
+          search: inboxSearchFromFilters({ ...filters, ...build }),
+          // This one *is* a place: it is somebody choosing a view from a list, which is close
+          // enough to navigation that Back should undo it.
+          replace: false,
         })
       }
     />

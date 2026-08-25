@@ -1,33 +1,22 @@
-import type {
-  InboxFilterChange,
-  InboxFilters,
-  InboxTeam,
-} from "@/lib/api/inbox.api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { Fragment, useEffect, useState } from "react";
-import {
-  AuthorsFilter,
-  SwitchFilter,
-  TeamsFilter,
-  WindowFilter,
-} from "./FilterControls";
-import { INBOX_FILTER_OPTIONS, type InboxFilterOption } from "./filters";
+import { useEffect, useState, type ReactNode } from "react";
 
 /**
- * What the inbox is showing, and the one place on this page that changes it.
+ * The panel that takes width from the inbox, and everything that is true of it whatever is
+ * inside.
  *
- * ## Why a drawer rather than the popover this replaced
+ * ## Why the shell is separate from its contents
  *
- * Because every setting in here is a claim about where the rows behind it end up, and the only
- * way to judge one is to move it and watch. A popover covered the right-hand column - half of
- * the thing it was about - so changing a filter meant pressing, reading, and pressing again to
- * see what happened. A drawer takes the space instead of borrowing it: everything stays visible,
- * narrower, and a switch and its consequence are on screen at the same moment.
+ * Because there are two panels now - the filters, and the views being kept ready - and they are
+ * one drawer rather than two. Everything below is the fiddly half: squish-versus-cover at the
+ * breakpoint, a scrim that must appear in one of those cases and not the other, `inert` so a
+ * shut drawer is not in the tab order, and a first paint that does not slide. A second copy of
+ * that would not stay a copy.
  *
- * It also stopped being a panel of two switches. Five settings, one of which lists your GitHub
- * teams and one of which is a field you type into, is not a thing to hang off a button in a
- * corner.
+ * One aside also settles what happens when somebody opens the second panel while the first is
+ * open: the contents swap and the drawer stays where it is. Two asides would have had to slide
+ * one shut and the other open, which reads as two things happening when one did.
  *
  * ## Why the page squishes
  *
@@ -37,15 +26,8 @@ import { INBOX_FILTER_OPTIONS, type InboxFilterOption } from "./filters";
  *
  * That only works while there is width to take. Below `xl` the columns are already stacked and a
  * phone has none to give, so there the drawer stops squishing and covers instead, over a scrim.
- * Which is the popover's problem again - but on a screen showing one column at a time it was
- * never possible to show both, and pretending otherwise would leave 46 pixels of inbox.
- *
- * ## What is deliberately absent
- *
- * A Save, a Cancel, and a count of what is hidden. The first two because every toggle takes
- * effect immediately - the rows change under the open drawer, and there is nothing to confirm.
- * The third because it reads as a warning about a thing the reader chose, and it would need the
- * server to count rows it was asked not to send.
+ * Which is the popover problem again - but on a screen showing one column at a time it was never
+ * possible to show both, and pretending otherwise would leave 46 pixels of inbox.
  */
 
 /**
@@ -59,22 +41,19 @@ const DRAWER_WIDTH = 344;
 
 const TRANSITION = { duration: 0.34, ease: [0.2, 0.7, 0.2, 1] as const };
 
-export function InboxSettingsDrawer({
+export function InboxDrawer({
   open,
   onClose,
-  filters,
-  teams,
-  teamsAsked,
-  onChange,
+  children,
 }: {
   open: boolean;
   onClose: () => void;
-  filters: InboxFilters;
-  /** See InboxPage. Undefined is "not established yet", which the panel says rather than draws. */
-  teams?: InboxTeam[];
-  teamsAsked: boolean;
-  /** Applied immediately. There is nothing to confirm. */
-  onChange: InboxFilterChange;
+  /**
+   * Kept mounted while the drawer animates shut, which is why the page holds on to which panel
+   * was last shown rather than clearing it. Unmounting on close would empty the drawer a frame
+   * before it finished closing.
+   */
+  children: ReactNode;
 }) {
   const squishes = useSquishes();
 
@@ -121,37 +100,7 @@ export function InboxSettingsDrawer({
           // panel nobody can see and the page scrolls sideways chasing the focus ring.
           inert={!open}
         >
-          <DrawerHeader onClose={onClose} />
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 pt-1.5">
-            {INBOX_FILTER_OPTIONS.map((option, index) => (
-              <Fragment key={option.key}>
-                {/*
-                  A hairline between settings, and only between them - never above the first or
-                  below the last, where it would be a second border inside the drawer's own.
-
-                  It is here because two of these controls open into something underneath them,
-                  and without a line it is genuinely unclear whether a row of spans belongs to
-                  the setting above it or the one below. At `border/60` it is barely a mark:
-                  enough to group, not enough to be a feature.
-                */}
-                {index > 0 ? (
-                  <div
-                    aria-hidden="true"
-                    className="mx-2.5 my-1 h-px bg-border/60"
-                  />
-                ) : null}
-
-                <Setting
-                  option={option}
-                  filters={filters}
-                  teams={teams}
-                  teamsAsked={teamsAsked}
-                  onChange={onChange}
-                />
-              </Fragment>
-            ))}
-          </div>
+          {children}
         </div>
       </motion.aside>
     </>
@@ -159,28 +108,35 @@ export function InboxSettingsDrawer({
 }
 
 /**
- * What the drawer is, a way out, and the one thing about these settings nobody would guess.
+ * What the panel is, and a way out.
  *
- * The note is not a disclaimer. Somebody who has just spent a minute unticking teams is owed the
- * fact that closing the tab undoes it, and owed it *before* they find out - and the same sentence
- * carries the thing to do about it. The address bar is the store: everything set here is in it,
- * so a bookmark is the save button, and it is one the reader can also send to somebody else.
+ * `note` is optional because only one of the two panels has something nobody would guess about
+ * it. Where there is one it is not a disclaimer - it is a fact the reader is owed before they
+ * find it out the hard way, carrying the thing to do about it.
  *
- * `pt-9` rather than the header's `pt-8`, because the heading beside it sits on a baseline
+ * `pt-9` rather than the page header's `pt-8`, because the heading beside it sits on a baseline
  * rather than on the top of its box.
  */
-function DrawerHeader({ onClose }: { onClose: () => void }) {
+export function DrawerHeader({
+  title,
+  note,
+  onClose,
+}: {
+  title: string;
+  note?: ReactNode;
+  onClose: () => void;
+}) {
   return (
     <div className="shrink-0 border-b border-border/70 px-4 pb-3 pt-9">
       <div className="flex items-center gap-2">
         <h2 className="text-[13px] font-medium tracking-tight text-foreground">
-          Settings
+          {title}
         </h2>
 
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close settings"
+          aria-label={`Close ${title.toLowerCase()}`}
           className={cn(
             "ml-auto flex size-6 items-center justify-center rounded text-muted-foreground transition-colors",
             "hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
@@ -200,60 +156,13 @@ function DrawerHeader({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/80">
-        Nothing here is saved. Bookmark the URL to keep these settings.
-      </p>
+      {note ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/80">
+          {note}
+        </p>
+      ) : null}
     </div>
   );
-}
-
-/** One setting, drawn as whatever kind it is. */
-function Setting({
-  option,
-  filters,
-  teams,
-  teamsAsked,
-  onChange,
-}: {
-  option: InboxFilterOption;
-  filters: InboxFilters;
-  teams?: InboxTeam[];
-  teamsAsked: boolean;
-  onChange: InboxFilterChange;
-}) {
-  switch (option.kind) {
-    case "window":
-      return (
-        <WindowFilter
-          option={option}
-          value={filters[option.key]}
-          onChange={onChange}
-        />
-      );
-    case "teams":
-      return (
-        <TeamsFilter
-          option={option}
-          on={filters[option.key]}
-          excluded={filters[option.membersKey]}
-          teams={teams}
-          asked={teamsAsked}
-          onChange={onChange}
-        />
-      );
-    case "authors":
-      return (
-        <AuthorsFilter
-          option={option}
-          authors={filters[option.key]}
-          onChange={onChange}
-        />
-      );
-    default:
-      return (
-        <SwitchFilter option={option} filters={filters} onChange={onChange} />
-      );
-  }
 }
 
 /** The same breakpoint the two columns appear at, which is not a coincidence: squishing is worth
