@@ -42,7 +42,12 @@ import type { SlackDeliveryOutcome } from '../notifications/delivery/slack-notif
 
 /** Counters. Things that only go up. */
 export type CounterName =
-  'proke.webhook.received' | 'proke.poke.dropped' | 'proke.poke.delivered' | 'proke.cache.lookups';
+  | 'proke.webhook.received'
+  | 'proke.poke.dropped'
+  | 'proke.poke.delivered'
+  | 'proke.cache.lookups'
+  | 'proke.inbox.warmed'
+  | 'proke.inbox.warm.sweeps';
 
 /** Gauges. A value that moves both ways, read at a moment. */
 export type GaugeName = 'proke.event_loop.delay';
@@ -55,6 +60,7 @@ export type GaugeName = 'proke.event_loop.delay';
  * none of them can pass a different one.
  */
 export type HistogramName =
+  | 'proke.inbox.warm.duration'
   | 'proke.webhook.duration'
   | 'proke.poke.latency'
   | 'proke.github.request.duration'
@@ -115,6 +121,31 @@ export type PokeDropReason =
 
 /** Whether the detached webhook handler finished or threw. */
 export type WebhookOutcome = 'ok' | 'failed';
+
+/**
+ * What became of one pinned view on one pass of the inbox warmer.
+ *
+ * Per pin throughout, including `skipped_inactive`, which is counted once per pin belonging to
+ * somebody the activity gate excluded rather than once per person. Mixing the two units is the
+ * mistake PokeDropReason above documents the hard way: these are meant to be readable against
+ * each other, so they all have to count the same thing.
+ *
+ * `no_token` and `github_unavailable` are apart because only one of them is anybody's problem.
+ * The first is a revoked authorization and stays broken until the person reconnects; the second
+ * is GitHub having a bad minute and fixes itself by the next sweep. `failed` is neither - it is
+ * this code throwing, which is a bug.
+ */
+export type WarmOutcome =
+  'refreshed' | 'no_token' | 'github_unavailable' | 'failed' | 'skipped_inactive';
+
+/**
+ * Whether a whole pass ran.
+ *
+ * `overlapped` is the one worth watching: it means a sweep was still running when the next was
+ * due, which is how this feature degrades - silently, because the sweep that overran is the one
+ * that never records a duration.
+ */
+export type WarmSweepOutcome = 'completed' | 'overlapped' | 'failed';
 
 /**
  * Which GitHub call this was. Hand-written labels rather than URLs, which carry ids.
@@ -210,6 +241,11 @@ export interface MetricAttributeMap {
   'proke.github.request.duration': { endpoint: GithubEndpoint; status: string };
   'proke.slack.request.duration': { method: SlackMethod; outcome: SlackOutcome };
   'proke.cache.lookups': { namespace: CacheNamespace; result: CacheResult };
+  'proke.inbox.warmed': { result: WarmOutcome };
+  'proke.inbox.warm.sweeps': { outcome: WarmSweepOutcome };
+  // Undimensioned: there is one sweep, and splitting it by anything would only make the series
+  // smaller without making it answer a different question.
+  'proke.inbox.warm.duration': Record<string, never>;
   'proke.event_loop.delay': { quantile: EventLoopQuantile };
   'http.server.duration': { route: string; method: string; status: string };
 }

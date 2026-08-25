@@ -6,6 +6,9 @@ import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InboxModule } from '../../src/inbox/inbox.module';
+import { InboxWarmPinEntity } from '../../src/inbox/warm/core/entities/inbox-warm-pin.entity';
+import { InboxWarmModule } from '../../src/inbox/warm/inbox-warm.module';
+import { InboxWarmerService } from '../../src/inbox/warm/inbox-warmer.service';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
 import { PokeMessageEntity } from '../../src/notifications/messages/core/entities/poke-message.entity';
 import { NotificationDeliveryService } from '../../src/notifications/delivery/notification-delivery.service';
@@ -38,6 +41,16 @@ import { closeInMemoryMongoServer, rootMongooseTestModule } from './mongo-in-mem
 process.env.REVIEW_BATCH_WINDOW_MS ??= '150';
 
 /**
+ * No sweeping in the background.
+ *
+ * The inbox warmer's timer would reach for GitHub while a spec was setting up its mocks, which
+ * turns every assertion about what was requested into a race with a five-minute clock. Nought
+ * turns the timer off entirely; the warm specs call `sweep()` themselves, which is the shape
+ * that method is public for.
+ */
+process.env.INBOX_WARM_SWEEP_INTERVAL_MS ??= '0';
+
+/**
  * No spec may reach the internet.
  *
  * Without this, anything a spec forgot to mock goes to the real api.github.com: a DNS lookup, a
@@ -68,6 +81,7 @@ export async function createTestApp() {
       UserCoreModule,
       ConnectionsModule,
       InboxModule,
+      InboxWarmModule,
       SlackModule,
       GithubWebhookModule,
       SlackEventsModule,
@@ -95,6 +109,9 @@ export async function createTestApp() {
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
+  const inboxWarmPinModel: Model<InboxWarmPinEntity> = module.get(
+    getModelToken(InboxWarmPinEntity.name),
+  );
   const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
@@ -104,6 +121,7 @@ export async function createTestApp() {
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
+    await inboxWarmPinModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -129,6 +147,7 @@ export async function createTestApp() {
       slackWorkspaceModel,
       slackLinkModel,
       pokeMessageModel,
+      inboxWarmPinModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),
@@ -139,6 +158,9 @@ export async function createTestApp() {
       // So a spec can go through the same paths the app uses - the only way to assert that an
       // encrypted-at-rest token still comes out usable, or that claiming a handle releases it
       // from whoever held it before.
+      // So a spec can run one pass of the warmer on demand. The timer is off in the suite - see
+      // INBOX_WARM_SWEEP_INTERVAL_MS above - so this is the only thing that makes it sweep.
+      inboxWarmerService: app.get(InboxWarmerService),
       userReadService: app.get(UserReadService),
       userWriteService: app.get(UserWriteService),
       inMemoryCacheService,

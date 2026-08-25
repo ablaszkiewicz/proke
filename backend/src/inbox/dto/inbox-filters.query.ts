@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import {
   DEFAULT_INBOX_FILTERS,
+  InboxBuildFilters,
   InboxFilters,
   normalizeFilterList,
   RECENT_DRAFTS_VALUES,
@@ -123,14 +124,18 @@ function toList(value: unknown): unknown {
 }
 
 /**
- * The filters as they come off the wire: every one optional, because a client that has never
- * heard of a filter must keep working after we add it.
+ * The build filters as they come off the wire, on their own.
  *
- * `implements Partial<InboxFilters>` is what makes that safe. A field misspelled here, or a
- * filter added to the interface and forgotten here, is a compile error rather than an option
- * that quietly never arrives.
+ * A class of their own because two routes take only these: the ones that keep a view ready. A
+ * pin is a set of build filters and nothing else - view filters are applied to a stored snapshot
+ * on the way out, so they change nothing about what is warmed - and this is what makes that a
+ * shape the validator enforces rather than a paragraph somebody has to read.
+ *
+ * The pipe runs with `whitelist: true` and without `forbidNonWhitelisted`, so a client sending
+ * every filter to those routes has the view ones quietly dropped rather than rejected. That is
+ * deliberate: it means the frontend builds one query string for all four routes.
  */
-export class InboxFiltersQuery implements Partial<InboxFilters> {
+export class InboxBuildFiltersQuery implements Partial<InboxBuildFilters> {
   @FilterFlag(
     'Include pull requests waiting on you that have already been approved. Off by default - ' +
       'the review they were asking for has happened.',
@@ -143,7 +148,21 @@ export class InboxFiltersQuery implements Partial<InboxFilters> {
       'going in with the rest. `off` puts every draft in the one pile. Defaults to `1d`.',
   )
   recentDrafts?: RecentDrafts;
+}
 
+/**
+ * The filters as they come off the wire: every one optional, because a client that has never
+ * heard of a filter must keep working after we add it.
+ *
+ * `implements Partial<InboxFilters>` is what makes that safe. A field misspelled here, or a
+ * filter added to the interface and forgotten here, is a compile error rather than an option
+ * that quietly never arrives.
+ *
+ * Extends the build half rather than restating it, so the two can never disagree about what a
+ * build filter is called or what it accepts - and so adding one to `InboxBuildFiltersQuery`
+ * reaches both the inbox routes and the warm ones at once.
+ */
+export class InboxFiltersQuery extends InboxBuildFiltersQuery implements Partial<InboxFilters> {
   @FilterFlag(
     'Give people you share a GitHub team with a heading of their own. On by default. Off puts ' +
       'them in with everyone else - it never removes them.',
@@ -170,6 +189,21 @@ export class InboxFiltersQuery implements Partial<InboxFilters> {
 }
 
 /**
+ * The build half, filled out from the defaults.
+ *
+ * Written out field by field for the same reason as `toInboxFilters`: the return type is the
+ * complete `InboxBuildFilters`, so a build filter added to the interface and forgotten here does
+ * not compile. Which matters more here than anywhere - a build filter missing from this is a
+ * build filter missing from the cache key, and a person warming one view and reading another.
+ */
+export function toInboxBuildFilters(query: InboxBuildFiltersQuery): InboxBuildFilters {
+  return {
+    includeApproved: query.includeApproved ?? DEFAULT_INBOX_FILTERS.includeApproved,
+    recentDrafts: query.recentDrafts ?? DEFAULT_INBOX_FILTERS.recentDrafts,
+  };
+}
+
+/**
  * Fills the gaps from the defaults, so nothing downstream has to decide what absent meant.
  *
  * Written out field by field rather than looped over the name list, and that is the point: the
@@ -178,8 +212,7 @@ export class InboxFiltersQuery implements Partial<InboxFilters> {
  */
 export function toInboxFilters(query: InboxFiltersQuery): InboxFilters {
   return {
-    includeApproved: query.includeApproved ?? DEFAULT_INBOX_FILTERS.includeApproved,
-    recentDrafts: query.recentDrafts ?? DEFAULT_INBOX_FILTERS.recentDrafts,
+    ...toInboxBuildFilters(query),
     separateTeam: query.separateTeam ?? DEFAULT_INBOX_FILTERS.separateTeam,
     separateBots: query.separateBots ?? DEFAULT_INBOX_FILTERS.separateBots,
     // Normalised here and only here, so no rule further in has to remember that the reader typed

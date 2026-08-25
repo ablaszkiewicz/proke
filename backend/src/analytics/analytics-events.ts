@@ -54,6 +54,17 @@ export type AnalyticsEvent =
    * and then poke_resolved once. Same rule as poke_resolved: only once Slack confirmed the edit.
    */
   | 'poke_annotated'
+  /*
+   * Keeping a view ready. Both carry the build filters that were pinned and how many the person
+   * now holds, which between them answer the two questions worth asking of this feature: which
+   * settings anybody actually cares enough about to warm, and whether three is the right cap.
+   *
+   * There is deliberately no event for the sweep itself. It fires for everybody who has ever
+   * pressed the button, every five minutes, saying nothing about anyone - that is a metric, and
+   * `proke.inbox.warmed` is it.
+   */
+  | 'inbox_warm_added'
+  | 'inbox_warm_removed'
   | 'account_deleted';
 
 /**

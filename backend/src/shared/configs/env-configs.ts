@@ -56,6 +56,15 @@ interface EnvConfig {
     apiKey: string;
     host: string;
   };
+  inbox: {
+    /**
+     * How often the pinned views are rebuilt, and nought to turn the sweep off entirely.
+     *
+     * Off is what the e2e suite wants: a timer reaching for GitHub in the background would make
+     * every spec's mocks a race, so specs drive InboxWarmerService.sweep themselves.
+     */
+    warmSweepIntervalMs: number;
+  };
   notifications: {
     /**
      * How long a review's pokes are held open so the rest of it can arrive. GitHub delivers a
@@ -120,6 +129,12 @@ export function getEnvConfig(): EnvConfig {
       // secret arrives as an empty string rather than as absent. `??` would let that through
       // and hand the SDK a blank host, which fails on every request instead of falling back.
       host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com',
+    },
+    inbox: {
+      // Five minutes. Comfortably inside SNAPSHOT_TTL_MS, so a pinned view never expires between
+      // sweeps, and slow enough that three pins cost a user 36 of their 5,000 hourly GraphQL
+      // points. Configurable so a deploy can turn it off without a release.
+      warmSweepIntervalMs: Number(process.env.INBOX_WARM_SWEEP_INTERVAL_MS ?? 5 * 60_000),
     },
     notifications: {
       // Five seconds: long enough that the pieces of one review reliably meet, short enough that

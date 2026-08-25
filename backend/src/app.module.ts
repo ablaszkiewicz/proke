@@ -4,6 +4,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { InboxModule } from './inbox/inbox.module';
+import { InboxWarmModule } from './inbox/warm/inbox-warm.module';
 import { getEnvConfig } from './shared/configs/env-configs';
 import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
 import { PosthogLogger } from './shared/logging/posthog-logger';
@@ -23,6 +24,9 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     UserCoreModule,
     ConnectionsModule,
     InboxModule,
+    // The scheduler InboxModule's export comment refers to, plus the routes that say what
+    // it should be sweeping.
+    InboxWarmModule,
     SlackModule,
     GithubWebhookModule,
     SlackEventsModule,

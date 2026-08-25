@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
@@ -45,6 +45,32 @@ export class UserReadService {
       .exec();
 
     return user ? this.normalize(user) : null;
+  }
+
+  /**
+   * Of the given users, the ones there is any point asking GitHub about: seen since `activeSince`
+   * and still holding a token.
+   *
+   * Ids in and ids out, deliberately. The inbox warmer asks this about everybody holding a pin
+   * every five minutes, and the two things it needs to know are a date and whether a field is
+   * present - so normalizing would put every stored GitHub token through the cipher to answer
+   * neither of them.
+   *
+   * `$exists` and `$ne: null` together rather than either alone: clearGithubAccessToken unsets
+   * the field, while a row that never had one has it absent, and both must be excluded.
+   */
+  public async readRefreshableIds(ids: string[], activeSince: Date): Promise<string[]> {
+    const users = await this.userModel
+      .find({
+        _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
+        lastActivityDate: { $gte: activeSince },
+        githubAccessToken: { $exists: true, $ne: null },
+      })
+      .select({ _id: 1 })
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+
+    return users.map((user) => user._id.toString());
   }
 
   private normalize(user: UserEntity): UserNormalized {
