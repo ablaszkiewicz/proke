@@ -138,7 +138,7 @@ export class ConnectionsService {
               : ConnectionStatus.Available,
           repositorySelection: installation.repositorySelection,
           ...access.get(installation.installationId),
-          manageUrl: buildManageUrl(installation.installationId),
+          manageUrl: buildManageUrl(installation),
           preferences,
         };
       }),
@@ -512,7 +512,16 @@ export function buildInstallUrl(): string {
   return `https://github.com/apps/${slug}/installations/new`;
 }
 
-export function buildManageUrl(installationId: string): string {
-  // Resolves to the right personal or org settings page on GitHub's side.
-  return `https://github.com/settings/installations/${installationId}`;
+export function buildManageUrl(installation: {
+  installationId: string;
+  accountLogin: string;
+  accountType: string;
+}): string {
+  const { installationId, accountLogin, accountType } = installation;
+
+  // GitHub does not redirect between the two: the personal path 404s for an installation that
+  // lives on an organization, even for the org's owner.
+  return accountType === 'Organization'
+    ? `https://github.com/organizations/${accountLogin}/settings/installations/${installationId}`
+    : `https://github.com/settings/installations/${installationId}`;
 }
