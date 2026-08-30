@@ -1,4 +1,5 @@
 import { normalizeInboxSettings } from '../../../inbox/core/entities/inbox-filters.interface';
+import { normalizePokeSettings } from '../../../notifications/core/poke-settings';
 import { UserEntity } from './user.entity';
 import { UserNormalized, UserSerialized } from './user.interface';
 
@@ -18,6 +19,7 @@ export class UserSerializer {
       avatarUrl: entity.avatarUrl,
       githubAccessToken: entity.githubAccessToken ? decrypt(entity.githubAccessToken) : undefined,
       inboxSettings: normalizeInboxSettings(entity.inboxSettings),
+      pokeSettings: normalizePokeSettings(entity.pokeSettings),
     };
   }
 
@@ -31,6 +33,7 @@ export class UserSerializer {
       authMethod: normalized.authMethod,
       avatarUrl: normalized.avatarUrl,
       inboxSettings: normalized.inboxSettings,
+      pokeSettings: normalized.pokeSettings,
     };
   }
 }

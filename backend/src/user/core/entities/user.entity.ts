@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { InboxStoredSettings } from '../../../inbox/core/entities/inbox-filters.interface';
+import { PokeStoredSettings } from '../../../notifications/core/poke-settings';
 import { AuthMethod } from '../enum/auth-method.enum';
 
 /**
@@ -34,6 +35,24 @@ export class InboxSettingsEntity implements InboxStoredSettings {
 }
 
 export const InboxSettingsSchema = SchemaFactory.createForClass(InboxSettingsEntity);
+
+/**
+ * What somebody has switched off about pokes, as stored.
+ *
+ * One field, and a list of the noes rather than the yeses - see PokeSettings for why that way
+ * round is the only one that lets a notification type be added without muting it for everybody
+ * who was already here. Absent for anyone who has never moved a switch, which is the same
+ * answer as an empty list: nothing muted, everything on.
+ */
+@Schema({ _id: false })
+export class PokeSettingsEntity implements PokeStoredSettings {
+  // Plain strings, checked against the enum on the way out, so a value written by another
+  // deploy - or one this deploy has since retired - reads as nothing rather than as a mute.
+  @Prop({ type: [String], default: undefined })
+  mutedTypes?: string[];
+}
+
+export const PokeSettingsSchema = SchemaFactory.createForClass(PokeSettingsEntity);
 
 @Schema({ collection: 'users', timestamps: true })
 export class UserEntity {
@@ -92,6 +111,13 @@ export class UserEntity {
   // anybody telling it which one that is.
   @Prop({ type: InboxSettingsSchema })
   inboxSettings?: InboxSettingsEntity;
+
+  // Which kinds of poke they have turned off, for every organisation at once. Here rather than
+  // on each subscription because it is a fact about the person: somebody who does not want to
+  // hear about merges does not want to hear about them anywhere. A subscription can still
+  // narrow further; nothing can widen past this.
+  @Prop({ type: PokeSettingsSchema })
+  pokeSettings?: PokeSettingsEntity;
 
   // When they last asked for their inbox to be refreshed. Stamped by POST /inbox/refresh, which
   // the page calls on opening and whenever a build filter moves, and read by the warmer's

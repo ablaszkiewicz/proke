@@ -64,6 +64,16 @@ export type AnalyticsEvent =
    * `proke.inbox.warmed` is it.
    */
   | 'inbox_settings_updated'
+  /*
+   * Somebody changing which kinds of poke reach them at all. Carries the muted kinds by name -
+   * unlike the inbox's lists, these are our own closed set rather than somebody else's data, and
+   * which switches people actually turn off is the whole question a settings panel raises.
+   *
+   * Only fires on a save, so the common state - nobody has muted anything, because that is what
+   * an untouched account means - shows up as the absence of this event rather than as a
+   * relentless stream of empty ones.
+   */
+  | 'poke_settings_updated'
   | 'account_deleted';
 
 /**

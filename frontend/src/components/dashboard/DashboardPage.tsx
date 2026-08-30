@@ -2,7 +2,7 @@ import { GitHubIcon } from "@/components/ui/GitHubIcon";
 import { cn } from "@/lib/utils";
 import { useState, type ReactNode } from "react";
 import { OrganisationsPanel, type OrganisationsPanelProps } from "./OrganisationsPanel";
-import { PokesPanel } from "./PokesPanel";
+import { PokesPanel, type PokesPanelProps } from "./PokesPanel";
 import { SlackPanel, type SlackPanelProps } from "./SlackPanel";
 
 export interface DashboardUser {
@@ -14,6 +14,7 @@ export interface DashboardUser {
 
 export interface DashboardPageProps extends OrganisationsPanelProps {
   user: DashboardUser;
+  pokes: PokesPanelProps;
   slack: SlackPanelProps;
   onLogout: () => void;
   /**
@@ -35,6 +36,7 @@ export interface DashboardPageProps extends OrganisationsPanelProps {
  */
 export function DashboardPage({
   user,
+  pokes,
   slack,
   onLogout,
   feedback,
@@ -60,7 +62,7 @@ export function DashboardPage({
       */}
       <main className="grid w-full max-w-4xl gap-5 md:grid-cols-2">
         <OrganisationsPanel {...organisations} />
-        <PokesPanel />
+        <PokesPanel {...pokes} />
         <SlackPanel {...slack} />
       </main>
 

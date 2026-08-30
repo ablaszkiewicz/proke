@@ -11,7 +11,12 @@
  */
 
 export interface PokePreview {
-  /** Only a submitted review carries one, exactly as the message builder does it. */
+  /**
+   * The icon the real message opens with - 👀 for a request, 💬 for somebody talking, 🎉 for a
+   * merge, ⏳ for auto-merge, ✅/❌ for a review's verdict. Absent on a mention, which the
+   * builder leaves unmarked on purpose: the sentence already says you were named, and a 💬
+   * would flatten the difference the poke exists to draw. See LEAD_ICON in slack-message.ts.
+   */
   marker?: string;
   actor: string;
   /** The lead, minus the actor - "merged", "commented on", "requested your review on". */
@@ -63,63 +68,16 @@ export function PokeCard({ preview }: { preview: PokePreview }) {
 }
 
 /**
- * One per notification type, in the same order as NOTIFICATION_TYPES - the dashboard's list
- * hands the reel a row index straight off that list, so the two orders have to stay level.
- */
-export const POKE_PREVIEWS: PokePreview[] = [
-  {
-    actor: "ada",
-    lead: "requested your review on",
-    subject: "Fix flaky uploads #482",
-    repository: "acme/api",
-  },
-  {
-    marker: "✅",
-    actor: "ada",
-    lead: "approved",
-    subject: "Retry uploads with backoff #489",
-    repository: "acme/api",
-  },
-  {
-    actor: "rob",
-    lead: "merged",
-    subject: "Cache the org list #498",
-    repository: "acme/api",
-  },
-  {
-    actor: "rob",
-    lead: "commented on",
-    subject: "Fix flaky uploads #482",
-    repository: "acme/api",
-  },
-  {
-    actor: "nina",
-    lead: "mentioned you on",
-    subject: "Drop the legacy uploader #501",
-    repository: "acme/api",
-  },
-  {
-    actor: "nina",
-    lead: "mentioned you on",
-    subject: "Uploads time out over 50MB #77",
-    repository: "acme/web",
-  },
-  {
-    actor: "rob",
-    lead: "mentioned @acme/reviewers on",
-    subject: "Drop the legacy uploader #501",
-    repository: "acme/api",
-  },
-];
-
-/**
- * The run-up. Pokes stacked above the real six purely so the reel has something to fly through
+ * The run-up. Pokes stacked above the real ones purely so the reel has something to fly through
  * on its way in - they go past blurred and are never landed on, which is why they can be any
- * plausible poke at all.
+ * plausible poke at all, including shapes no single setting is about: a team asked for a review,
+ * a team named in a comment. Those are real pokes with no switch of their own, because being
+ * named through a group is not a different kind of news from being named outright.
  */
 export const POKE_INTRO_PREVIEWS: PokePreview[] = [
   {
     actor: "sam",
+    marker: "👀",
     lead: "requested your review on",
     subject: "Bump pnpm to 10.15 #503",
     repository: "acme/api",
@@ -133,12 +91,14 @@ export const POKE_INTRO_PREVIEWS: PokePreview[] = [
   },
   {
     actor: "kit",
+    marker: "🎉",
     lead: "merged",
     subject: "Trim the webhook payload #492",
     repository: "acme/web",
   },
   {
     actor: "sam",
+    marker: "💬",
     lead: "commented on",
     subject: "Add a health endpoint #488",
     repository: "acme/api",
@@ -158,18 +118,21 @@ export const POKE_INTRO_PREVIEWS: PokePreview[] = [
   },
   {
     actor: "ada",
+    marker: "🎉",
     lead: "merged",
     subject: "Send prokes as blocks #479",
     repository: "acme/api",
   },
   {
     actor: "nina",
+    marker: "👀",
     lead: "requested your review on",
     subject: "Rate limit the webhook #476",
     repository: "acme/web",
   },
   {
     actor: "rob",
+    marker: "💬",
     lead: "commented on",
     subject: "Keep the DM channel cached #471",
     repository: "acme/api",
@@ -189,8 +152,22 @@ export const POKE_INTRO_PREVIEWS: PokePreview[] = [
   },
   {
     actor: "kit",
+    marker: "🎉",
     lead: "merged",
     subject: "Encrypt bot tokens at rest #461",
+    repository: "acme/api",
+  },
+  {
+    actor: "rob",
+    lead: "mentioned @acme/reviewers on",
+    subject: "Drop the legacy uploader #501",
+    repository: "acme/api",
+  },
+  {
+    actor: "kit",
+    marker: "👀",
+    lead: "requested @acme/reviewers's review on",
+    subject: "Move the queue off cron #484",
     repository: "acme/api",
   },
 ];

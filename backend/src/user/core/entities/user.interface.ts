@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { InboxFilters } from '../../../inbox/core/entities/inbox-filters.interface';
 import { InboxSettingsResponse } from '../../../inbox/dto/inbox-settings.response';
+import { PokeSettingsResponse } from '../../../notifications/dto/poke-settings.response';
+import { PokeSettings } from '../../../notifications/core/poke-settings';
 import { AuthMethod } from '../enum/auth-method.enum';
 
 export class UserNormalized {
@@ -16,6 +18,9 @@ export class UserNormalized {
   // Complete, never partial: filled from the defaults by the serializer, so nothing reading a
   // user has to decide what an absent filter meant.
   inboxSettings: InboxFilters;
+  // The same, for what pokes them. Read on the delivery path, where the user is already in
+  // hand - so the account-wide gate costs no lookup of its own.
+  pokeSettings: PokeSettings;
 }
 
 export class UserSerialized {
@@ -42,4 +47,10 @@ export class UserSerialized {
   // and no frame drawn on the defaults first.
   @ApiProperty({ type: InboxSettingsResponse })
   inboxSettings: InboxSettingsResponse;
+
+  // Here for the same reason, and it matters more: the dashboard's list of what pokes you is
+  // ten switches, and reading them from the profile is what keeps it from drawing every one of
+  // them on for a frame before the truth arrives.
+  @ApiProperty({ type: PokeSettingsResponse })
+  pokeSettings: PokeSettingsResponse;
 }

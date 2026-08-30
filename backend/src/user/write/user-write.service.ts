@@ -5,6 +5,7 @@ import {
   InboxFilters,
   normalizeInboxSettings,
 } from '../../inbox/core/entities/inbox-filters.interface';
+import { PokeSettings, normalizePokeSettings } from '../../notifications/core/poke-settings';
 import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
@@ -142,6 +143,28 @@ export class UserWriteService {
     }
 
     return normalizeInboxSettings(user.inboxSettings);
+  }
+
+  /**
+   * Replaces which kinds of poke somebody has switched off, whole - same contract, same reason
+   * as the inbox settings above. Unmuting is spelled by sending a set without that type in it,
+   * so a merge would make it unspellable.
+   */
+  public async updatePokeSettings(userId: string, settings: PokeSettings): Promise<PokeSettings> {
+    const user = await this.userModel
+      .findOneAndUpdate(
+        { _id: new Types.ObjectId(userId) },
+        { $set: { pokeSettings: settings } },
+        { returnDocument: 'after' },
+      )
+      .lean<UserEntity>()
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return normalizePokeSettings(user.pokeSettings);
   }
 
   /**

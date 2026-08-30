@@ -108,8 +108,14 @@ export type PokeDropReason =
   | 'self'
   /** Signed up, but has not opted into this installation. */
   | 'not_subscribed'
-  /** Opted in, but has muted this notification type or this repository. */
+  /** Opted in to this installation, but has muted this notification type or this repository. */
   | 'muted'
+  /**
+   * Switched this kind of poke off account-wide, so no organisation was ever going to deliver
+   * it. Apart from `muted` because the two are different decisions wearing the same outcome:
+   * one is about this org, the other is about the kind of news itself.
+   */
+  | 'type_muted'
   /** GitHub says this person cannot see the repository. Working as intended. */
   | 'no_repo_access'
   /**

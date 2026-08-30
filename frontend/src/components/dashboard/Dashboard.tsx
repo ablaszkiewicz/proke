@@ -2,6 +2,7 @@ import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { captureEvent } from "@/lib/analytics/analytics";
 import { authLogic } from "@/lib/logics/authLogic";
 import { connectionsLogic } from "@/lib/logics/connectionsLogic";
+import { pokeSettingsLogic } from "@/lib/logics/pokeSettingsLogic";
 import { slackLogic } from "@/lib/logics/slackLogic";
 import { useActions, useValues } from "kea";
 import { useEffect } from "react";
@@ -22,6 +23,9 @@ export function Dashboard() {
     actionError: slackError,
   } = useValues(slackLogic);
   const { loadConnection, disconnect, sendTestPoke } = useActions(slackLogic);
+  // No load of its own: these ride in on the profile, which authLogic has already read.
+  const { mutedTypes, notice } = useValues(pokeSettingsLogic);
+  const { toggleType, setTypes } = useActions(pokeSettingsLogic);
 
   useEffect(() => {
     loadConnections();
@@ -76,6 +80,12 @@ export function Dashboard() {
           )?.viewerRole,
         })
       }
+      pokes={{
+        mutedTypes,
+        notice,
+        onToggleType: toggleType,
+        onToggleGroup: setTypes,
+      }}
       slack={{
         connection: slackConnection,
         loading: slackLoading,

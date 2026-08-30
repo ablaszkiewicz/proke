@@ -23,6 +23,7 @@ import {
   PokeReviewerEvent,
 } from '../../notifications/delivery/poke-resolution.service';
 import { ReviewBatchService } from '../../notifications/delivery/review-batch.service';
+import { isPokeTypeMuted } from '../../notifications/core/poke-settings';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
@@ -376,16 +377,32 @@ export class GithubWebhookRouterService {
         continue;
       }
 
+      // Two gates, and both have to pass. The account-wide one is a fact about the person and
+      // came in with them, so it costs nothing; the subscription's is about this one
+      // organisation. They compose by intersection, which is the whole rule: an organisation can
+      // narrow what somebody receives and can never widen it past what their own settings say.
       const wanted = notifications
-        .filter((notification) =>
-          isNotificationAllowed(preferences, repositoryId, notification.type),
+        .filter(
+          (notification) =>
+            !isPokeTypeMuted(user.pokeSettings, notification.type) &&
+            isNotificationAllowed(preferences, repositoryId, notification.type),
         )
         .sort((a, b) => comparePriority(a.type, b.type));
 
       // One per person rather than per candidate, here and above: what is lost is the single
       // poke this person would have got, whichever of their candidates would have won it.
+      //
+      // Which of the two gates to blame is worth the second pass. "Switched this kind off
+      // everywhere" and "listens to this org but not to this" look identical in a total and are
+      // completely different things to learn about a settings panel nobody had until now.
       if (wanted.length === 0) {
-        this.dropped('muted');
+        this.dropped(
+          notifications.every((notification) =>
+            isPokeTypeMuted(user.pokeSettings, notification.type),
+          )
+            ? 'type_muted'
+            : 'muted',
+        );
         continue;
       }
 
@@ -933,7 +950,15 @@ export class GithubWebhookRouterService {
     );
   }
 
-  /** `type` is the personal mention only; a team mention is one type either way. */
+  /**
+   * Everybody named in a body, whether by handle or through a team they are in.
+   *
+   * Both are `type` - the mention type for wherever this was written. Being named through a
+   * group is not a different kind of poke from being named outright, it is the same poke that
+   * happens to have arrived via a team, and the handle rides along so the message can say so
+   * rather than claiming somebody wrote your name. The same reasoning as a review requested of a
+   * team, which has always been a review request; see resolvePullRequest.
+   */
   private mentionPokes(
     type: NotificationType,
     subject: PokeSubject,
@@ -950,7 +975,7 @@ export class GithubWebhookRouterService {
       })),
       ...teams.map((team) => ({
         recipient: { team },
-        notification: this.build(NotificationType.TeamMention, subject, context, team.handle),
+        notification: this.build(type, subject, context, team.handle),
       })),
     ];
   }
@@ -1144,10 +1169,10 @@ const BOT_SUPPRESSED_TYPES: NotificationType[] = [
   // A bot answering in your thread is the same talking, and suppressed here rather than later
   // so it never costs the lookup its recipient would have needed.
   NotificationType.CommentReply,
+  // Covers a bot naming a team as well - the same noise multiplied by everyone in it, and one
+  // of these two types since a team mention stopped being a type of its own.
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
-  // A bot naming a team is the same noise multiplied by everyone in it.
-  NotificationType.TeamMention,
 ];
 
 /**

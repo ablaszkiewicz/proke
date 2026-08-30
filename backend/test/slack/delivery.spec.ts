@@ -230,7 +230,7 @@ describe('Slack delivery', () => {
       // when
       await delivery().deliver(
         user,
-        notification({ type: NotificationType.TeamMention, teamHandle: 'acme/reviewers' }),
+        notification({ type: NotificationType.IssueMention, teamHandle: 'acme/reviewers' }),
       );
 
       // then

@@ -1,7 +1,10 @@
 import { createHmac, generateKeyPairSync } from 'crypto';
 import * as nock from 'nock';
 import * as request from 'supertest';
-import { NotificationType } from '../../src/notifications/core/entities/notification-type.enum';
+import {
+  ALL_NOTIFICATION_TYPES,
+  NotificationType,
+} from '../../src/notifications/core/entities/notification-type.enum';
 import { RepositoryScope } from '../../src/subscriptions/core/entities/subscription.interface';
 import { createTestApp } from '../utils/bootstrap';
 import { waitFor } from '../utils/wait-for';
@@ -1060,7 +1063,9 @@ describe('Webhooks (github)', () => {
       const recipients = deliverSpy.mock.calls.map((call) => call[0].githubLogin).sort();
       expect(recipients).toEqual(['ada', 'rob']);
       expect(deliverSpy.mock.calls[0][1]).toMatchObject({
-        type: NotificationType.TeamMention,
+        // A team named on a pull request is a pull request mention - the handle is what says it
+        // arrived through a group, rather than a type of its own.
+        type: NotificationType.PullRequestMention,
         teamHandle: 'acme/reviewers',
         repositoryFullName: 'acme/proke',
       });
@@ -1192,15 +1197,22 @@ describe('Webhooks (github)', () => {
       await expectNoPoke();
     });
 
-    it('does not poke a team member who has switched team mentions off', async () => {
-      // given
+    /**
+     * There is no switch for "named through a team" and deliberately so - being named is being
+     * named, and where it was written is the distinction people actually think in. So the mute
+     * that has to work here is the one on the surface it landed on.
+     */
+    it('does not poke a team member who has switched pull request mentions off', async () => {
+      // given - everything except the mention type this comment will produce
       const { user } = await bootstrap.utils.authUtils.setupUser({
         githubId: '4242',
         githubLogin: 'ada',
       });
       await subscribe(user.id, {
         repositoryScope: RepositoryScope.All,
-        notificationTypes: [NotificationType.PullRequestMention],
+        notificationTypes: ALL_NOTIFICATION_TYPES.filter(
+          (type) => type !== NotificationType.PullRequestMention,
+        ),
       });
       mockInstallationToken();
       mockTeamMembers('reviewers', [{ id: 4242, login: 'ada' }]);
@@ -2552,6 +2564,117 @@ describe('Webhooks (github)', () => {
       expect(await firstNotification()).toMatchObject({
         type: NotificationType.PullRequestMention,
       });
+    });
+  });
+
+  /**
+   * The account-wide half of what pokes somebody, as opposed to the per-organisation half above.
+   *
+   * The two compose by intersection and the rule is one sentence: an organisation can narrow
+   * what somebody receives and can never widen it past what their own settings say. What is
+   * stored and what comes back is poke-settings.spec.ts; this is only what gets delivered.
+   */
+  describe('account-wide poke settings', () => {
+    const muteFor = async (userId: string, mutedTypes: NotificationType[]) => {
+      await bootstrap.models.userModel.updateOne({ _id: userId }, { $set: { pokeSettings: { mutedTypes } } });
+    };
+
+    const setupSubscriber = async () => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'reviewer',
+      });
+      await subscribe(user.id);
+      return user;
+    };
+
+    it('does not poke about a kind switched off account-wide', async () => {
+      // given - opted into the installation, with nothing narrowed on the subscription itself
+      const user = await setupSubscriber();
+      await muteFor(user.id, [NotificationType.ReviewRequested]);
+
+      // when
+      await send('pull_request', reviewRequestedPayload(4242));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('leaves every other kind alone', async () => {
+      // given
+      const user = await setupSubscriber();
+      await muteFor(user.id, [NotificationType.IssueComment]);
+
+      // when
+      await send('pull_request', reviewRequestedPayload(4242));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewRequested,
+      });
+    });
+
+    it('cannot be widened by a subscription that allows the kind', async () => {
+      // given - the organisation says yes to exactly this, the account says no
+      const user = await setupSubscriber();
+      await bootstrap.models.subscriptionModel.updateOne(
+        { userId: user.id, installationId: INSTALLATION_ID },
+        {
+          $set: {
+            repositoryScope: RepositoryScope.All,
+            notificationTypes: [NotificationType.ReviewRequested],
+          },
+        },
+      );
+      await muteFor(user.id, [NotificationType.ReviewRequested]);
+
+      // when
+      await send('pull_request', reviewRequestedPayload(4242));
+
+      // then - the account is the ceiling
+      await expectNoPoke();
+    });
+
+    it('reaches somebody who has never touched the settings', async () => {
+      // given - no pokeSettings on the row at all, which is everybody until they open the panel
+      await setupSubscriber();
+
+      // when
+      await send('pull_request', reviewRequestedPayload(4242));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewRequested,
+      });
+    });
+
+    it('mutes a team mention through the surface it landed on', async () => {
+      // given - no switch of its own for "named through a team"; the pull request one covers it
+      const user = await setupSubscriber();
+      await muteFor(user.id, [NotificationType.PullRequestMention]);
+      mockInstallationToken();
+      mockTeamMembers('reviewers', [{ id: 4242, login: 'reviewer' }]);
+
+      // when - a comment on a pull request naming a team this user is in
+      await send('issue_comment', {
+        action: 'created',
+        installation: { id: Number(INSTALLATION_ID) },
+        organization: { login: ORG },
+        issue: {
+          title: 'Something is broken',
+          pull_request: { html_url: 'https://github.com/acme/proke/pull/3' },
+          user: { id: 7000, login: 'author' },
+        },
+        comment: {
+          html_url: 'https://github.com/acme/proke/pull/3#issuecomment-1',
+          body: 'ping @acme/reviewers',
+        },
+        repository: ORG_REPOSITORY,
+        sender: { id: 999, login: 'commenter' },
+      });
+
+      // then
+      await expectNoPoke();
     });
   });
 

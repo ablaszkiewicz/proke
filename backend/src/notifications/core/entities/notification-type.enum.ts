@@ -5,9 +5,14 @@
  * a user could plausibly want to switch off on its own, which is why "comment on your PR" and
  * "mentioned you on a PR" are separate even though both arrive as `issue_comment`.
  *
- * Adding a value is additive: a subscription that never customised its list stores no list at
- * all and means "everything", so a new type starts on for everybody instead of silently off.
- * Only someone who has explicitly picked types has to opt in to a later addition.
+ * Being named through a team is deliberately *not* one of the distinctions. A review asked of
+ * your team is a review asked of you, and `@acme/reviewers` in a comment is somebody talking to
+ * you; both carry a `teamHandle` so the message can say which team, and neither is a key of its
+ * own. A separate switch would have asked everybody to answer a question about GitHub's
+ * plumbing - "do you want the ones that arrived via a group?" - that nobody thinks in.
+ *
+ * Adding a value is additive: nothing stores what somebody wants, only what they have switched
+ * off, so a new type starts on for everybody instead of silently off.
  */
 export enum NotificationType {
   ReviewRequested = 'review_requested',
@@ -33,10 +38,14 @@ export enum NotificationType {
    * there is no pointer to the comment immediately above.
    */
   CommentReply = 'comment_reply',
+  /**
+   * Somebody named you on a pull request - by handle, or through a team you are in. The two are
+   * one type because they are one experience: you were named somewhere, and the poke says who
+   * by and where. Which of the two it was is carried on `teamHandle` for the message to say.
+   */
   PullRequestMention = 'pull_request_mention',
+  /** The same, on an issue. */
   IssueMention = 'issue_mention',
-  /** `@org/team`, on a pull request or an issue alike - the link says which it was. */
-  TeamMention = 'team_mention',
 }
 
 export const ALL_NOTIFICATION_TYPES: NotificationType[] = Object.values(NotificationType);
@@ -63,10 +72,10 @@ const PRIORITY: NotificationType[] = [
   // answered on something you opened is the more specific relationship. The two never compete -
   // one comment is on an issue or on a pull request, never both.
   NotificationType.IssueComment,
+  // Last, and beside each other for the same reason the two comments are: one mention is on a
+  // pull request or on an issue, never both, so the pair never actually competes.
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
-  // Last: being asked directly outranks being included in a group.
-  NotificationType.TeamMention,
 ];
 
 export function comparePriority(a: NotificationType, b: NotificationType): number {

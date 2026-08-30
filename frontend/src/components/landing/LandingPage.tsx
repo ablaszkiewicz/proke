@@ -1,6 +1,6 @@
 import { GithubLoginButton } from "@/components/auth/GithubLoginButton";
 import { PokeReel } from "@/components/notifications/PokeReel";
-import { POKE_PREVIEWS } from "@/components/notifications/pokePreviews";
+import { POKE_PREVIEWS } from "@/components/notifications/notificationTypes";
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
 import { SlackIcon } from "@/components/ui/SlackIcon";

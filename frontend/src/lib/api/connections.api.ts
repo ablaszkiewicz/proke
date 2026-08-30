@@ -2,6 +2,15 @@ import axios from "axios";
 
 export type ConnectionStatus = "subscribed" | "available" | "suspended";
 
+/**
+ * What a poke is about. Mirrors the backend's NotificationType, and the two are meant to be kept
+ * level - a type here with nothing behind it is a switch that does nothing, and one on the
+ * backend with nothing here is a poke nobody was told to expect.
+ *
+ * Being named through a team is deliberately not one of these. A review asked of your team is a
+ * review asked of you and an `@acme/reviewers` is somebody talking to you; both arrive as the
+ * type for wherever they landed, and say which team in the message itself.
+ */
 export type NotificationType =
   | "review_requested"
   | "review_submitted"
@@ -11,8 +20,7 @@ export type NotificationType =
   | "issue_comment"
   | "comment_reply"
   | "pull_request_mention"
-  | "issue_mention"
-  | "team_mention";
+  | "issue_mention";
 
 export interface RepositoryPreference {
   repositoryId: string;

@@ -7,6 +7,7 @@ import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InboxModule } from '../../src/inbox/inbox.module';
 import { InboxWarmModule } from '../../src/inbox/warm/inbox-warm.module';
+import { PokeSettingsModule } from '../../src/notifications/settings/poke-settings.module';
 import { InboxWarmerService } from '../../src/inbox/warm/inbox-warmer.service';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
 import { PokeMessageEntity } from '../../src/notifications/messages/core/entities/poke-message.entity';
@@ -81,6 +82,7 @@ export async function createTestApp() {
       ConnectionsModule,
       InboxModule,
       InboxWarmModule,
+      PokeSettingsModule,
       SlackModule,
       GithubWebhookModule,
       SlackEventsModule,

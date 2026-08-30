@@ -82,15 +82,19 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
     notification.threadStarter
       ? { verb: 'replied to you', preposition: 'on' }
       : { verb: 'also replied', preposition: 'on' },
-  [NotificationType.PullRequestMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
-  [NotificationType.IssueMention]: () => ({ verb: 'mentioned you', preposition: 'on' }),
-  // Says the team: "mentioned you" would be a small lie, and why you got this is the one thing
-  // you want from an unexpected poke.
-  [NotificationType.TeamMention]: (notification) => ({
-    verb: notification.teamHandle ? `mentioned @${notification.teamHandle}` : 'mentioned your team',
-    preposition: 'on',
-  }),
+  // Says the team where the naming went to a group, exactly as a review request does: "mentioned
+  // you" would be a small lie when nobody wrote your handle, and which team it came through is
+  // the one thing you want from an unexpected poke.
+  [NotificationType.PullRequestMention]: mentioned,
+  [NotificationType.IssueMention]: mentioned,
 };
+
+function mentioned(notification: GithubNotificationNormalized): Clause {
+  return {
+    verb: notification.teamHandle ? `mentioned @${notification.teamHandle}` : 'mentioned you',
+    preposition: 'on',
+  };
+}
 
 /**
  * A submitted review is the one poke whose news can be good or bad, so it is the one whose

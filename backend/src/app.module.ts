@@ -5,6 +5,7 @@ import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { InboxModule } from './inbox/inbox.module';
 import { InboxWarmModule } from './inbox/warm/inbox-warm.module';
+import { PokeSettingsModule } from './notifications/settings/poke-settings.module';
 import { getEnvConfig } from './shared/configs/env-configs';
 import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
 import { PosthogLogger } from './shared/logging/posthog-logger';
@@ -26,6 +27,9 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     InboxModule,
     // The scheduler InboxModule's export comment refers to.
     InboxWarmModule,
+    // What kinds of poke somebody wants, account-wide. The delivery side of notifications is
+    // wired in under the webhook module; this is only the settings route.
+    PokeSettingsModule,
     SlackModule,
     GithubWebhookModule,
     SlackEventsModule,

@@ -1,10 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
-import {
-  PokeCard,
-  POKE_INTRO_PREVIEWS,
-  POKE_PREVIEWS,
-} from "./pokePreviews";
+import { POKE_PREVIEWS } from "./notificationTypes";
+import { PokeCard, POKE_INTRO_PREVIEWS } from "./pokePreviews";
 
 const INTRO_COUNT = POKE_INTRO_PREVIEWS.length;
 /** One lap of the real list. Row `r` and row `r + CYCLE` are the same card, which is what lets

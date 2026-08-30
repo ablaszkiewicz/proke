@@ -22,7 +22,6 @@ type BatchKind = 'review' | 'request';
 const MENTION_TYPES: NotificationType[] = [
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
-  NotificationType.TeamMention,
 ];
 
 interface Batch {

@@ -1,13 +1,42 @@
 import type { NotificationType } from "@/lib/api/connections.api";
 import type { ReactNode } from "react";
+import type { PokePreview } from "./pokePreviews";
 
 /**
- * The user-facing half of the backend's NotificationType. Copy and preview live here; whether a
- * type is on lives in the subscription. Adding a type to the backend without adding it here
- * means a poke nobody was told to expect, so the two lists are meant to be kept level.
+ * What a poke is about, grouped the way somebody deciding about them thinks.
+ *
+ * Three groups, and the axis is *why you are being told* rather than which GitHub object it
+ * happened on: a review asked of you and a merge of yours are both news about your pull
+ * requests, while a comment and a mention are two different things that happen in the same
+ * comment box. Two of them mention issues and pull requests alike, which is fine - the row says
+ * which.
+ */
+export type PokeGroupKey = "pull_requests" | "comments" | "mentions";
+
+export interface PokeGroup {
+  key: PokeGroupKey;
+  title: string;
+}
+
+/** The order they are shown in, and the order NOTIFICATION_TYPES is grouped by. */
+export const POKE_GROUPS: PokeGroup[] = [
+  { key: "pull_requests", title: "Pull requests" },
+  { key: "comments", title: "Comments" },
+  { key: "mentions", title: "Mentions" },
+];
+
+/**
+ * The user-facing half of the backend's NotificationType: the words on the switch, the group it
+ * sits in, and the two miniatures - what happens on GitHub, and what lands in Slack. Whether the
+ * switch is on lives on the account, not here.
+ *
+ * Adding a type to the backend without adding it here means a poke nobody was told to expect and
+ * a switch nobody can find, so the two lists are meant to be kept level.
  */
 export interface NotificationTypeDescriptor {
   type: NotificationType;
+  /** Which of POKE_GROUPS the row sits under. */
+  group: PokeGroupKey;
   title: string;
   /** Two or three words for places too tight for the title - table headers, nodes, chips. */
   short: string;
@@ -15,6 +44,12 @@ export interface NotificationTypeDescriptor {
   icon: string;
   /** A miniature of the thing on GitHub that causes the poke. */
   preview: (handle: string) => ReactNode;
+  /**
+   * The poke itself, as Slack shows it. On the descriptor rather than in a list beside it: the
+   * reel is handed a row index straight off NOTIFICATION_TYPES, and two lists that had to stay
+   * in the same order had already drifted apart once.
+   */
+  poke: PokePreview;
 }
 
 export function Octicon({
@@ -114,8 +149,12 @@ export function Preview({
 }
 
 export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
+  // Pull requests: what is happening to work of yours, and what is being asked of you.
+  // A review asked of a team you are in arrives here too - it is a review request, and the
+  // message names the team rather than claiming it was personal.
   {
     type: "review_requested",
+    group: "pull_requests",
     title: "Someone requests your review",
     short: "Review request",
     icon: ICON.eye,
@@ -137,9 +176,17 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Retry webhook deliveries with backoff #42"
       />
     ),
+    poke: {
+      marker: "👀",
+      actor: "ada",
+      lead: "requested your review on",
+      subject: "Fix flaky uploads #482",
+      repository: "acme/api",
+    },
   },
   {
     type: "review_submitted",
+    group: "pull_requests",
     title: "Someone reviews your pull request",
     short: "Review",
     icon: ICON.check,
@@ -154,9 +201,17 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Nice — one nit inline, otherwise good to go."
       />
     ),
+    poke: {
+      marker: "✅",
+      actor: "ada",
+      lead: "approved",
+      subject: "Retry uploads with backoff #489",
+      repository: "acme/api",
+    },
   },
   {
     type: "pull_request_merged",
+    group: "pull_requests",
     title: "Your pull request is merged",
     short: "Merged",
     icon: ICON.merge,
@@ -177,9 +232,17 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Retry webhook deliveries with backoff #42"
       />
     ),
+    poke: {
+      marker: "🎉",
+      actor: "rob",
+      lead: "merged",
+      subject: "Cache the org list #498",
+      repository: "acme/api",
+    },
   },
   {
     type: "auto_merge_enabled",
+    group: "pull_requests",
     title: "Someone enables auto-merge on your pull request",
     short: "Auto-merge",
     icon: ICON.clock,
@@ -201,9 +264,18 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Merges automatically when all checks pass."
       />
     ),
+    poke: {
+      marker: "⏳",
+      actor: "rob",
+      lead: "enabled auto-merge on",
+      subject: "Cache the org list #498",
+      repository: "acme/api",
+    },
   },
+  // Comments: somebody talking, wherever they did it.
   {
     type: "pull_request_comment",
+    group: "comments",
     title: "Someone comments on your pull request",
     short: "PR comment",
     icon: ICON.comment,
@@ -218,9 +290,40 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Looks good — one thought about the retry loop."
       />
     ),
+    poke: {
+      marker: "💬",
+      actor: "rob",
+      lead: "commented on",
+      subject: "Fix flaky uploads #482",
+      repository: "acme/api",
+    },
+  },
+  {
+    type: "issue_comment",
+    group: "comments",
+    title: "Someone comments on an issue you opened",
+    short: "Issue comment",
+    icon: ICON.comment,
+    // The green issue dot, where the pull request comment shows an avatar. What separates the
+    // two settings is only where the comment landed, so that is what the preview has to show.
+    preview: () => (
+      <Preview
+        icon={<Octicon path={ICON.issue} className="text-emerald-500" />}
+        header={<Who>Webhook deliveries are slow</Who>}
+        body="Seeing this too — about 30s behind on our fork."
+      />
+    ),
+    poke: {
+      marker: "💬",
+      actor: "nina",
+      lead: "commented on",
+      subject: "Uploads time out over 50MB #77",
+      repository: "acme/web",
+    },
   },
   {
     type: "comment_reply",
+    group: "comments",
     title: "Someone replies in a thread you started",
     short: "Reply",
     icon: ICON.reply,
@@ -237,9 +340,19 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         body="Good catch — pushed a fix, mind taking another look?"
       />
     ),
+    poke: {
+      marker: "💬",
+      actor: "ada",
+      lead: "replied to you on",
+      subject: "Retry uploads with backoff #489",
+      repository: "acme/api",
+    },
   },
+  // Mentions: somebody naming you - by handle, or through a team you are in. Both arrive as
+  // the type for where they were written, which is why there are two of these and not four.
   {
     type: "pull_request_mention",
+    group: "mentions",
     title: "Someone mentions you on a pull request",
     short: "PR mention",
     icon: ICON.mention,
@@ -258,24 +371,16 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         }
       />
     ),
-  },
-  {
-    type: "issue_comment",
-    title: "Someone comments on an issue you opened",
-    short: "Issue comment",
-    icon: ICON.comment,
-    // The green issue dot, where the pull request comment shows an avatar. What separates the
-    // two settings is only where the comment landed, so that is what the preview has to show.
-    preview: () => (
-      <Preview
-        icon={<Octicon path={ICON.issue} className="text-emerald-500" />}
-        header={<Who>Webhook deliveries are slow</Who>}
-        body="Seeing this too — about 30s behind on our fork."
-      />
-    ),
+    poke: {
+      actor: "nina",
+      lead: "mentioned you on",
+      subject: "Drop the legacy uploader #501",
+      repository: "acme/api",
+    },
   },
   {
     type: "issue_mention",
+    group: "mentions",
     title: "Someone mentions you on an issue",
     short: "Issue mention",
     icon: ICON.issue,
@@ -290,27 +395,20 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
         }
       />
     ),
-  },
-  {
-    type: "team_mention",
-    title: "Someone mentions a team you are in",
-    short: "Team mention",
-    icon: ICON.people,
-    // Ignores the handle it is given: what gets named here is the team.
-    preview: () => (
-      <Preview
-        icon={<Octicon path={ICON.comment} className="text-muted-foreground" />}
-        header={
-          <>
-            <Who>octocat</Who> commented on <Who>#42</Who>
-          </>
-        }
-        body={
-          <>
-            <Mention handle="acme/reviewers" /> any objections to this one?
-          </>
-        }
-      />
-    ),
+    poke: {
+      actor: "nina",
+      lead: "mentioned you on",
+      subject: "Uploads time out over 50MB #77",
+      repository: "acme/web",
+    },
   },
 ];
+
+/**
+ * Every poke as Slack shows it, in the order the dashboard lists them - taken off the
+ * descriptors rather than kept beside them, so the reel's row index and the panel's row are the
+ * same thing by construction.
+ */
+export const POKE_PREVIEWS: PokePreview[] = NOTIFICATION_TYPES.map(
+  (descriptor) => descriptor.poke
+);

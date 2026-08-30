@@ -1,5 +1,21 @@
 import axios from "axios";
+import type { NotificationType } from "./connections.api";
 import type { InboxFilters } from "./inbox.api";
+
+/**
+ * Which kinds of poke somebody has switched off, everywhere.
+ *
+ * The noes rather than the yeses, and that way round on purpose: a list of what somebody wants
+ * would freeze today's idea of "everything" the first time they touched a switch, so a kind
+ * added later would arrive muted for everyone who was already here. Stored like this, an
+ * untouched account is on for everything and a new kind is on for everybody.
+ */
+export interface PokeSettings {
+  mutedTypes: NotificationType[];
+}
+
+/** Nothing muted. What an account that has never opened the panel means. */
+export const DEFAULT_POKE_SETTINGS: PokeSettings = { mutedTypes: [] };
 
 export interface User {
   id: string;
@@ -15,6 +31,12 @@ export interface User {
    * settings without a request of its own in front of its first paint.
    */
   inboxSettings: InboxFilters;
+  /**
+   * Which kinds of poke they have switched off, complete. Here for the same reason as the inbox
+   * settings, and it shows more: the dashboard's list is nine switches, and reading them off the
+   * profile is what keeps it from drawing every one of them on for a frame first.
+   */
+  pokeSettings: PokeSettings;
 }
 
 export class UserApi {
@@ -24,6 +46,26 @@ export class UserApi {
         Authorization: `Bearer ${jwtToken}`,
       },
     });
+
+    return response.data;
+  }
+}
+
+export class PokeSettingsApi {
+  /**
+   * Replaces the whole set. Unmuting is spelled by sending it without that type in it, so there
+   * is nothing to patch - and the answer is what is now stored, so the panel draws the truth
+   * rather than its own request.
+   */
+  public static async update(
+    jwtToken: string,
+    settings: PokeSettings
+  ): Promise<PokeSettings> {
+    const response = await axios.put<PokeSettings>(
+      "/notifications/settings",
+      settings,
+      { headers: { Authorization: `Bearer ${jwtToken}` } }
+    );
 
     return response.data;
   }
