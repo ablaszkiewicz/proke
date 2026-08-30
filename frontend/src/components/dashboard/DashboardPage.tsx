@@ -1,5 +1,6 @@
 import { GitHubIcon } from "@/components/ui/GitHubIcon";
 import { cn } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { OrganisationsPanel, type OrganisationsPanelProps } from "./OrganisationsPanel";
 import { PokesPanel, type PokesPanelProps } from "./PokesPanel";
@@ -52,8 +53,28 @@ export function DashboardPage({
         className
       )}
     >
-      <header className="flex flex-col items-center">
+      <header className="flex flex-col items-center gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">proke</h1>
+
+        {/*
+          The only way to the inbox that is not typing the URL, which is what it was until now.
+          Directly under the wordmark because that is where somebody looks first on a page they
+          have opened to go somewhere, and because this page is settings - the inbox is the part
+          of proke anybody opens twice a day.
+
+          A pill rather than a line of text: it is the one thing on this page to press that is
+          not about configuring something, and a link at footnote weight would have gone on being
+          missed. Rounded-full so it cannot read as a fourth card. Quiet at rest all the same -
+          muted on a hairline, lit only under the pointer, with the arrow leaning the way it goes.
+        */}
+        <Link
+          to="/app/inbox"
+          className="group flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <InboxIcon className="size-3.5" />
+          Go to inbox
+          <ArrowRightIcon className="size-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+        </Link>
       </header>
 
       {/*
@@ -101,6 +122,32 @@ export function DashboardPage({
         </div>
       </footer>
     </div>
+  );
+}
+
+function InboxIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M2.8 2.06A1.75 1.75 0 0 1 4.41 1h7.18c.7 0 1.333.417 1.61 1.06l2.74 6.395c.04.093.06.194.06.295v4.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25v-4.5c0-.101.02-.202.06-.295Zm1.61.44a.25.25 0 0 0-.23.152L1.887 8H4.75a.75.75 0 0 1 .6.3L6.625 10h2.75l1.275-1.7a.75.75 0 0 1 .6-.3h2.863L11.82 2.652a.25.25 0 0 0-.23-.152Zm10.09 7h-2.375l-1.275 1.7a.75.75 0 0 1-.6.3h-3.5a.75.75 0 0 1-.6-.3L4.875 9.5H1.5v3.75c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25Z" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M8.22 2.97a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.97-2.97H3.75a.75.75 0 0 1 0-1.5h7.44L8.22 4.03a.75.75 0 0 1 0-1.06Z" />
+    </svg>
   );
 }
 
