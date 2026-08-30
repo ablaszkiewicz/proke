@@ -17,8 +17,6 @@ export interface PokesPanelProps {
   /** The kinds switched off, account-wide. Empty is the common answer and the default. */
   mutedTypes: NotificationType[];
   onToggleType: (type: NotificationType) => void;
-  /** A whole group at once, from its header. */
-  onToggleGroup: (types: NotificationType[], muted: boolean) => void;
   /** A refused save, in words. Optional so the drafts gallery renders the panel without one. */
   notice?: string | null;
 }
@@ -46,12 +44,7 @@ export interface PokesPanelProps {
  * and nearly always succeeds; where it does not, the panel goes back to what was stored and says
  * so on the line under the list. See pokeSettingsLogic.
  */
-export function PokesPanel({
-  mutedTypes,
-  onToggleType,
-  onToggleGroup,
-  notice,
-}: PokesPanelProps) {
+export function PokesPanel({ mutedTypes, onToggleType, notice }: PokesPanelProps) {
   // The row the reel is showing. Follows the pointer, and stays where it was left afterwards -
   // the last thing looked at is the most useful thing to still be looking at.
   const [activeIndex, setActiveIndex] = useState(0);
@@ -85,12 +78,7 @@ export function PokesPanel({
       <div className="-mx-2">
         {POKE_GROUPS.map((group, groupIndex) => (
           <section key={group.key}>
-            <GroupHeader
-              group={group}
-              mutedTypes={mutedTypes}
-              onToggleGroup={onToggleGroup}
-              first={groupIndex === 0}
-            />
+            <GroupHeader group={group} first={groupIndex === 0} />
 
             <ul>
               {NOTIFICATION_TYPES.filter(
@@ -123,81 +111,46 @@ export function PokesPanel({
       <PokeReel index={activeIndex} className="mt-4" />
 
       {/*
-        The line under the list, and only ever one thing at a time: a refused save while there is
-        one, then the state worth warning about, then nothing. Muting everything is a choice
-        somebody is allowed to make, so it is said plainly rather than argued with.
+        Nothing under the list unless something has actually happened - a refused save, or every
+        kind switched off. There is no standing footnote: the rows say what they do, and a line
+        of explanation that is true on every visit is a line nobody reads by the second one.
+
+        Muting everything is a choice somebody is allowed to make, so it is said plainly rather
+        than argued with.
       */}
-      <p
-        className={cn(
-          "mt-auto pt-4 text-[10px] leading-relaxed",
-          notice ? "text-destructive" : "text-muted-foreground/60"
-        )}
-      >
-        {notice ??
-          (nothing
-            ? "Nothing will proke you. Turn a kind back on and it starts again."
-            : "Every organisation you listen to, every repo it covers. Choosing repos comes later.")}
-      </p>
+      {notice || nothing ? (
+        <p
+          className={cn(
+            "mt-auto pt-4 text-[10px] leading-relaxed",
+            notice ? "text-destructive" : "text-muted-foreground/60"
+          )}
+        >
+          {notice ?? "Nothing will proke you. Turn a kind back on and it starts again."}
+        </p>
+      ) : null}
     </section>
   );
 }
 
 /**
- * A group's name, how much of it is on, and the one control that moves all of it.
+ * A group's name, and nothing else.
  *
- * The control is the count itself rather than a switch beside it: it is already the thing that
- * says what the group is doing, and a second element on a line this quiet would be louder than
- * anything under it. Pressing it turns the group off unless it already is, which is the only
- * unambiguous reading of one press on a mixed group.
+ * A per-group count lived here and was the control that muted the whole group. It went because
+ * of what it did to the list at rest: three headings each reading "4 on" is the same fact
+ * three times, next to nine rows that already show it one tick at a time, and the count in the
+ * panel's own header answers it for the whole list anyway. What is left is a divider with a
+ * word on it, which is all the grouping needs to do.
  */
-function GroupHeader({
-  group,
-  mutedTypes,
-  onToggleGroup,
-  first,
-}: {
-  group: PokeGroup;
-  mutedTypes: NotificationType[];
-  onToggleGroup: (types: NotificationType[], muted: boolean) => void;
-  first: boolean;
-}) {
-  const types = NOTIFICATION_TYPES.filter(
-    (descriptor) => descriptor.group === group.key
-  ).map((descriptor) => descriptor.type);
-  const on = types.filter((type) => !mutedTypes.includes(type)).length;
-  const allOff = on === 0;
-
+function GroupHeader({ group, first }: { group: PokeGroup; first: boolean }) {
   return (
-    <div
+    <h3
       className={cn(
-        "group/header flex items-baseline justify-between px-2 pb-1",
+        "px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground",
         first ? "pt-1" : "pt-3"
       )}
     >
-      <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {group.title}
-      </h3>
-
-      {/*
-        Dimmed until the pointer is on the group, because on an untouched account every one of
-        these reads "4 on" and three of them shouting it is three more things to read than the
-        list needs.
-      */}
-      <button
-        type="button"
-        onClick={() => onToggleGroup(types, !allOff)}
-        // "3 on" is the state, not the action. Read on its own it says nothing about what
-        // pressing it does, so the label says that and the count stays as the thing to look at.
-        aria-label={
-          allOff
-            ? `Turn every ${group.title.toLowerCase()} poke back on`
-            : `Turn off all ${on} ${group.title.toLowerCase()} pokes`
-        }
-        className="cursor-pointer rounded text-[10px] text-muted-foreground/50 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none group-hover/header:text-muted-foreground"
-      >
-        {allOff ? "all off" : `${on} on`}
-      </button>
-    </div>
+      {group.title}
+    </h3>
   );
 }
 

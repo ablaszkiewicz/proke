@@ -49,8 +49,6 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
   actions({
     /** Flip one kind. Takes effect now; the save follows. */
     toggleType: (type: NotificationType) => ({ type }),
-    /** Flip a whole group at once: all off unless they already are, in which case all on. */
-    setTypes: (types: NotificationType[], muted: boolean) => ({ types, muted }),
     /** The whole set as it now stands on screen, ahead of the server agreeing. */
     edit: (settings: PokeSettings) => ({ settings }),
     dismissNotice: true,
@@ -115,7 +113,6 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
         saveSettingsFailure: () =>
           "Couldn't save that, so it's back to how it was.",
         toggleType: () => null,
-        setTypes: () => null,
         dismissNotice: () => null,
       },
     ],
@@ -155,31 +152,18 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
     ],
   }),
 
-  listeners(({ actions, values }) => {
-    const save = (mutedTypes: NotificationType[]) => {
-      const next: PokeSettings = { mutedTypes };
+  listeners(({ actions, values }) => ({
+    toggleType: ({ type }) => {
+      const muted = values.mutedTypes.includes(type);
+      const next: PokeSettings = {
+        mutedTypes: muted
+          ? values.mutedTypes.filter((existing) => existing !== type)
+          : [...values.mutedTypes, type],
+      };
 
+      // On screen now, on the account a moment later. See the note above on why that order.
       actions.edit(next);
       actions.saveSettings({ settings: next });
-    };
-
-    return {
-      toggleType: ({ type }) => {
-        const muted = values.mutedTypes.includes(type);
-
-        save(
-          muted
-            ? values.mutedTypes.filter((existing) => existing !== type)
-            : [...values.mutedTypes, type]
-        );
-      },
-      setTypes: ({ types, muted }) => {
-        const without = values.mutedTypes.filter(
-          (existing) => !types.includes(existing)
-        );
-
-        save(muted ? [...without, ...types] : without);
-      },
-    };
-  }),
+    },
+  })),
 ]);
