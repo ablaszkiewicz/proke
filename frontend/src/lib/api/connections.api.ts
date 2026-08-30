@@ -8,6 +8,7 @@ export type NotificationType =
   | "pull_request_merged"
   | "auto_merge_enabled"
   | "pull_request_comment"
+  | "issue_comment"
   | "comment_reply"
   | "pull_request_mention"
   | "issue_mention"

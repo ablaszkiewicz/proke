@@ -21,6 +21,13 @@ export enum NotificationType {
   AutoMergeEnabled = 'auto_merge_enabled',
   PullRequestComment = 'pull_request_comment',
   /**
+   * Somebody commented on an issue you opened. The counterpart to the pull request one, and
+   * separate from it because the two are different rooms: a pull request comment is usually
+   * about work of yours already in flight, while an issue you filed can keep collecting replies
+   * for months. Plenty of people want one and not the other.
+   */
+  IssueComment = 'issue_comment',
+  /**
    * Somebody answered in a review thread you started. GitHub points every reply in a thread at
    * the comment that opened it, so this is "in your thread" rather than "to your last word" -
    * there is no pointer to the comment immediately above.
@@ -52,6 +59,10 @@ const PRIORITY: NotificationType[] = [
   // be told than that they also happened to write your handle.
   NotificationType.CommentReply,
   NotificationType.PullRequestComment,
+  // Beside the pull request comment for the same reason it sits above the mentions: being
+  // answered on something you opened is the more specific relationship. The two never compete -
+  // one comment is on an issue or on a pull request, never both.
+  NotificationType.IssueComment,
   NotificationType.PullRequestMention,
   NotificationType.IssueMention,
   // Last: being asked directly outranks being included in a group.

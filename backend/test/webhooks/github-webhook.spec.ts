@@ -124,6 +124,17 @@ describe('Webhooks (github)', () => {
     sender: { id: 999, login: 'commenter' },
   });
 
+  /** The same event on a plain issue: the `pull_request` field is the only thing separating them. */
+  const issueCommentPayload = (
+    { body, authorGithubId = 4242 }: { body?: string; authorGithubId?: number } = {},
+    repository = REPOSITORY,
+  ) => {
+    const payload = prCommentPayload({ body, authorGithubId }, repository);
+    const { pull_request, ...issue } = payload.issue;
+
+    return { ...payload, issue };
+  };
+
   // Shared by every test about a team, whether the team was named in a sentence or asked for a
   // review: both end up in the same expansion, and so need the same org-owned repository, the
   // same installation token, and the same answer from GitHub about who is in the team.
@@ -274,21 +285,59 @@ describe('Webhooks (github)', () => {
       });
     });
 
-    it('leaves a comment on an issue you opened alone', async () => {
+    it('pokes the issue author about a comment on their issue', async () => {
       // given - the same event, minus the field that makes it a pull request
       const { user } = await bootstrap.utils.authUtils.setupUser({
         githubId: '4242',
         githubLogin: 'author',
       });
       await subscribe(user.id);
-      const { issue, ...rest } = prCommentPayload();
-      const { pull_request, ...plainIssue } = issue;
 
       // when
-      await send('issue_comment', { ...rest, issue: plainIssue });
+      await send('issue_comment', issueCommentPayload());
 
-      // then - only a mention makes an issue comment a poke
+      // then - its own type, so it can be muted without muting pull request comments
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.IssueComment,
+        title: 'Something is broken',
+        actorLogin: 'commenter',
+      });
+    });
+
+    it('does not poke the issue author about a bot comment', async () => {
+      // given
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when - a stale-bot, a labeller, any of the machines that live in an issue tracker
+      await send('issue_comment', {
+        ...issueCommentPayload(),
+        sender: { id: 999, login: 'stale[bot]', type: 'Bot' },
+      });
+
+      // then
       await expectNoPoke();
+    });
+
+    it('collapses a comment on your own issue that also mentions you', async () => {
+      // given - the author and the mentioned person are the same user
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+
+      // when
+      await send('issue_comment', issueCommentPayload({ body: 'hey @author look at this' }));
+
+      // then - one poke, and the one describing the closer relationship
+      const notification = await firstNotification();
+      expect(notification).toMatchObject({ type: NotificationType.IssueComment });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
     });
 
     it('pokes the pr author about a submitted review', async () => {
@@ -2092,14 +2141,11 @@ describe('Webhooks (github)', () => {
       await setupRecipient();
       const token = mockInstallationToken();
 
-      // when - a mention, because a comment on an issue is not a poke on its own
-      await send(
-        'issue_comment',
-        commentPayload({ pull_request: undefined }, { body: 'cc @reviewer' }),
-      );
+      // when
+      await send('issue_comment', commentPayload({ pull_request: undefined }));
 
       // then - nothing consumed the token, so nothing went near GitHub
-      expect(await firstNotification()).toMatchObject({ type: NotificationType.IssueMention });
+      expect(await firstNotification()).toMatchObject({ type: NotificationType.IssueComment });
       expect(token.isDone()).toEqual(false);
     });
   });

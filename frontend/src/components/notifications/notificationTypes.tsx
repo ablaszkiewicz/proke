@@ -260,6 +260,21 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
     ),
   },
   {
+    type: "issue_comment",
+    title: "Someone comments on an issue you opened",
+    short: "Issue comment",
+    icon: ICON.comment,
+    // The green issue dot, where the pull request comment shows an avatar. What separates the
+    // two settings is only where the comment landed, so that is what the preview has to show.
+    preview: () => (
+      <Preview
+        icon={<Octicon path={ICON.issue} className="text-emerald-500" />}
+        header={<Who>Webhook deliveries are slow</Who>}
+        body="Seeing this too — about 30s behind on our fork."
+      />
+    ),
+  },
+  {
     type: "issue_mention",
     title: "Someone mentions you on an issue",
     short: "Issue mention",

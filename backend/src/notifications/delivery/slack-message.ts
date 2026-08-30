@@ -66,6 +66,9 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
   // promises an outcome they could still refuse is one that gets to be wrong.
   [NotificationType.AutoMergeEnabled]: () => ({ verb: 'enabled auto-merge', preposition: 'on' }),
   [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
+  // The same sentence, and deliberately so: the link that finishes it says whether it was an
+  // issue or a pull request, so spelling it out here would only make the line longer.
+  [NotificationType.IssueComment]: () => ({ verb: 'commented', preposition: 'on' }),
   // "replied to you", not "replied to your comment": the link goes straight to the reply, and
   // which of your comments it was is one click away rather than something to word around.
   //
@@ -116,6 +119,7 @@ const LEAD_ICON: Partial<Record<NotificationType, string>> = {
   // A review that reached no verdict is somebody talking, and reads as one.
   [NotificationType.ReviewSubmitted]: '💬',
   [NotificationType.PullRequestComment]: '💬',
+  [NotificationType.IssueComment]: '💬',
   [NotificationType.CommentReply]: '💬',
   [NotificationType.PullRequestMerged]: '🎉',
   // Read against the 🎉 that usually follows it minutes later: armed, then landed. An hourglass

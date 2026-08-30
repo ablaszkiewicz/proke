@@ -889,11 +889,17 @@ export class GithubWebhookRouterService {
 
     const pokes: Poke[] = [];
 
-    // A comment on an issue you opened is not a poke on its own - only a mention in it is.
-    if (isPullRequest && issue.user) {
+    // Whoever opened the thing being commented on, whichever kind of thing it is. Two types
+    // rather than one because they are two preferences: somebody following their pull requests
+    // closely may well not want every reply on an issue they filed a year ago.
+    if (issue.user) {
       pokes.push({
         recipient: { githubId: String(issue.user.id) },
-        notification: this.build(NotificationType.PullRequestComment, subject, context),
+        notification: this.build(
+          isPullRequest ? NotificationType.PullRequestComment : NotificationType.IssueComment,
+          subject,
+          context,
+        ),
       });
     }
 
@@ -1132,6 +1138,9 @@ function readDiff(pullRequest: any): GithubDiffStat | undefined {
  */
 const BOT_SUPPRESSED_TYPES: NotificationType[] = [
   NotificationType.PullRequestComment,
+  // A bot on an issue is if anything worse than one on a pull request: stale-bots, triage
+  // labellers and template-checkers talk to issues that nobody has touched in months.
+  NotificationType.IssueComment,
   // A bot answering in your thread is the same talking, and suppressed here rather than later
   // so it never costs the lookup its recipient would have needed.
   NotificationType.CommentReply,
