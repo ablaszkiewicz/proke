@@ -322,8 +322,8 @@ function handleLink(login: string | undefined): string {
   return login ? link(`https://github.com/${encodeURIComponent(login)}`, `@${login}`) : 'someone';
 }
 
-/** The message the Send a test poke button produces. Deliberately not a fake notification. */
-export function buildTestMessage(githubLogin?: string): SlackMessage {
+/** The message a finished connection produces, once, the moment the last piece lands. */
+export function buildWelcomeMessage(githubLogin?: string): SlackMessage {
   const who = githubLogin ? handleLink(githubLogin) : 'you';
 
   return {
@@ -335,6 +335,61 @@ export function buildTestMessage(githubLogin?: string): SlackMessage {
           type: 'mrkdwn',
           text: `*proke is connected.* This is where GitHub prokes for ${who} will arrive.`,
         },
+      },
+    ],
+  };
+}
+
+/**
+ * The opening line of a test proke, drawn at random.
+ *
+ * The button gets pressed more than once - by the same person, on the same connection, after
+ * every change to it - and the welcome message said its piece the first time. A line that is
+ * different on every press is the difference between a receipt and a small reward for pressing
+ * it, and it costs nothing that the line underneath does not already say plainly.
+ *
+ * Each one has to work as the only thing somebody reads, so none of them can be mistaken for a
+ * pull request going quiet. The context line names the button either way.
+ *
+ * The word is always "proke", never "poke". It is the joke the product is named after, and a
+ * line that drops the r is a line that reads as a typo in the other direction.
+ */
+const TEST_LINES = [
+  '*This proke is a drill.* Review nothing. Merge nothing. As you were.',
+  '*Knock knock.* Nobody there. proke is checking the door works.',
+  '*A wild test proke appears.* It deals no damage. It is very proud of itself.',
+  '*Testing, testing.* One proke, two proke. Slack can hear you.',
+  '*Ping.* If you can read this, the plumbing holds and the proke got through.',
+  '*Consider yourself proked.* No pull request, no comments, no obligations.',
+  '*Proke delivered.* Somewhere a pull request is still waiting for a review. Not this one.',
+];
+
+/** The same line with the markup taken out, for the push notification, which renders none. */
+function unbold(line: string): string {
+  return line.replace(/\*/g, '');
+}
+
+/**
+ * The message the Send a test proke button produces. Deliberately not a fake notification, and
+ * deliberately not the welcome message either - somebody pressed a button, and the message says
+ * so, so that a test proke is never read as news about a pull request.
+ */
+export function buildTestMessage(githubLogin?: string): SlackMessage {
+  const line = TEST_LINES[Math.floor(Math.random() * TEST_LINES.length)];
+  const who = githubLogin ? handleLink(githubLogin) : 'somebody';
+
+  return {
+    text: `${unbold(line)} (Test proke — ${handle(githubLogin)} pressed Send a test proke on the dashboard.)`,
+    blocks: [
+      { type: 'section', text: { type: 'mrkdwn', text: line } },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `Test proke · ${who} pressed *Send a test proke* on the dashboard. No pull request was involved.`,
+          },
+        ],
       },
     ],
   };

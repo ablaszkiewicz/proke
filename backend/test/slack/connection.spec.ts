@@ -420,7 +420,7 @@ describe('Slack connection', () => {
     });
   });
 
-  describe('the test poke', () => {
+  describe('the test proke', () => {
     it('says what to do when there is nothing connected', async () => {
       // given
       const { token } = await bootstrap.utils.authUtils.setupUser();
@@ -499,7 +499,10 @@ describe('Slack connection', () => {
       // then
       expect(response.status).toEqual(204);
       expect(posted.channel).toEqual('D0ADA');
-      expect(posted.text).toContain('proke is connected');
+      // The opening line is drawn at random, so what is asserted is the part that never
+      // changes: this poke says it is a test, and it says who pressed the button.
+      expect(posted.text).toContain('Test proke');
+      expect(posted.text).toContain('@ablaszkiewicz');
     });
   });
 });

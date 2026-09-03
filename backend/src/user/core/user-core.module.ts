@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthSessionModule } from '../../auth/session/auth-session.module';
 import { PokeMessageWriteModule } from '../../notifications/messages/write/poke-message-write.module';
 import { SlackLinkWriteModule } from '../../slack/links/write/slack-link-write.module';
 import { SlackWorkspaceWriteModule } from '../../slack/workspaces/write/slack-workspace-write.module';
@@ -12,6 +13,8 @@ import { UserDeletionService } from './user-deletion.service';
   imports: [
     UserReadModule,
     UserWriteModule,
+    // Deleting an account ends every session it has.
+    AuthSessionModule,
     // Deleting an account reaches into every collection keyed on a user id, which is why this
     // module knows about Slack and subscriptions at all.
     SubscriptionWriteModule,

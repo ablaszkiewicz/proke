@@ -16,6 +16,23 @@ interface EnvConfig {
     // JWT secret: state travels through Slack's logs and a browser's history, and rotating one
     // of the two should not silently invalidate the other.
     stateSigningSecret: string;
+    /**
+     * How long an access token is good for, in seconds.
+     *
+     * Short, because it is the only credential that cannot be taken back: the guard verifies a
+     * signature and asks nothing else, so a leaked one works until it expires no matter what
+     * has happened to the account since. That is what the refresh token below buys - the long
+     * half of the session is a row in Mongo, and deleting the row ends it.
+     */
+    accessTokenTtlSeconds: number;
+    /**
+     * How long a refresh token survives without being used, in milliseconds.
+     *
+     * Sliding, not absolute: every refresh pushes it out again, so somebody who opens proke at
+     * least this often never logs in twice. It is what decides how long a laptop can be shut
+     * before GitHub has to be asked again.
+     */
+    refreshTokenTtlMs: number;
   };
   crypto: {
     /**
@@ -102,6 +119,13 @@ export function getEnvConfig(): EnvConfig {
       jwtSecret: process.env.AUTH_JWT_SECRET ?? DEVELOPMENT_SECRETS.jwtSecret,
       stateSigningSecret:
         process.env.STATE_SIGNING_SECRET ?? DEVELOPMENT_SECRETS.stateSigningSecret,
+      // An hour. Long enough that a session spends almost all of its life not talking to
+      // /auth/refresh, short enough that "log this person out" - a deleted account, a revoked
+      // session - is true within the hour rather than within the week it used to be.
+      accessTokenTtlSeconds: Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 60 * 60),
+      // Thirty days, sliding. proke is a thing you look at on working days, so anybody using it
+      // at all keeps pushing this out; the people it logs out are the ones who stopped.
+      refreshTokenTtlMs: Number(process.env.REFRESH_TOKEN_TTL_MS ?? 30 * 24 * 60 * 60_000),
     },
     githubApp: {
       appId: process.env.GH_APP_ID ?? '',

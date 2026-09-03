@@ -122,6 +122,22 @@ describe('Auth (github)', () => {
     expect(await bootstrap.models.userModel.countDocuments()).toEqual(2);
   });
 
+  it('returns a whole session, not just an access token', async () => {
+    // given
+    mockGithubOauth();
+
+    // when
+    const loginResponse = await request(bootstrap.app.getHttpServer())
+      .post('/auth/github/login')
+      .send({ githubCode: 'whatever' });
+
+    // then - the long half of the session too, so the browser has something to renew with when
+    // the hour is up rather than being sent back through GitHub
+    expect(loginResponse.body.refreshToken).toBeDefined();
+    expect(loginResponse.body.expiresIn).toBeGreaterThan(0);
+    expect(await bootstrap.models.refreshTokenModel.countDocuments()).toEqual(1);
+  });
+
   it('creates new user if not exists', async () => {
     // given
     mockGithubOauth();

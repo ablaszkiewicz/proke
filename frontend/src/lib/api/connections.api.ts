@@ -85,9 +85,9 @@ export interface ConnectionsResult {
    * list is empty because it could not be read, not because it is empty, and the fix is to sign
    * in with GitHub again.
    *
-   * Deliberately not a 401: the proke session is fine, and the interceptor in main.tsx treats a
-   * 401 as a dead session and signs the user out of a working account. Nothing renders this yet
-   * - the dashboard still shows an empty list.
+   * Deliberately not a 401: the proke session is fine, and the interceptors in lib/auth/session.ts
+   * read a 401 as a session to renew and then, failing that, to end - which would sign the user
+   * out of a working account. Nothing renders this yet - the dashboard still shows an empty list.
    */
   githubReauthRequired?: boolean;
 }

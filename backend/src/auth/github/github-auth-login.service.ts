@@ -4,14 +4,14 @@ import { TokenResponse } from '../../shared/responses/token.response';
 import { AuthMethod } from '../../user/core/enum/auth-method.enum';
 import { UserReadService } from '../../user/read/user-read.service';
 import { UserWriteService } from '../../user/write/user-write.service';
-import { CustomJwtService } from '../custom-jwt/custom-jwt.service';
+import { AuthSessionService } from '../session/auth-session.service';
 import { GithubLoginBody } from './dto/github-login.body';
 import { GithubAuthDataService, GithubProfile } from './github-auth-data.service';
 
 @Injectable()
 export class GithubAuthLoginService {
   constructor(
-    private readonly jwtService: CustomJwtService,
+    private readonly authSessionService: AuthSessionService,
     private readonly userReadService: UserReadService,
     private readonly userWriteService: UserWriteService,
     private readonly githubAuthDataService: GithubAuthDataService,
@@ -42,9 +42,7 @@ export class GithubAuthLoginService {
 
       this.recordLogin(user.id, profile, email, false);
 
-      return {
-        token: await this.jwtService.sign({ id: user.id }),
-      };
+      return this.authSessionService.issue(user.id);
     }
 
     const createdUser = await this.userWriteService.create({
@@ -58,9 +56,10 @@ export class GithubAuthLoginService {
 
     this.recordLogin(createdUser.id, profile, email, true);
 
-    return {
-      token: await this.jwtService.sign({ id: createdUser.id }),
-    };
+    // A fresh session every time somebody logs in, including a re-login on a device that already
+    // had one. Sessions are per login rather than per user - see RefreshTokenEntity - so this
+    // adds one rather than replacing what the other devices are holding.
+    return this.authSessionService.issue(createdUser.id);
   }
 
   /**

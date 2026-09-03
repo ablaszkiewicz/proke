@@ -219,8 +219,8 @@ export interface InboxResult {
   stale: boolean;
   /**
    * The stored GitHub authorization is gone or was revoked. Deliberately not a 401: the proke
-   * session is fine, and the interceptor in main.tsx reads a 401 as a dead session and signs
-   * the user out of a working account.
+   * session is fine, and the interceptors in lib/auth/session.ts read a 401 as a session to renew
+   * and then, failing that, to end - which would sign the user out of a working account.
    */
   githubReauthRequired: boolean;
   /**

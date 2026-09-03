@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { CustomJwtService } from '../../src/auth/custom-jwt/custom-jwt.service';
+import { AuthSessionService } from '../../src/auth/session/auth-session.service';
 import { UserSerialized } from '../../src/user/core/entities/user.interface';
 import { UserSerializer } from '../../src/user/core/entities/user.serializer';
 import { AuthMethod } from '../../src/user/core/enum/auth-method.enum';
@@ -7,11 +7,11 @@ import { UserWriteService } from '../../src/user/write/user-write.service';
 
 export class AuthUtils {
   private readonly userWriteService: UserWriteService;
-  private readonly jwtService: CustomJwtService;
+  private readonly authSessionService: AuthSessionService;
 
   constructor(private readonly app: INestApplication<any>) {
     this.userWriteService = this.app.get(UserWriteService);
-    this.jwtService = this.app.get(CustomJwtService);
+    this.authSessionService = this.app.get(AuthSessionService);
   }
 
   public async setupUser(dto?: {
@@ -22,6 +22,9 @@ export class AuthUtils {
     githubAccessToken?: string;
   }): Promise<{
     token: string;
+    // A real session, issued the way logging in issues one, so a spec can exercise refreshing
+    // and signing out without going through GitHub.
+    refreshToken: string;
     user: UserSerialized;
   }> {
     const user = await this.userWriteService.create({
@@ -33,8 +36,11 @@ export class AuthUtils {
       githubAccessToken: dto?.githubAccessToken,
     });
 
+    const session = await this.authSessionService.issue(user.id);
+
     return {
-      token: await this.jwtService.sign({ id: user.id }),
+      token: session.token,
+      refreshToken: session.refreshToken,
       user: UserSerializer.serialize(user),
     };
   }

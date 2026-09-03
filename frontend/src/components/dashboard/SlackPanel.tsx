@@ -12,7 +12,7 @@ export interface SlackPanelProps {
   onDisconnect: () => void;
   onTest: () => void;
   /**
-   * Both authorize buttons leave for slack.com, so unlike Disconnect and Send a test poke there
+   * Both authorize buttons leave for slack.com, so unlike Disconnect and Send a test proke there
    * is no action behind them - just a link. Optional, and supplied only by Dashboard, so the
    * drafts gallery renders the same panel without reporting design work as product use.
    */

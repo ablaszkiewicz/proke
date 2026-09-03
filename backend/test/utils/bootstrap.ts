@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import * as nock from 'nock';
 import { AnalyticsModule } from '../../src/analytics/analytics.module';
 import { AuthCoreModule } from '../../src/auth/core/auth-core.module';
+import { RefreshTokenEntity } from '../../src/auth/session/entities/refresh-token.entity';
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InboxModule } from '../../src/inbox/inbox.module';
 import { InboxWarmModule } from '../../src/inbox/warm/inbox-warm.module';
@@ -107,6 +108,9 @@ export async function createTestApp() {
     getModelToken(SlackWorkspaceEntity.name),
   );
   const slackLinkModel: Model<SlackLinkEntity> = module.get(getModelToken(SlackLinkEntity.name));
+  const refreshTokenModel: Model<RefreshTokenEntity> = module.get(
+    getModelToken(RefreshTokenEntity.name),
+  );
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
@@ -119,6 +123,7 @@ export async function createTestApp() {
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
+    await refreshTokenModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -144,6 +149,7 @@ export async function createTestApp() {
       slackWorkspaceModel,
       slackLinkModel,
       pokeMessageModel,
+      refreshTokenModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),

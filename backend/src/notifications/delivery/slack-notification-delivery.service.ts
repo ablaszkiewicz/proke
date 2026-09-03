@@ -19,7 +19,7 @@ import { UserNormalized } from '../../user/core/entities/user.interface';
 import { GithubNotificationNormalized } from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 import { PokeMessageWriteService } from '../messages/write/poke-message-write.service';
-import { buildPokeMessage, buildTestMessage } from './slack-message';
+import { buildPokeMessage, buildTestMessage, buildWelcomeMessage } from './slack-message';
 
 /**
  * Why a poke did not reach Slack. Only `sent` and `failed` are unusual; the rest are ordinary
@@ -178,12 +178,12 @@ export class SlackNotificationDeliveryService {
   }
 
   /**
-   * The same message, sent the moment a connection becomes complete rather than when somebody
+   * The first poke, sent the moment a connection becomes complete rather than when somebody
    * asks for it. Nobody pressed anything here, so unlike the test button a refusal is an
    * outcome to log and move past - the connection itself is stored and fine either way.
    */
   public async deliverWelcome(user: UserNormalized): Promise<SlackDeliveryOutcome> {
-    const { outcome } = await this.send(user.id, buildTestMessage(user.githubLogin), {
+    const { outcome } = await this.send(user.id, buildWelcomeMessage(user.githubLogin), {
       trigger: 'welcome',
       pokeType: 'welcome',
     });

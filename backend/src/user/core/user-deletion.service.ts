@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AnalyticsService } from '../../analytics/analytics.service';
+import { AuthSessionService } from '../../auth/session/auth-session.service';
 import { PokeMessageWriteService } from '../../notifications/messages/write/poke-message-write.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
@@ -16,6 +17,9 @@ import { UserWriteService } from '../write/user-write.service';
  * The user row goes last on purpose. It is what authenticates the caller, so while it survives
  * a half-finished deletion is one the user can simply ask for again; dropping it first would
  * strand the rest with no way back in to clean up.
+ *
+ * The sessions go first, for the mirror-image reason: they are what a *stolen* credential would
+ * use, and they are the one thing here that renews itself.
  */
 @Injectable()
 export class UserDeletionService {
@@ -23,6 +27,7 @@ export class UserDeletionService {
 
   constructor(
     private readonly userWriteService: UserWriteService,
+    private readonly authSessionService: AuthSessionService,
     private readonly subscriptionWriteService: SubscriptionWriteService,
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
@@ -35,6 +40,12 @@ export class UserDeletionService {
     // event is stamped with this distinct id now - and once the row is gone there is nothing
     // left to read it from.
     this.analytics.capture(userId, 'account_deleted');
+
+    // Every session, on every device. First, because it is the only step that shortens the
+    // window in which a half-finished deletion can still be talked to: after this the longest
+    // anything can still authenticate as this user is one access token's remaining hour, rather
+    // than the thirty days a refresh token would have kept renewing for.
+    await this.authSessionService.revokeAllForUser(userId);
 
     // Which organisations they asked to hear about.
     await this.subscriptionWriteService.deleteForUser(userId);
