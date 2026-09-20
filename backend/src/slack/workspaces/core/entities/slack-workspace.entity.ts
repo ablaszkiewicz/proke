@@ -40,7 +40,8 @@ export class SlackWorkspaceEntity {
   @Prop()
   installedByUserId?: string;
 
-  // Set when Slack tells us the token is dead (app_uninstalled, tokens_revoked). The row is
+  // Set when Slack tells us the bot token is dead (app_uninstalled, or tokens_revoked naming
+  // the bot - a member's revoked identity token does not count). The row is
   // kept rather than deleted so the dashboard can say "reconnect" instead of quietly
   // forgetting the workspace ever existed.
   @Prop({ type: Date })

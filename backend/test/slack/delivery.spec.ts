@@ -741,5 +741,68 @@ describe('Slack delivery', () => {
       const workspace = await bootstrap.models.slackWorkspaceModel.findOne({ teamId: TEAM_ID });
       expect(workspace?.revokedAt).toBeTruthy();
     });
+
+    it('revokes the workspace and drops its links when the bot token is revoked', async () => {
+      // given
+      await setupConnected();
+
+      // when
+      const response = await send({
+        type: 'event_callback',
+        team_id: TEAM_ID,
+        event: { type: 'tokens_revoked', tokens: { oauth: [], bot: ['B0PROKE'] } },
+      });
+
+      // then
+      expect(response.status).toEqual(200);
+      await waitFor(async () => (await bootstrap.models.slackLinkModel.countDocuments()) === 0);
+
+      const workspace = await bootstrap.models.slackWorkspaceModel.findOne({ teamId: TEAM_ID });
+      expect(workspace?.revokedAt).toBeTruthy();
+    });
+
+    it('leaves the workspace alone when only the token of one member is revoked', async () => {
+      // given - what Slack sends when a single account is deactivated: their identity token,
+      // and no bot token
+      const { user } = await setupConnected();
+
+      // and a second workspace, whose uninstall is the signal that the first event was handled:
+      // handling is detached, so there is nothing to wait on when the right answer is no change
+      await bootstrap.models.slackWorkspaceModel.create({
+        teamId: 'T0OTHER',
+        teamName: 'Other',
+        botUserId: 'B0OTHER',
+        botToken: 'xoxb-other-token',
+      });
+      await bootstrap.models.slackLinkModel.create({
+        userId: user.id,
+        teamId: 'T0OTHER',
+        slackUserId: 'U0OTHER',
+      });
+
+      // when
+      const response = await send({
+        type: 'event_callback',
+        team_id: TEAM_ID,
+        event: { type: 'tokens_revoked', tokens: { oauth: ['U0ADA'], bot: [] } },
+      });
+      await send({
+        type: 'event_callback',
+        team_id: 'T0OTHER',
+        event: { type: 'app_uninstalled' },
+      });
+
+      // then
+      expect(response.status).toEqual(200);
+      await waitFor(
+        async () =>
+          (await bootstrap.models.slackLinkModel.countDocuments({ teamId: 'T0OTHER' })) === 0,
+      );
+
+      expect(await bootstrap.models.slackLinkModel.countDocuments({ teamId: TEAM_ID })).toEqual(1);
+
+      const workspace = await bootstrap.models.slackWorkspaceModel.findOne({ teamId: TEAM_ID });
+      expect(workspace?.revokedAt).toBeFalsy();
+    });
   });
 });

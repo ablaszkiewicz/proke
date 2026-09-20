@@ -22,6 +22,10 @@ import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-w
  *
  * Without them a revoked token is only discovered the next time somebody happens to be poked
  * there, and the dashboard goes on claiming everything is connected in the meantime.
+ *
+ * `tokens_revoked` is only that news when it names a bot token. Slack sends the same event for
+ * the identity token of a single member - they were deactivated, or removed the authorization
+ * themselves - and that says nothing about the workspace. See `isWorkspaceGone`.
  */
 @Public()
 @ApiExcludeController()
@@ -72,7 +76,18 @@ export class SlackEventsController {
       return;
     }
 
-    this.logger.warn(`Slack workspace ${teamId} sent ${type}; dropping its links`);
+    // Written into both log lines below, so which token died is on record next time instead of
+    // having to be inferred.
+    const tokens = JSON.stringify(payload?.event?.tokens ?? {});
+
+    if (!this.isWorkspaceGone(payload)) {
+      this.logger.log(
+        `Slack workspace ${teamId} sent ${type} for user tokens only (${tokens}); ignoring it`,
+      );
+      return;
+    }
+
+    this.logger.warn(`Slack workspace ${teamId} sent ${type} (${tokens}); dropping its links`);
 
     // Keyed on the workspace, not a person, and deliberately without one: this is one event
     // about a workspace that has gone away, not an event about each of the people in it. The
@@ -88,5 +103,26 @@ export class SlackEventsController {
     // something relative to a workspace we can reach.
     await this.workspaceWriteService.markRevoked(teamId);
     await this.linkWriteService.deleteForTeam(teamId);
+  }
+
+  /**
+   * `app_uninstalled` always means the workspace is gone. `tokens_revoked` only does when the
+   * bot token is among the dead: the event lists user tokens under `tokens.oauth` and bot tokens
+   * under `tokens.bot`, and proke holds exactly one bot token per workspace.
+   *
+   * The user tokens are the identity ones every member gets when they connect. proke reads the
+   * identity once and throws the token away, so its revocation changes nothing - and treating
+   * it as the end of the workspace is how one deactivated Slack account once disconnected all
+   * of their colleagues. Somebody who really cannot be reached any more is found by the
+   * delivery path, which drops that one link and no others.
+   */
+  private isWorkspaceGone(payload: any): boolean {
+    if (payload?.event?.type === 'app_uninstalled') {
+      return true;
+    }
+
+    const botTokens = payload?.event?.tokens?.bot;
+
+    return Array.isArray(botTokens) && botTokens.length > 0;
   }
 }
