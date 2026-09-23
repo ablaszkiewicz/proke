@@ -433,8 +433,15 @@ const MAX_DIGEST_TITLE_CHARS = 80;
  *
  * No avatars: Slack fetches every image while posting and rejects the whole message if one
  * fails, and a digest would carry one per row.
+ *
+ * Ends on a button to the inbox, which holds the same list with everything the twenty rows and
+ * the one line each leave out.
  */
-export function buildDigestMessage(pullRequests: DigestPullRequest[], now: Date): SlackMessage {
+export function buildDigestMessage(
+  pullRequests: DigestPullRequest[],
+  now: Date,
+  inboxUrl: string,
+): SlackMessage {
   const shown = pullRequests.slice(0, MAX_DIGEST_ROWS);
   const hidden = pullRequests.length - shown.length;
   const heading =
@@ -459,6 +466,18 @@ export function buildDigestMessage(pullRequests: DigestPullRequest[], now: Date)
       ],
     });
   }
+
+  // A link button: it opens the URL and nothing more, so proke needs no interactivity endpoint.
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Open inbox' },
+        url: inboxUrl,
+      },
+    ],
+  });
 
   return { text: digestFallback(pullRequests), blocks };
 }

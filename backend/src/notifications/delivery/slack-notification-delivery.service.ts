@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PokeTrigger } from '../../analytics/analytics-events';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { MetricsService } from '../../analytics/metrics.service';
+import { getEnvConfig } from '../../shared/configs/env-configs';
 import {
   SLACK_DEAD_LINK_CODES,
   SLACK_DEAD_WORKSPACE_CODES,
@@ -206,7 +207,8 @@ export class SlackNotificationDeliveryService {
     pullRequests: DigestPullRequest[],
     now: Date,
   ): Promise<SlackDeliveryOutcome> {
-    const { outcome } = await this.send(userId, buildDigestMessage(pullRequests, now), {
+    const inboxUrl = `${getEnvConfig().app.url}/app/inbox`;
+    const { outcome } = await this.send(userId, buildDigestMessage(pullRequests, now, inboxUrl), {
       trigger: 'digest',
       pokeType: 'digest',
     });

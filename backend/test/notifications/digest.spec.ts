@@ -2,6 +2,7 @@ import * as nock from 'nock';
 import * as request from 'supertest';
 import { NotificationType } from '../../src/notifications/core/entities/notification-type.enum';
 import { DEFAULT_POKE_SETTINGS } from '../../src/notifications/core/poke-settings';
+import { getEnvConfig } from '../../src/shared/configs/env-configs';
 import { createTestApp } from '../utils/bootstrap';
 
 const TEAM_ID = 'T0ACME';
@@ -413,6 +414,25 @@ describe('The daily digest', () => {
 
       expect(lines(posts).join('\n')).toContain('*23 pull requests are waiting on your review.*');
       expect(context.elements[0].text).toEqual('and 3 more waiting on you.');
+    });
+
+    it('ends on a button that opens the inbox', async () => {
+      await digestUser();
+      mockOneRefresh([pullRequest(), pullRequest({ number: 2 })]);
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const last = posts[0].blocks[posts[0].blocks.length - 1];
+
+      expect(last.type).toEqual('actions');
+      expect(last.elements).toEqual([
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Open inbox' },
+          url: `${getEnvConfig().app.url}/app/inbox`,
+        },
+      ]);
     });
 
     it('carries the whole point in the notification preview', async () => {
