@@ -1,3 +1,5 @@
+import { ScrollFade } from "@/components/ui/ScrollFade";
+import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type {
   InboxFilterChange,
   InboxFilters,
@@ -12,7 +14,6 @@ import { SlidersIcon } from "./FilterControls";
 import { InboxDrawer } from "./InboxDrawer";
 import { InboxFiltersPanel } from "./InboxFiltersPanel";
 import { LAYOUT_TRANSITION } from "./motion";
-import { useScrollEdges } from "./useScrollEdges";
 
 /**
  * The review inbox.
@@ -184,34 +185,6 @@ function Pile({
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * The soft edge on a column that continues past it.
- *
- * A gradient from the page's own background to nothing, over the scrolling element rather than
- * on it. `pointer-events-none` so it cannot swallow a click on the row underneath, and `z-10`
- * so it sits above the rows without needing anything else on the page to declare a level.
- */
-function ScrollFade({
-  edge,
-  show,
-}: {
-  edge: "top" | "bottom";
-  show: boolean;
-}) {
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none absolute inset-x-0 z-10 h-7 transition-opacity duration-200",
-        edge === "top"
-          ? "top-0 bg-gradient-to-b from-background to-transparent"
-          : "bottom-0 bg-gradient-to-t from-background to-transparent",
-        show ? "opacity-100" : "opacity-0"
-      )}
-    />
   );
 }
 

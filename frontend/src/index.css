@@ -57,6 +57,9 @@
   /* Heavier than --border. For the rules that bound a section or a column, as opposed to
      the hairlines that separate rows inside one. */
   --rule: oklch(0.86 0 0);
+  /* Channels, not a colour: `scroll-area` sets its own alpha on these to fade the thumb in. */
+  --scrollbar-thumb: 163 163 163;
+  --scrollbar-thumb-hover: 115 115 115;
 }
 
 .dark {
@@ -79,6 +82,9 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --rule: oklch(1 0 0 / 22%);
+  /* The greys the global scrollbar rules below use, as channels. */
+  --scrollbar-thumb: 94 94 94;
+  --scrollbar-thumb-hover: 122 122 122;
 }
 
 /*
@@ -112,6 +118,9 @@
   --input: #2a2521;
   --ring: #c8a575;
   --rule: #3a332c;
+  /* Warm like the rest of the palette: a shade past --rule, and its hover a shade past that. */
+  --scrollbar-thumb: 74 66 58;
+  --scrollbar-thumb-hover: 107 97 86;
 }
 
 /*
@@ -441,8 +450,15 @@ dialog[data-state="closed"]::backdrop {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--scrollbar-thumb) / 0) transparent;
 
+  /*
+   * `data-scrollbar="shown"` keeps the thumb up at rest, for a list whose scrolling is the one
+   * thing about it a visitor might not guess - a short slot of settings rows, say, that looks
+   * complete. The browser still draws no thumb when nothing overflows, so it never promises a
+   * scroll that is not there.
+   */
   &:hover,
-  &:focus-within {
+  &:focus-within,
+  &[data-scrollbar="shown"] {
     scrollbar-color: rgb(var(--scrollbar-thumb) / 1) transparent;
   }
 
@@ -465,7 +481,8 @@ dialog[data-state="closed"]::backdrop {
   }
 
   &:hover::-webkit-scrollbar-thumb,
-  &:focus-within::-webkit-scrollbar-thumb {
+  &:focus-within::-webkit-scrollbar-thumb,
+  &[data-scrollbar="shown"]::-webkit-scrollbar-thumb {
     background-color: rgb(var(--scrollbar-thumb) / 1);
   }
 

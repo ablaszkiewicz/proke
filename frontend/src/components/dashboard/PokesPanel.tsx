@@ -8,7 +8,9 @@ import {
   type PokeRow,
 } from "@/components/notifications/notificationTypes";
 import { PokeReel } from "@/components/notifications/PokeReel";
+import { ScrollFade } from "@/components/ui/ScrollFade";
 import { Select, type SelectOption } from "@/components/ui/Select";
+import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type { NotificationType } from "@/lib/api/connections.api";
 import type { ReviewRequestResolution } from "@/lib/api/user.api";
 import { cn } from "@/lib/utils";
@@ -85,9 +87,18 @@ export function PokesPanel({
   const everything = mutedTypes.length === 0;
   const nothing = on === 0;
 
+  // Whether the list continues past its top or bottom edge, for the fades. Re-measured when the
+  // digest's hour row comes and goes underneath, which is the one thing here that changes how
+  // much room the list has without the window moving.
+  const { ref, onScroll, edges } = useScrollEdges<HTMLDivElement>(digestEnabled);
+
   return (
-    <section className="flex flex-col rounded-xl border p-5">
-      <header className="mb-2 flex items-baseline justify-between">
+    // From `md` up the card may be no taller than the window less the rest of the page - the
+    // page says how much that is, see `--dashboard-chrome` in DashboardPage - and the list
+    // below is the part that gives when it is not enough. The fallback is no ceiling at all, for
+    // anywhere the page has not set one.
+    <section className="flex flex-col rounded-xl border p-5 md:max-h-[calc(100dvh-var(--dashboard-chrome,0px))]">
+      <header className="mb-2 flex shrink-0 items-baseline justify-between">
         <h2 className="text-sm font-medium">What prokes you</h2>
         {/*
           Keyed on the wording rather than the count, so arriving at "every kind" fades in once
@@ -106,49 +117,76 @@ export function PokesPanel({
         list item. The reel is handed the row's position in POKE_ROWS, which is kept grouped and
         in group order - so that index is also where the row sits on screen, and the reel
         scrolls the way the eye just moved.
+
+        ## The list scrolls; nothing else does
+
+        On a window too short for the whole card the list gives way: it scrolls inside itself,
+        with a fade at whichever edge it continues past, while the header above and the preview
+        and digest below stay put. The preview is the explanation of the switches, and an
+        explanation that scrolls away with them explains nothing. `min-h-0` on both boxes is
+        what lets them shrink at all.
+
+        The scrolling box is the `-mx-2` wrapper the rows always sat in, so a row's highlight
+        still runs into the card's padding and its words still start at the content edge. It
+        reaches 11px further right, for the scrollbar's gutter, which `scroll-area` always
+        reserves: put there, in the card's padding, the ticks end exactly under the header's count.
+
+        The scrollbar stays up rather than waiting for the pointer, unlike the inbox's. A slot
+        of five settings rows reads as the whole list, and the fade alone was too quiet a hint
+        that there are four more; the bar says so before anything is touched.
       */}
-      <div className="-mx-2">
-        {POKE_GROUPS.map((group, groupIndex) => (
-          <section key={group.key}>
-            <GroupHeader group={group} first={groupIndex === 0} />
+      <div className="relative flex min-h-0 flex-col">
+        <ScrollFade edge="top" show={edges.top} />
+        <ScrollFade edge="bottom" show={edges.bottom} />
 
-            <ul>
-              {POKE_ROWS.filter((row) => row.group === group.key).map((row) => {
-                const index = POKE_ROWS.indexOf(row);
-                const active = index === activeIndex;
-                const onShow = () => setActiveIndex(index);
+        <div
+          ref={ref}
+          onScroll={onScroll}
+          data-scrollbar="shown"
+          className="scroll-area -ml-2 -mr-[19px] min-h-0"
+        >
+          {POKE_GROUPS.map((group, groupIndex) => (
+            <section key={group.key}>
+              <GroupHeader group={group} first={groupIndex === 0} />
 
-                if (row.kind === "resolution") {
+              <ul>
+                {POKE_ROWS.filter((row) => row.group === group.key).map((row) => {
+                  const index = POKE_ROWS.indexOf(row);
+                  const active = index === activeIndex;
+                  const onShow = () => setActiveIndex(index);
+
+                  if (row.kind === "resolution") {
+                    return (
+                      <li key="review_request_resolution">
+                        <ResolutionRow
+                          row={row}
+                          resolution={reviewRequestResolution}
+                          // Nothing to cross out while the request itself is switched off.
+                          disabled={mutedTypes.includes("review_requested")}
+                          active={active}
+                          onShow={onShow}
+                          onChange={onSetReviewRequestResolution}
+                        />
+                      </li>
+                    );
+                  }
+
                   return (
-                    <li key="review_request_resolution">
-                      <ResolutionRow
-                        row={row}
-                        resolution={reviewRequestResolution}
-                        // Nothing to cross out while the request itself is switched off.
-                        disabled={mutedTypes.includes("review_requested")}
+                    <li key={row.descriptor.type}>
+                      <TypeRow
+                        descriptor={row.descriptor}
+                        muted={mutedTypes.includes(row.descriptor.type)}
                         active={active}
                         onShow={onShow}
-                        onChange={onSetReviewRequestResolution}
+                        onToggle={() => onToggleType(row.descriptor.type)}
                       />
                     </li>
                   );
-                }
-
-                return (
-                  <li key={row.descriptor.type}>
-                    <TypeRow
-                      descriptor={row.descriptor}
-                      muted={mutedTypes.includes(row.descriptor.type)}
-                      active={active}
-                      onShow={onShow}
-                      onToggle={() => onToggleType(row.descriptor.type)}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       </div>
 
       {/*
@@ -156,7 +194,7 @@ export function PokesPanel({
         so it needs no margin of its own - and no label, because a Slack message that says who
         did what is not a thing anybody needs told what it is.
       */}
-      <PokeReel index={activeIndex} className="mt-4" />
+      <PokeReel index={activeIndex} className="mt-4 shrink-0" />
 
       <DigestRow
         enabled={digestEnabled}
@@ -176,7 +214,7 @@ export function PokesPanel({
       {notice || nothing ? (
         <p
           className={cn(
-            "mt-auto pt-4 text-[10px] leading-relaxed",
+            "mt-auto shrink-0 pt-4 text-[10px] leading-relaxed",
             notice ? "text-destructive" : "text-muted-foreground/60"
           )}
         >
@@ -389,7 +427,7 @@ function DigestRow({
   onSetHour: (hour: number) => void;
 }) {
   return (
-    <div className="mt-4 border-t pt-3">
+    <div className="mt-4 shrink-0 border-t pt-3">
       <div className="-mx-2">
         <button
           type="button"

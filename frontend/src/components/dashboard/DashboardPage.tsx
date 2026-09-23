@@ -32,8 +32,23 @@ export interface DashboardPageProps extends OrganisationsPanelProps {
  * attention - with the two things a user has: accounts on the left, what pokes them on the right.
  * Identity sits in the footer where it does not compete with either.
  *
- * Presentational: takes data and callbacks so the same page renders on the real logic and on
- * mock data in the drafts gallery.
+ * ## Fitting the window
+ *
+ * The right card is the one that grew past the bottom of a laptop screen, so it is the one that
+ * gives way: from `md` up it may be no taller than the window less everything else on the page,
+ * and inside it the list of kinds scrolls while the header, the preview and the digest stay
+ * put - see PokesPanel. On a window tall enough for everything, nothing scrolls and there is no
+ * sign that anything could.
+ *
+ * That "everything else" is `--dashboard-chrome`, set on the root below and read by the card.
+ * It is a number rather than a rule because no rule says it: what the card may have is the
+ * window minus the header, the footer, the Slack strip and the gaps between them, and those
+ * are all fixed heights that only this file knows. The page itself is not locked to the window
+ * on purpose. A card that cannot give way - the organisations card, whose rows have nowhere to
+ * scroll to, since their hover cards open above them - still gets its whole height, and the
+ * page scrolls under it as it always did.
+ *
+ * Presentational: takes data and callbacks so the page can be rendered on anything.
  */
 export function DashboardPage({
   user,
@@ -50,6 +65,11 @@ export function DashboardPage({
     <div
       className={cn(
         "flex animate-fade-in flex-col items-center justify-center gap-8 p-8",
+        // Everything on the page but the two cards, added up: padding 32+32, the header's
+        // wordmark 36, gap 12 and pill 30, the two gaps of 32 around the grid, the grid's own
+        // gap 20 above the Slack strip, the strip 78 (border, padding, a two-line label), and
+        // the footer 20. Change one of those and change this.
+        "[--dashboard-chrome:324px]",
         className
       )}
     >
