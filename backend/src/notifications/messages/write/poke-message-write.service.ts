@@ -25,32 +25,15 @@ export class PokeMessageWriteService {
   /**
    * Where a review request landed in Slack.
    *
-   * An upsert, so a review requested a second time points at the second message. The first one
-   * is then unreachable and will never be struck through - which is correct, because it is a
-   * message about a request that has since been made again, and the live one is the new one.
+   * A row of its own every time, even where the same person already has one for this pull
+   * request - asked again, or asked through their team and then by name. Both messages say the
+   * review is waiting on them, so both have to be there to strike through once it is not.
    *
-   * Whoever had reviewed by then goes with the old message. The new one was rendered without
-   * them, and the row has to say what the message says.
+   * Nobody is named on the new row, whoever the older one names: this message was rendered
+   * without them, and the row has to say what the message says.
    */
   public async remember(dto: PokeMessageRememberDto): Promise<void> {
-    await this.messageModel.updateOne(
-      {
-        userId: dto.userId,
-        repositoryFullName: dto.repositoryFullName,
-        pullRequestNumber: dto.pullRequestNumber,
-      },
-      {
-        $set: {
-          userGithubId: dto.userGithubId,
-          teamId: dto.teamId,
-          channelId: dto.channelId,
-          messageTs: dto.messageTs,
-          notification: dto.notification,
-        },
-        $unset: { reviewers: '' },
-      },
-      { upsert: true },
-    );
+    await this.messageModel.create(dto);
   }
 
   /**

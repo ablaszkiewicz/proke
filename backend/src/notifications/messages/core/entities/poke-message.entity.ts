@@ -25,6 +25,10 @@ const RESOLVABLE_SECONDS = 48 * 60 * 60;
  * Rows are deleted the moment the request is settled; the TTL only catches the ones nothing
  * ever settled. A review that reached no verdict is written onto the row rather than ending it,
  * because it leaves the request standing.
+ *
+ * One row per message, not per person. Somebody asked through their team and then by name too
+ * far apart to be batched has two messages about one request, and whatever settles it has to
+ * reach both - the one left standing reads as a review still owed.
  */
 @Schema({ collection: 'poke-messages', timestamps: true })
 export class PokeMessageEntity {
@@ -90,16 +94,13 @@ export type PokeMessageDocument = HydratedDocument<PokeMessageEntity>;
 
 export const PokeMessageSchema = SchemaFactory.createForClass(PokeMessageEntity);
 
-// One pending review request per person per pull request. A re-request replaces the row, since
-// the older message is no longer the one that would be struck through.
-PokeMessageSchema.index(
-  { userId: 1, repositoryFullName: 1, pullRequestNumber: 1 },
-  { unique: true },
-);
-
 // The lookup every resolution does: everybody still waiting on this pull request.
 PokeMessageSchema.index({ repositoryFullName: 1, pullRequestNumber: 1 });
 
-// On updatedAt rather than createdAt, so re-requesting a review restarts the clock along with
-// the message it replaces.
+// Deleting an account's rows, which the unique index this replaced used to serve as a prefix.
+PokeMessageSchema.index({ userId: 1 });
+
+// On updatedAt, from when a re-request rewrote the row and had to restart the clock. Nothing
+// moves it now that every message has a row of its own, so it reads the same as createdAt - and
+// moving the index would mean rebuilding it for no change at all.
 PokeMessageSchema.index({ updatedAt: 1 }, { expireAfterSeconds: RESOLVABLE_SECONDS });

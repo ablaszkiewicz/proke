@@ -1,6 +1,7 @@
 import { createHmac, generateKeyPairSync } from 'crypto';
 import * as nock from 'nock';
 import * as request from 'supertest';
+import { PokeMessageCoreModule } from '../../src/notifications/messages/core/poke-message-core.module';
 import { createTestApp } from '../utils/bootstrap';
 import { waitFor } from '../utils/wait-for';
 
@@ -134,20 +135,21 @@ describe('Poke resolution', () => {
     return user;
   };
 
-  const reviewRequested = (reviewerGithubId: string, number = 9) => ({
+  const reviewRequested = (reviewerGithubId: string, number = 9, repository = REPOSITORY) => ({
     action: 'review_requested',
     installation: { id: Number(INSTALLATION_ID) },
+    ...organisationOf(repository),
     requested_reviewer: { id: Number(reviewerGithubId), login: 'reviewer' },
     pull_request: {
       number,
       title: 'Wire up webhooks',
-      html_url: `https://github.com/ablaszkiewicz/proke/pull/${number}`,
+      html_url: `https://github.com/${repository.full_name}/pull/${number}`,
       user: AUTHOR,
       // Present so the router never goes to GitHub for the line counts.
       additions: 163,
       deletions: 23,
     },
-    repository: REPOSITORY,
+    repository,
     sender: AUTHOR,
   });
 
@@ -263,9 +265,14 @@ describe('Poke resolution', () => {
     sender: { id: 555, login: 'maintainer' },
   });
 
-  /** Slack accepting posts, and telling us where it put them - the half chat.update needs. */
+  /**
+   * Slack accepting posts, and telling us where it put them - the half chat.update needs. Each
+   * post lands at an address of its own, as it does in Slack, starting from the one given.
+   */
   const capturePosts = (messageTs = '1700000000.000100') => {
     const posts: any[] = [];
+    const [seconds, micros] = messageTs.split('.');
+    let sent = 0;
 
     nock('https://slack.com')
       .post('/api/chat.postMessage', (body) => {
@@ -273,7 +280,11 @@ describe('Poke resolution', () => {
         return true;
       })
       .times(5)
-      .reply(200, { ok: true, channel: 'D0ADA', ts: messageTs });
+      .reply(200, () => ({
+        ok: true,
+        channel: 'D0ADA',
+        ts: `${seconds}.${String(Number(micros) + sent++).padStart(micros.length, '0')}`,
+      }));
 
     return posts;
   };
@@ -459,6 +470,130 @@ describe('Poke resolution', () => {
     });
   });
 
+  /**
+   * One request, told twice: through the team, and then by name once the batching window had
+   * closed. Whatever ends the request ends it in both messages - the one left standing would
+   * read as a review still owed.
+   */
+  describe('when the reader was poked about the same request twice', () => {
+    const pokeTeamThenByName = async (githubId: string) => {
+      await pokeTeam(githubId);
+      await send('pull_request', reviewRequested(githubId, 9, ORG_REPOSITORY)).expect(202);
+      await waitFor(async () => (await rows()).length === 2);
+    };
+
+    it('strikes the team message through as well as the direct one', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      const posts = capturePosts();
+      await pokeTeamThenByName('1234');
+      expect(posts).toHaveLength(2);
+      const updates = captureUpdates();
+
+      // when - they approve it themselves
+      await send(
+        'pull_request_review',
+        reviewSubmitted(
+          { id: 1234, login: 'ablaszkiewicz' },
+          'approved',
+          9,
+          NOBODY_ASKED,
+          ORG_REPOSITORY,
+        ),
+      ).expect(202);
+
+      // then - two edits, one to each message
+      await waitFor(() => updates.length === 2);
+      expect(updates.map((update) => update.ts).sort()).toEqual([
+        '1700000000.000100',
+        '1700000000.000101',
+      ]);
+      expect(updates.map(lead).sort()).toEqual([
+        expect.stringMatching(/^~.* requested @acme\/reviewers's review on .*~$/),
+        expect.stringMatching(/^~.* requested your review on .*~$/),
+      ]);
+      expect(updates.map(footer)).toEqual(['*Reviewed by*: you ✅', '*Reviewed by*: you ✅']);
+      await waitFor(async () => (await rows()).length === 0);
+    });
+
+    it('names somebody else under both while nobody has decided', async () => {
+      // given
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeTeamThenByName('1234');
+      const updates = captureUpdates();
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewSubmitted(
+          { id: 4242, login: 'grace' },
+          'commented',
+          9,
+          READER_STILL_ASKED,
+          ORG_REPOSITORY,
+        ),
+      ).expect(202);
+
+      // then
+      await waitFor(() => updates.length === 2);
+      expect(updates.map(footer)).toEqual([
+        '*Reviewed by*: <https://github.com/grace|@grace> 💬',
+        '*Reviewed by*: <https://github.com/grace|@grace> 💬',
+      ]);
+      expect(updates.every((update) => !lead(update).startsWith('~'))).toEqual(true);
+      expect(await rows()).toHaveLength(2);
+    });
+
+    it('strikes both through when the same request was simply made again', async () => {
+      // given - asked by name, and asked again before anybody decided
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+      await pokeReviewer('1234');
+      await send('pull_request', reviewRequested('1234')).expect(202);
+      await waitFor(async () => (await rows()).length === 2);
+      const updates = captureUpdates();
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewSubmitted({ id: 4242, login: 'grace' }, 'approved'),
+      ).expect(202);
+
+      // then
+      await waitFor(() => updates.length === 2);
+      expect(updates.map((update) => update.ts).sort()).toEqual([
+        '1700000000.000100',
+        '1700000000.000101',
+      ]);
+      expect(updates.every((update) => /^~.*~$/.test(lead(update)))).toEqual(true);
+      await waitFor(async () => (await rows()).length === 0);
+    });
+
+    it('drops the index that used to refuse the second message', async () => {
+      // given - the one-row-per-person index a database from before this still has
+      const collection = bootstrap.models.pokeMessageModel.collection;
+      const legacy = await collection.createIndex(
+        { userId: 1, repositoryFullName: 1, pullRequestNumber: 1 },
+        { unique: true },
+      );
+      await setupReviewer({ githubId: '1234' });
+      capturePosts();
+
+      try {
+        // when - the app starts on it
+        await bootstrap.app.get(PokeMessageCoreModule).onModuleInit();
+
+        // then - both messages are remembered
+        await pokeTeamThenByName('1234');
+        expect(await rows()).toHaveLength(2);
+      } finally {
+        // Gone already if this passed. If it did not, the rest of the file must not inherit it.
+        await collection.dropIndex(legacy).catch(() => undefined);
+      }
+    });
+  });
+
   describe('when the pull request goes away underneath the request', () => {
     it('strikes it through as merged', async () => {
       // given
@@ -607,7 +742,7 @@ describe('Poke resolution', () => {
       await waitFor(async () => (await rows()).length === 0);
     });
 
-    it('forgets who reviewed once the request is made again', async () => {
+    it('names nobody on the message a fresh request sends', async () => {
       // given
       await setupReviewer({ githubId: '1234' });
       capturePosts();
@@ -621,10 +756,16 @@ describe('Poke resolution', () => {
 
       // when - a fresh request, and so a fresh message that names nobody
       await send('pull_request', reviewRequested('1234')).expect(202);
-      await waitFor(async () => (await rows())[0]?.reviewers === undefined);
+      await waitFor(async () => (await rows()).length === 2);
 
-      // then
-      expect(await rows()).toHaveLength(1);
+      // then - each row says what its own message says
+      const [earlier, fresh] = await bootstrap.models.pokeMessageModel
+        .find({})
+        .sort({ _id: 1 })
+        .lean()
+        .exec();
+      expect(earlier.reviewers).toEqual([{ githubId: '4242', login: 'grace' }]);
+      expect(fresh.reviewers).toBeUndefined();
     });
 
     it('says nothing about the reader commenting on it themselves', async () => {
