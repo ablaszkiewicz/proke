@@ -1,4 +1,13 @@
-import { actions, kea, listeners, path, reducers, selectors } from "kea";
+import {
+  actions,
+  afterMount,
+  beforeUnmount,
+  kea,
+  listeners,
+  path,
+  reducers,
+  selectors,
+} from "kea";
 import { loaders } from "kea-loaders";
 
 import {
@@ -23,6 +32,25 @@ const EMPTY: InboxResult = {
   yours: [],
   waitingOnYou: [],
 };
+
+/**
+ * How long an open inbox goes before asking GitHub again.
+ *
+ * A refresh rather than a re-read, because the warmer rebuilds the stored snapshot on a slower
+ * timer of its own, and a re-read between its sweeps would hand back the rows already on screen.
+ * Affordable at a minute because a refresh is about one point of the user's own 5,000-an-hour
+ * GraphQL budget - see InboxRefreshService.
+ */
+const REFRESH_EVERY_MS = 60_000;
+
+/**
+ * How often the page looks at whether a refresh is due, which is not how often it refreshes.
+ *
+ * Checked on a short tick against the time of the last refresh, rather than refreshing on a
+ * minute-long interval, so that every refresh restarts the clock - the page opening, a build
+ * filter moving - and one never lands a few seconds after another.
+ */
+const DUE_CHECK_EVERY_MS = 5_000;
 
 /**
  * The inbox, in two passes.
@@ -83,6 +111,13 @@ const EMPTY: InboxResult = {
  * in both answers exactly where it is and only adds and removes the difference: on screen it
  * reads as items appearing, without anyone having to write a merge that would need a policy for
  * pull requests that disappeared.
+ *
+ * ## Why it refreshes on its own
+ *
+ * A tab left open on the inbox is somebody expecting it to be true, so for as long as this logic
+ * is mounted - which is as long as the page is - it asks GitHub again once a minute. Only while
+ * the tab is visible: a backgrounded one refreshing is work nobody is waiting for, and coming
+ * back to it checks straight away rather than at the next tick.
  */
 export const inboxLogic = kea<inboxLogicType>([
   path(["src", "lib", "logics", "inboxLogic"]),
@@ -231,7 +266,12 @@ export const inboxLogic = kea<inboxLogicType>([
     ],
   }),
 
-  listeners(({ actions }) => ({
+  listeners(({ actions, cache }) => ({
+    // Whatever asked - the page opening, a filter, the timer - so the next automatic one is a
+    // full minute after it.
+    refreshInbox: () => {
+      cache.lastRefreshAt = Date.now();
+    },
     loadInboxSuccess: () => actions.refreshInbox(),
     loadInboxFailure: () => actions.refreshInbox(),
     // A re-read that found nothing handles itself - see the loader. This is the other way it can
@@ -266,6 +306,34 @@ export const inboxLogic = kea<inboxLogicType>([
       actions.rereadInbox();
     },
   })),
+
+  afterMount(({ actions, values, cache }) => {
+    // Counted from the page opening, so the first check cannot slip in between the read and the
+    // refresh chained behind it. That refresh restarts the clock when it goes.
+    cache.lastRefreshAt = Date.now();
+
+    cache.refreshIfDue = () => {
+      // Not before the page has said what the settings are - a refresh now would be under the
+      // defaults - and not on top of one already in flight.
+      if (document.visibilityState === "hidden" || !values.opened || values.refreshing) {
+        return;
+      }
+
+      if (Date.now() - cache.lastRefreshAt < REFRESH_EVERY_MS) {
+        return;
+      }
+
+      actions.refreshInbox();
+    };
+
+    cache.dueCheck = window.setInterval(cache.refreshIfDue, DUE_CHECK_EVERY_MS);
+    document.addEventListener("visibilitychange", cache.refreshIfDue);
+  }),
+
+  beforeUnmount(({ cache }) => {
+    window.clearInterval(cache.dueCheck);
+    document.removeEventListener("visibilitychange", cache.refreshIfDue);
+  }),
 ]);
 
 /**
