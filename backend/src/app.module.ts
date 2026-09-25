@@ -5,6 +5,7 @@ import { AuthCoreModule } from './auth/core/auth-core.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { InboxModule } from './inbox/inbox.module';
 import { InboxWarmModule } from './inbox/warm/inbox-warm.module';
+import { AnnouncementModule } from './notifications/announcements/announcement.module';
 import { DigestModule } from './notifications/digest/digest.module';
 import { PokeSettingsModule } from './notifications/settings/poke-settings.module';
 import { getEnvConfig } from './shared/configs/env-configs';
@@ -33,6 +34,8 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     PokeSettingsModule,
     // The other scheduler: the daily list of what is still waiting on somebody.
     DigestModule,
+    // Sends each new entry in announcements.ts once, a little after start.
+    AnnouncementModule,
     SlackModule,
     GithubWebhookModule,
     SlackEventsModule,

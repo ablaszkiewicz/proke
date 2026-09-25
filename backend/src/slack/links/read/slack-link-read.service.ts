@@ -23,4 +23,9 @@ export class SlackLinkReadService {
 
     return link ? SlackLinkSerializer.normalize(link) : null;
   }
+
+  /** Everybody with Slack connected as of `cutoff`: an announcement's audience. */
+  public async readUserIdsLinkedBy(cutoff: Date): Promise<string[]> {
+    return this.linkModel.distinct('userId', { createdAt: { $lte: cutoff } }).exec();
+  }
 }

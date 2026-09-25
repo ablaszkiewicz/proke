@@ -1,4 +1,6 @@
 import { SlackMessage } from '../../slack/app/slack-api.service';
+import { resolveButtonUrl } from '../announcements/announcement-rules';
+import { Announcement } from '../announcements/announcement.interface';
 import {
   GithubDiffStat,
   GithubNotificationNormalized,
@@ -407,6 +409,33 @@ export function buildTestMessage(githubLogin?: string): SlackMessage {
       },
     ],
   };
+}
+
+/**
+ * An announcement exactly as written in announcements.ts. The body is markup we wrote, so unlike
+ * a pull request title it goes in unescaped; `text` alone is escaped, where it stands in for it.
+ */
+export function buildAnnouncementMessage(announcement: Announcement, appUrl: string): SlackMessage {
+  const blocks: unknown[] = [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: announcement.body ?? escape(announcement.text) },
+    },
+  ];
+
+  if (announcement.buttons?.length) {
+    // Link buttons, like the digest's: they open the URL and nothing more.
+    blocks.push({
+      type: 'actions',
+      elements: announcement.buttons.map((button) => ({
+        type: 'button',
+        text: { type: 'plain_text', text: button.label },
+        url: resolveButtonUrl(button.url, appUrl),
+      })),
+    });
+  }
+
+  return { text: announcement.text, blocks };
 }
 
 export interface DigestPullRequest {

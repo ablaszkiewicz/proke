@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { AuthSessionService } from '../../auth/session/auth-session.service';
+import { AnnouncementStoreService } from '../../notifications/announcements/store/announcement-store.service';
 import { PokeMessageWriteService } from '../../notifications/messages/write/poke-message-write.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
@@ -32,6 +33,7 @@ export class UserDeletionService {
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
     private readonly pokeMessageWriteService: PokeMessageWriteService,
+    private readonly announcementStoreService: AnnouncementStoreService,
     private readonly analytics: AnalyticsService,
   ) {}
 
@@ -53,6 +55,9 @@ export class UserDeletionService {
     // Pokes we were holding open in case a review settled them - which also means the
     // repository names and pull request titles denormalised onto those rows.
     await this.pokeMessageWriteService.deleteForUser(userId);
+
+    // Which announcements reached them.
+    await this.announcementStoreService.deleteForUser(userId);
 
     // Nothing to do for the inbox: its settings and the stamp the warmer reads are on the user
     // row and go with it, and the snapshots are in the process cache and expire on their own.

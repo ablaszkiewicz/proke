@@ -20,7 +20,9 @@ import { UserNormalized } from '../../user/core/entities/user.interface';
 import { GithubNotificationNormalized } from '../core/entities/github-notification.interface';
 import { NotificationType } from '../core/entities/notification-type.enum';
 import { PokeMessageWriteService } from '../messages/write/poke-message-write.service';
+import { Announcement } from '../announcements/announcement.interface';
 import {
+  buildAnnouncementMessage,
   buildDigestMessage,
   buildPokeMessage,
   buildTestMessage,
@@ -51,8 +53,10 @@ export type SlackDeliveryOutcome =
  */
 interface PokeContext {
   trigger: PokeTrigger;
-  /** A NotificationType for real pokes; `test` or `welcome` for the two synthetic ones. */
+  /** A NotificationType for real pokes; `test`, `welcome` and so on for the synthetic ones. */
   pokeType: string;
+  /** Which announcement, so who received each one can be counted. */
+  announcementId?: string;
   /** owner/name. Absent on the synthetic messages, which come from no repository. */
   repository?: string;
   actorLogin?: string;
@@ -216,6 +220,21 @@ export class SlackNotificationDeliveryService {
     return outcome;
   }
 
+  /** News from us rather than from GitHub. Sent once per person; see AnnouncementService. */
+  public async deliverAnnouncement(
+    userId: string,
+    announcement: Announcement,
+  ): Promise<SlackDeliveryOutcome> {
+    const message = buildAnnouncementMessage(announcement, getEnvConfig().app.url);
+    const { outcome } = await this.send(userId, message, {
+      trigger: 'announcement',
+      pokeType: 'announcement',
+      announcementId: announcement.id,
+    });
+
+    return outcome;
+  }
+
   private async send(
     userId: string,
     message: SlackMessage,
@@ -302,6 +321,7 @@ export class SlackNotificationDeliveryService {
       review_state: context.reviewState,
       has_excerpt: context.hasExcerpt,
       comment_count: context.commentCount,
+      announcement_id: context.announcementId,
       reason,
     });
   }

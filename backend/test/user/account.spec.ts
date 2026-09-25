@@ -128,6 +128,11 @@ describe('Account', () => {
         botToken: 'xoxb-workspace-token',
         installedByUserId: user.id,
       });
+      await bootstrap.models.announcementDeliveryModel.create({
+        announcementId: '2026-09-25-something-new',
+        userId: user.id,
+        outcome: 'sent',
+      });
 
       return { user, token };
     };
@@ -148,6 +153,9 @@ describe('Account', () => {
         0,
       );
       expect(await bootstrap.models.slackLinkModel.countDocuments({ userId: user.id })).toEqual(0);
+      expect(
+        await bootstrap.models.announcementDeliveryModel.countDocuments({ userId: user.id }),
+      ).toEqual(0);
     });
 
     it('leaves the workspace installed for everyone else, but stops pointing at the user', async () => {

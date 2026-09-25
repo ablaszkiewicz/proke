@@ -97,6 +97,11 @@ interface EnvConfig {
      * this is set to, so it only decides how soon after their hour they hear.
      */
     digestSweepIntervalMs: number;
+    /**
+     * Whether a start sends the announcements nobody has had yet. On unless set to `false`,
+     * which is what the e2e suite runs with - and a deploy that wants to hold one back.
+     */
+    announcementsEnabled: boolean;
   };
 }
 
@@ -173,6 +178,7 @@ export function getEnvConfig(): EnvConfig {
       // A quarter hour: the coarsest that still honours zones offset by half and three-quarter
       // hours, and four passes an hour means only a long deploy costs anybody their digest.
       digestSweepIntervalMs: Number(process.env.DIGEST_SWEEP_INTERVAL_MS ?? 15 * 60_000),
+      announcementsEnabled: process.env.ANNOUNCEMENTS_ENABLED !== 'false',
     },
   };
 }

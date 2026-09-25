@@ -8,6 +8,10 @@ import { RefreshTokenEntity } from '../../src/auth/session/entities/refresh-toke
 import { ConnectionsModule } from '../../src/connections/connections.module';
 import { InboxModule } from '../../src/inbox/inbox.module';
 import { InboxWarmModule } from '../../src/inbox/warm/inbox-warm.module';
+import { AnnouncementModule } from '../../src/notifications/announcements/announcement.module';
+import { AnnouncementService } from '../../src/notifications/announcements/announcement.service';
+import { AnnouncementDeliveryEntity } from '../../src/notifications/announcements/store/entities/announcement-delivery.entity';
+import { AnnouncementRunEntity } from '../../src/notifications/announcements/store/entities/announcement-run.entity';
 import { DigestModule } from '../../src/notifications/digest/digest.module';
 import { DigestService } from '../../src/notifications/digest/digest.service';
 import { PokeSettingsModule } from '../../src/notifications/settings/poke-settings.module';
@@ -45,6 +49,9 @@ process.env.REVIEW_BATCH_WINDOW_MS ??= '150';
 
 /** Off for the reason below, and more so: this timer posts to Slack rather than only reading. */
 process.env.DIGEST_SWEEP_INTERVAL_MS ??= '0';
+
+/** The same, for the timer that sends announcements a little after start. */
+process.env.ANNOUNCEMENTS_ENABLED ??= 'false';
 
 /**
  * No sweeping in the background.
@@ -90,6 +97,7 @@ export async function createTestApp() {
       InboxWarmModule,
       PokeSettingsModule,
       DigestModule,
+      AnnouncementModule,
       SlackModule,
       GithubWebhookModule,
       SlackEventsModule,
@@ -120,6 +128,12 @@ export async function createTestApp() {
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
+  const announcementRunModel: Model<AnnouncementRunEntity> = module.get(
+    getModelToken(AnnouncementRunEntity.name),
+  );
+  const announcementDeliveryModel: Model<AnnouncementDeliveryEntity> = module.get(
+    getModelToken(AnnouncementDeliveryEntity.name),
+  );
   const inMemoryCacheService = app.get(InMemoryCacheService);
 
   const clearDatabase = async () => {
@@ -130,6 +144,8 @@ export async function createTestApp() {
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
     await refreshTokenModel.deleteMany({});
+    await announcementRunModel.deleteMany({});
+    await announcementDeliveryModel.deleteMany({});
   };
 
   const beforeEach = async () => {
@@ -156,6 +172,8 @@ export async function createTestApp() {
       slackLinkModel,
       pokeMessageModel,
       refreshTokenModel,
+      announcementRunModel,
+      announcementDeliveryModel,
     },
     services: {
       notificationDeliveryService: app.get(NotificationDeliveryService),
@@ -171,6 +189,8 @@ export async function createTestApp() {
       inboxWarmerService: app.get(InboxWarmerService),
       // Its sweep takes the instant to run at, so a spec can test two timezones at one instant.
       digestService: app.get(DigestService),
+      // The same for announcements, which also takes the list to send.
+      announcementService: app.get(AnnouncementService),
       userReadService: app.get(UserReadService),
       userWriteService: app.get(UserWriteService),
       inMemoryCacheService,
