@@ -1,0 +1,138 @@
+name: Back up database
+
+# Takes a mongodump of production every night, encrypts it under BACKUP_PASSPHRASE and keeps it
+# as a workflow artifact.
+#
+# The dump is taken on the VPS, not on the runner, from a container with the same network flags
+# as the backend's. Whatever MONGO_URL the backend can reach - Mongo on the host through
+# host.docker.internal, or a hosted cluster - this reaches too, without opening Mongo to the
+# internet. The archive comes back over plain ssh rather than appleboy/ssh-action, because that
+# action copies the remote stdout into the job log, and on this repo the log is public.
+#
+# The plaintext never touches a disk off the VPS: it goes from ssh straight into gpg, and the
+# check afterwards decrypts it back into `gzip -t` in a pipe.
+#
+# This repo is public, and so are its artifacts: any signed-in GitHub user can download them.
+# The passphrase is the only thing between a download and the whole database, which is why a
+# short one is refused below.
+#
+# One-time prerequisites:
+#   - A BACKUP_PASSPHRASE secret. Put it in a password manager first - a backup nobody can
+#     decrypt is no backup:
+#       openssl rand -base64 32
+#       gh secret set BACKUP_PASSPHRASE
+# Everything else reuses the SSH_* and MONGO_URL secrets the backend deploy already uses.
+#
+# Restore (gpg is `brew install gnupg`; mongorestore is `brew install mongodb-database-tools`):
+#   gh run download <run-id> -n <artifact-name>
+#   gpg --decrypt proke-mongo-*.archive.gz.gpg > dump.archive.gz
+#   mongorestore --uri="<target url>" --gzip --archive=dump.archive.gz
+# Add --drop to replace collections that already exist rather than merge into them.
+#
+# GitHub turns off scheduled workflows in a public repo after 60 days with no commits, without
+# failing anything. If the repo goes quiet, check this is still running.
+
+on:
+  schedule:
+    # Off the hour: GitHub delays, and sometimes drops, runs scheduled at :00.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+env:
+  # Same major as docker-compose.yml. The image ships mongodump alongside the server.
+  MONGO_IMAGE: mongo:8
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Explicit, because only then does GitHub add pipefail. Without it a failed ssh in the
+        # middle of the pipe below would still produce a file, and the job would pass.
+        shell: bash
+    steps:
+      - name: Check passphrase
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ "${#BACKUP_PASSPHRASE}" -lt 32 ]; then
+            echo "BACKUP_PASSPHRASE is missing or under 32 characters - refusing to publish a dump under it" >&2
+            exit 1
+          fi
+
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id
+          chmod 600 ~/.ssh/id
+
+      - name: Dump and encrypt
+        id: dump
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          MONGO_URL: ${{ secrets.MONGO_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          name="proke-mongo-$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+          # MONGO_URL goes over ssh's stdin rather than on its command line, so the remote shell
+          # never parses it - a password with a quote or a $ in it arrives intact - and it is not
+          # in the argv of either end's ssh.
+          #
+          # The remote command is double quoted here: $MONGO_IMAGE expands on the runner, the
+          # escaped \$MONGO_URL is left for the container's shell to expand from its env.
+          #
+          # `timeout` is there for a Mongo that drops packets rather than refusing them.
+          # mongodump then waits forever, and cancelling this job would only drop the ssh
+          # session - the container would stay up on the VPS, waiting, with nothing to stop it.
+          # 20 minutes sits under the job's timeout, so the dump gives up first.
+          printf '%s\n' "$MONGO_URL" \
+            | ssh -i ~/.ssh/id -p "$SSH_PORT" \
+                -o StrictHostKeyChecking=accept-new \
+                -o BatchMode=yes \
+                "$SSH_USERNAME@$SSH_HOST" \
+                "read -r MONGO_URL && export MONGO_URL && exec docker run --rm \
+                  --add-host=host.docker.internal:host-gateway \
+                  -e MONGO_URL \
+                  $MONGO_IMAGE \
+                  sh -c 'exec timeout 20m mongodump --uri=\"\$MONGO_URL\" --archive --gzip'" \
+            | gpg --batch --quiet --yes \
+                --pinentry-mode loopback \
+                --passphrase-file <(printf '%s' "$BACKUP_PASSPHRASE") \
+                --symmetric --cipher-algo AES256 \
+                --s2k-digest-algo SHA512 --s2k-count 65011712 \
+                --compress-algo none \
+                --output "$name.archive.gz.gpg"
+
+          # A dump that does not decrypt under the stored passphrase, or comes out truncated,
+          # should fail tonight rather than on the day it is needed.
+          gpg --batch --quiet \
+            --pinentry-mode loopback \
+            --passphrase-file <(printf '%s' "$BACKUP_PASSPHRASE") \
+            --decrypt "$name.archive.gz.gpg" \
+            | gzip -t
+
+          ls -lh "$name.archive.gz.gpg"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.dump.outputs.name }}
+          path: ${{ steps.dump.outputs.name }}.archive.gz.gpg
+          if-no-files-found: error
+          retention-days: 30
+          # Ciphertext does not compress.
+          compression-level: 0
