@@ -2,15 +2,17 @@ name: Deploy Caddy reverse proxy
 
 # Deploys Caddy (reverse proxy + automatic HTTPS via Let's Encrypt) to the VPS over SSH.
 #
-# Caddy runs with --network host so it binds host :80/:443 - :80 for the ACME challenge, :443
-# for TLS termination - and reaches the backend on localhost:48211, which the backend container
-# publishes on loopback only. The Caddyfile is copied up from infrastructure/caddy; issued certs live
-# in the proke-caddy-data volume so redeploys re-use them rather than re-requesting and running
-# into Let's Encrypt's rate limits.
+# Caddy is the one way in for everything on this box: the proke backend and the Gardener game
+# server (github.com/ablaszkiewicz/gardener-game). It runs with --network host so it binds host
+# :80/:443 - :80 for the ACME challenge, :443 for TLS termination - and reaches each backend on a
+# localhost port (proke 48211, gardener 47350) its container publishes on loopback only. The
+# Caddyfile is copied up from infrastructure/caddy; issued certs live in the proke-caddy-data volume
+# so redeploys re-use them rather than re-requesting and running into Let's Encrypt's rate limits.
 #
 # One-time prerequisites (not handled here):
-#   - DNS: an A record for backend.proke.dev at the VPS public IP, DNS-only (grey cloud). If
-#     Cloudflare proxies it, the ACME challenge never reaches this box.
+#   - DNS: an A record at the VPS public IP for every host in the Caddyfile (backend.proke.dev,
+#     backend.garden-wars.ablaszkiewicz.pl), DNS-only (grey cloud). If Cloudflare proxies it, the
+#     ACME challenge never reaches this box.
 #   - Firewall: ports 80 and 443 open on the VPS.
 # No new secrets - reuses the SSH_* secrets the backend deploy already uses.
 
