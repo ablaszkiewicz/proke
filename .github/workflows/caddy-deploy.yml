@@ -11,8 +11,8 @@ name: Deploy Caddy reverse proxy
 #
 # One-time prerequisites (not handled here):
 #   - DNS: an A record at the VPS public IP for every host in the Caddyfile (backend.proke.dev,
-#     backend.garden-wars.ablaszkiewicz.pl), DNS-only (grey cloud). If Cloudflare proxies it, the
-#     ACME challenge never reaches this box.
+#     backend.garden-wars.io, backend.garden-wars.ablaszkiewicz.pl), DNS-only (grey cloud). If
+#     Cloudflare proxies it, the ACME challenge never reaches this box.
 #   - Firewall: ports 80 and 443 open on the VPS.
 # No new secrets - reuses the SSH_* secrets the backend deploy already uses.
 

@@ -20,6 +20,7 @@ backend.proke.dev {
 # Gardener: HTTP API and the /ws WebSocket gateway, from one container (gardener-game's
 # .github/workflows/deploy.yml runs it on 127.0.0.1:47350). reverse_proxy passes WebSocket upgrades through as
 # they are. A redeploy of Caddy drops every live match, so push changes here when nobody is playing.
-backend.garden-wars.ablaszkiewicz.pl {
+# backend.garden-wars.io is the new name; the old one stays until the client's VITE_SERVER_URL points at the new.
+backend.garden-wars.io, backend.garden-wars.ablaszkiewicz.pl {
 	reverse_proxy localhost:47350
 }
