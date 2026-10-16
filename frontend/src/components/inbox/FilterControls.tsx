@@ -5,9 +5,10 @@ import {
   type InboxTeam,
   type RecentDraftWindow,
 } from "@/lib/api/inbox.api";
+import { LoginsInput } from "@/components/ui/LoginsInput";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId } from "react";
 import {
   switchPosition,
   valueWhenPressed,
@@ -270,21 +271,9 @@ function Tick({ checked }: { checked: boolean }) {
 /**
  * The logins whose pull requests never arrive.
  *
- * ## Why chips rather than a comma-separated field
- *
- * Because a name is either in the list or it is not, and a text field makes that a question
- * about punctuation. A chip is committed - it has been accepted, it is on screen, and it has an
- * × - where "dependabot, renov" is a half-typed state that has to mean something and cannot.
- *
- * It also decides when the inbox reloads. Every commit here is one round trip, so a field that
- * fired as you typed would be a request per keystroke; a chip fires once, when you say so.
- *
- * ## What is accepted
- *
- * A login, lowercased, with a leading `@` forgiven - somebody typing a GitHub handle types the
- * `@`, and refusing it teaches nothing. Anything already in the list is a no-op rather than a
- * duplicate, and the field clears either way: pressing Enter twice on the same name should feel
- * like it worked twice, because it did.
+ * Chips rather than a comma-separated field, committed one at a time - see LoginsInput, which is
+ * this field's own behaviour lifted out for the dashboard to use too. Every commit is one round
+ * trip, and so one reload of the inbox.
  */
 export function AuthorsFilter({
   option,
@@ -295,29 +284,7 @@ export function AuthorsFilter({
   authors: string[];
   onChange: InboxFilterChange;
 }) {
-  const [draft, setDraft] = useState("");
   const inputId = useId();
-
-  const commit = () => {
-    const login = normalizeLogin(draft);
-
-    setDraft("");
-
-    if (login && !authors.includes(login)) {
-      onChange(option.key, [...authors, login]);
-    }
-  };
-
-  // The panel unmounts when it closes, and React does not fire blur on an element it is
-  // removing - so without this, a name typed and then dismissed with a click outside the panel
-  // would be dropped on the floor, while the same name typed and dismissed with a click inside
-  // it would be kept. Two ways of leaving one field behaving differently is worse than either.
-  //
-  // Through a ref because the cleanup runs once, holding whichever closure it was created with,
-  // and the draft it needs to commit is the last one rather than the first.
-  const pending = useRef(commit);
-  pending.current = commit;
-  useEffect(() => () => pending.current(), []);
 
   return (
     <div className="px-2.5 py-2">
@@ -330,97 +297,15 @@ export function AuthorsFilter({
         </span>
       </label>
 
-      {authors.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {authors.map((login) => (
-            <AuthorChip
-              key={login}
-              login={login}
-              onRemove={() =>
-                onChange(
-                  option.key,
-                  authors.filter((kept) => kept !== login)
-                )
-              }
-            />
-          ))}
-        </div>
-      ) : null}
-
-      <input
+      <LoginsInput
         id={inputId}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          // Comma as well as Enter, because somebody pasting a list types the separator they
-          // would have used in a text field - and it is the one the inbox request uses too.
-          if (event.key === "Enter" || event.key === ",") {
-            event.preventDefault();
-            commit();
-
-            return;
-          }
-
-          // Backspace on an empty field takes the last chip, which is what every field of chips
-          // anywhere does and the only way to correct a mistake without reaching for the mouse.
-          if (event.key === "Backspace" && !draft && authors.length > 0) {
-            onChange(option.key, authors.slice(0, -1));
-          }
-        }}
-        // Committed on the way out, like every field of chips anywhere: a name typed and then
-        // left is a name somebody meant. See the unmount above for the other way out.
-        onBlur={commit}
+        logins={authors}
+        onChange={(logins) => onChange(option.key, logins)}
         placeholder={option.placeholder}
-        autoComplete="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        className={cn(
-          "mt-2 w-full rounded-lg bg-foreground/[0.06] px-2 py-1.5 text-[13px] text-foreground",
-          "placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
-        )}
+        removeLabel={(login) => `Stop ignoring ${login}`}
       />
     </div>
   );
-}
-
-/** One committed login. The × is the control; the word beside it is not. */
-function AuthorChip({
-  login,
-  onRemove,
-}: {
-  login: string;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="flex items-center gap-1 rounded-md bg-foreground/10 py-0.5 pl-1.5 pr-1 text-[12px] text-foreground">
-      <span className="max-w-[10rem] truncate">{login}</span>
-
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Stop ignoring ${login}`}
-        className={cn(
-          "flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
-          "hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
-        )}
-      >
-        <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
-          <path d="M3 3l6 6M9 3l-6 6" />
-        </svg>
-      </button>
-    </span>
-  );
-}
-
-/**
- * The one spelling that reaches the wire.
- *
- * Lowercased because GitHub logins differ only in case and the reader typed theirs by hand; the
- * `@` forgiven because a handle is written with one everywhere else. Matched the same way on the
- * server - see normalizeFilterList - so the chip on screen and the rows removed agree.
- */
-function normalizeLogin(value: string): string {
-  return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
 /**
