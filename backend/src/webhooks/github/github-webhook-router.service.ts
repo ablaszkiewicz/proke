@@ -25,6 +25,12 @@ import {
   PokeReviewerEvent,
 } from '../../notifications/delivery/poke-resolution.service';
 import { ReviewBatchService } from '../../notifications/delivery/review-batch.service';
+import {
+  BOT_CHATTER_TYPES,
+  botDropReason,
+  isGithubApp,
+  PokeOrigin,
+} from '../../notifications/core/bot-accounts';
 import { isPokeTypeMuted } from '../../notifications/core/poke-settings';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
@@ -173,7 +179,7 @@ export class GithubWebhookRouterService {
     // recipient that costs a lookup on every later reply and is dropped at the end of it every
     // time. Their comments still open threads and still get answered - what a bot cannot be is
     // the reason somebody else gets poked.
-    if (!isBot(author)) {
+    if (!isGithubApp(author)) {
       this.threadParticipantsDataService.remember(
         owner,
         name,
@@ -304,7 +310,7 @@ export class GithubWebhookRouterService {
     this.rememberComment(event, payload);
     await this.editOutstandingPokes(event, payload);
 
-    const candidates = this.suppressBotChatter(
+    const candidates = await this.suppressBotChatter(
       this.resolve(event, payload, receivedAt),
       payload?.sender,
     );
@@ -360,6 +366,14 @@ export class GithubWebhookRouterService {
         ? undefined
         : String(payload.repository.id);
 
+    // The same two accounts for every candidate an event produced: whoever did it, and whose
+    // pull request or issue it was. Read off the payload rather than the poke, which may already
+    // name somebody else - see `requester`.
+    const origin: PokeOrigin = {
+      actor: payload?.sender,
+      author: payload?.pull_request?.user ?? payload?.issue?.user,
+    };
+
     for (const { user, notifications } of (await this.groupByUser(pokes)).values()) {
       // Nobody wants to be told about their own action - including mentioning themselves.
       if (user.githubId && user.githubId === senderGithubId) {
@@ -383,7 +397,7 @@ export class GithubWebhookRouterService {
       // came in with them, so it costs nothing; the subscription's is about this one
       // organisation. They compose by intersection, which is the whole rule: an organisation can
       // narrow what somebody receives and can never widen it past what their own settings say.
-      const wanted = notifications
+      const allowed = notifications
         .filter(
           (notification) =>
             !isPokeTypeMuted(user.pokeSettings, notification.type) &&
@@ -397,7 +411,7 @@ export class GithubWebhookRouterService {
       // Which of the two gates to blame is worth the second pass. "Switched this kind off
       // everywhere" and "listens to this org but not to this" look identical in a total and are
       // completely different things to learn about a settings panel nobody had until now.
-      if (wanted.length === 0) {
+      if (allowed.length === 0) {
         this.dropped(
           notifications.every((notification) =>
             isPokeTypeMuted(user.pokeSettings, notification.type),
@@ -405,6 +419,20 @@ export class GithubWebhookRouterService {
             ? 'type_muted'
             : 'muted',
         );
+        continue;
+      }
+
+      // A third gate, and the one place who counts as a bot is decided for good: the answer is
+      // this person's, so it could not have been given before they were known. Still before
+      // collapsing, for the reason chatter is suppressed early - a bot's mention must not be
+      // able to stand in for the review this person said they did not want from one.
+      const wanted = allowed.filter(
+        (notification) => botDropReason(user.pokeSettings, notification.type, origin) === null,
+      );
+
+      // Named after the candidate that would have won, which is the poke this person lost.
+      if (wanted.length === 0) {
+        this.dropped(botDropReason(user.pokeSettings, allowed[0].type, origin) ?? 'bot_chatter');
         continue;
       }
 
@@ -516,14 +544,29 @@ export class GithubWebhookRouterService {
    * to review one, are real and still arrive. Only the talking is suppressed.
    *
    * Applied before preferences and before collapsing, so a bot comment that also mentions you
-   * cannot survive as the lower-priority half of the pair.
+   * cannot survive as the lower-priority half of the pair - and before any of the lookups below,
+   * so a bot naming a team, or replying in a thread, costs nothing. Which is also why only a
+   * GitHub App is caught here: GitHub's word holds for everybody, while every other way of being
+   * a bot is one reader's call, made at the per-person gate in `route` once they are known.
+   *
+   * The one exception is a bot somebody has said is a person to them - an agent they talk to in
+   * review threads, say. Then nothing is dropped here, the lookups are paid, and the gate drops
+   * it for everybody else. Asked only when there was talking to drop, and remembered for a
+   * minute, so a bot that comments on every push costs a query a minute rather than one a push.
    */
-  private suppressBotChatter(pokes: Poke[], sender: any): Poke[] {
-    if (!isBot(sender)) {
+  private async suppressBotChatter(pokes: Poke[], sender: any): Promise<Poke[]> {
+    if (!isGithubApp(sender)) {
       return pokes;
     }
 
-    const kept = pokes.filter((poke) => !BOT_SUPPRESSED_TYPES.includes(poke.notification.type));
+    const kept = pokes.filter((poke) => !BOT_CHATTER_TYPES.includes(poke.notification.type));
+
+    if (
+      kept.length < pokes.length &&
+      (await this.userReadService.isCountedAsPersonByAnybody(String(sender?.login ?? '')))
+    ) {
+      return pokes;
+    }
 
     if (kept.length < pokes.length) {
       this.dropped('bot_chatter', pokes.length - kept.length);
@@ -1024,7 +1067,7 @@ export class GithubWebhookRouterService {
 function requester(payload: any, context: EventContext): EventContext {
   const author = payload?.pull_request?.user?.login;
 
-  if (!isBot(payload?.sender) || !author) {
+  if (!isGithubApp(payload?.sender) || !author) {
     return context;
   }
 
@@ -1212,7 +1255,7 @@ function readReviewer(event: string, payload: any): PokeReviewerEvent | undefine
   // the three a submission carries, and a review that is none of them should annotate nothing.
   const reviewer = payload.review?.user;
 
-  if (payload.review?.state !== 'commented' || !reviewer || isBot(reviewer)) {
+  if (payload.review?.state !== 'commented' || !reviewer || isGithubApp(reviewer)) {
     return undefined;
   }
 
@@ -1238,35 +1281,6 @@ function readDiff(pullRequest: any): GithubDiffStat | undefined {
   }
 
   return { additions: pullRequest.additions, deletions: pullRequest.deletions };
-}
-
-/**
- * The talking. What a bot says is noise; what a bot *does* to your pull request is not, so
- * review requests, submitted reviews and merges are missing from this list on purpose.
- */
-const BOT_SUPPRESSED_TYPES: NotificationType[] = [
-  NotificationType.PullRequestComment,
-  // A bot on an issue is if anything worse than one on a pull request: stale-bots, triage
-  // labellers and template-checkers talk to issues that nobody has touched in months.
-  NotificationType.IssueComment,
-  // A bot answering in your thread is the same talking, and suppressed here rather than later
-  // so it never costs the lookup its recipient would have needed.
-  NotificationType.CommentReply,
-  // Covers a bot naming a team as well - the same noise multiplied by everyone in it, and one
-  // of these two types since a team mention stopped being a type of its own.
-  NotificationType.PullRequestMention,
-  NotificationType.IssueMention,
-];
-
-/**
- * Whether an actor is a machine.
- *
- * `type` is what GitHub actually promises, and the suffix is the belt to its braces - the two
- * disagree in a few payloads, and a missed bot is a notification somebody did not want. Matched
- * as a suffix rather than a substring so that a person called `robotnik` stays a person.
- */
-function isBot(sender: any): boolean {
-  return sender?.type === 'Bot' || /\[bot\]$/i.test(sender?.login ?? '');
 }
 
 /**

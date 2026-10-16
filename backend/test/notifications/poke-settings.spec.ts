@@ -53,6 +53,9 @@ describe('Poke settings', () => {
     expect(response.body.pokeSettings).toEqual({
       mutedTypes: [],
       reviewRequestResolution: 'any_review',
+      botMode: 'all',
+      botAccounts: [],
+      humanAccounts: [],
       digestEnabled: false,
       digestHour: 9,
     });
@@ -171,6 +174,9 @@ describe('Poke settings', () => {
       expect(response.body).toEqual({
         mutedTypes: [NotificationType.IssueComment],
         reviewRequestResolution: 'any_review',
+        botMode: 'all',
+        botAccounts: [],
+        humanAccounts: [],
         digestEnabled: false,
         digestHour: 9,
       });
@@ -187,6 +193,9 @@ describe('Poke settings', () => {
       expect(response.body).toEqual({
         mutedTypes: [NotificationType.IssueMention],
         reviewRequestResolution: 'strict',
+        botMode: 'all',
+        botAccounts: [],
+        humanAccounts: [],
         digestEnabled: false,
         digestHour: 9,
       });
@@ -213,6 +222,132 @@ describe('Poke settings', () => {
 
       // when
       const response = await update(token, [], 'lenient');
+
+      // then
+      expect(response.status).toEqual(400);
+    });
+  });
+
+  /**
+   * Who counts as a bot, and whether a bot's review still pokes. What that does to a delivery is
+   * the webhook spec's business; these are about what is kept.
+   */
+  describe('the bot settings', () => {
+    const save = (token: string, body: object) =>
+      request(bootstrap.app.getHttpServer())
+        .put('/notifications/settings')
+        .set('authorization', `Bearer ${token}`)
+        .send({ mutedTypes: [], ...body });
+
+    it('stores them and hands them back on the profile', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+
+      // when
+      const saved = await save(token, {
+        botMode: 'custom',
+        botAccounts: ['release-runner'],
+        humanAccounts: ['stamphog'],
+      });
+
+      // then
+      expect(saved.status).toEqual(200);
+      expect(saved.body).toMatchObject({
+        botMode: 'custom',
+        botAccounts: ['release-runner'],
+        humanAccounts: ['stamphog'],
+      });
+
+      // and
+      const profile = await readProfile(token);
+      expect(profile.body.pokeSettings).toMatchObject({
+        botMode: 'custom',
+        botAccounts: ['release-runner'],
+        humanAccounts: ['stamphog'],
+      });
+    });
+
+    it('spells a login one way, however it was typed', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+
+      // when - an @ from the handle, a [bot] from the app's name, a capital from memory
+      const response = await save(token, {
+        botAccounts: ['@Release-Runner', 'release-runner', ' deploy-helper '],
+        humanAccounts: ['stamphog[bot]'],
+      });
+
+      // then - deduplicated, and the same machine whether or not GitHub calls it an app
+      expect(response.status).toEqual(200);
+      expect(response.body.botAccounts).toEqual(['release-runner', 'deploy-helper']);
+      expect(response.body.humanAccounts).toEqual(['stamphog']);
+    });
+
+    it('leaves them alone when a client does not mention them', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+      await save(token, { botMode: 'custom', botAccounts: ['release-runner'] });
+
+      // when - a tab opened before these existed, switching a kind off
+      const response = await update(token, [NotificationType.IssueComment]);
+
+      // then - it cannot let bots back in, or empty a list, by not knowing about them
+      expect(response.body).toMatchObject({
+        mutedTypes: [NotificationType.IssueComment],
+        botMode: 'custom',
+        botAccounts: ['release-runner'],
+        humanAccounts: [],
+      });
+    });
+
+    it('refuses something that could not be a login', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+
+      // when
+      const response = await save(token, { botAccounts: ['release runner'] });
+
+      // then - stored, it would match nobody and look like the feature not working
+      expect(response.status).toEqual(400);
+    });
+
+    it('reads a list another deploy wrote untidily the tidy way', async () => {
+      // given
+      const { user, token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+      await bootstrap.models.userModel.updateOne(
+        { _id: user.id },
+        { $set: { pokeSettings: { mutedTypes: [], botAccounts: ['@Release-Runner', ''] } } },
+      );
+
+      // when
+      const response = await readProfile(token);
+
+      // then
+      expect(response.body.pokeSettings.botAccounts).toEqual(['release-runner']);
+      expect(response.body.pokeSettings.botMode).toBe('all');
+    });
+
+    it('reads a stored mode it does not know as letting every bot through', async () => {
+      // given - a row written by a deploy with a fourth mode this one has never heard of
+      const { user, token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+      await bootstrap.models.userModel.updateOne(
+        { _id: user.id },
+        { $set: { pokeSettings: { mutedTypes: [], botMode: 'some' } } },
+      );
+
+      // when
+      const response = await readProfile(token);
+
+      // then
+      expect(response.body.pokeSettings.botMode).toEqual('all');
+    });
+
+    it('refuses a mode it does not know', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+
+      // when
+      const response = await save(token, { botMode: 'some' });
 
       // then
       expect(response.status).toEqual(400);

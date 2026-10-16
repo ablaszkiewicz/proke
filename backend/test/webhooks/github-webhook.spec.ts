@@ -2678,6 +2678,305 @@ describe('Webhooks (github)', () => {
     });
   });
 
+  /**
+   * Who counts as a bot, which is partly GitHub's call and partly the reader's, and what a bot
+   * can still poke them about. What is stored is poke-settings.spec.ts; this is what arrives.
+   */
+  describe('who counts as a bot', () => {
+    const STAMPHOG = { id: 6060, login: 'stamphog[bot]', type: 'Bot' };
+    const NICO = { id: 7070, login: 'nico', type: 'User' };
+
+    const setupAuthor = async (pokeSettings: object = {}) => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'marcus',
+      });
+      await subscribe(user.id);
+      await bootstrap.models.userModel.updateOne(
+        { _id: user.id },
+        { $set: { pokeSettings: { mutedTypes: [], ...pokeSettings } } },
+      );
+      return user;
+    };
+
+    /** A verdict on marcus's pull request. No review id, so it is not held for its comments. */
+    const reviewPayload = (reviewer: object, state = 'approved') => ({
+      action: 'submitted',
+      installation: { id: Number(INSTALLATION_ID) },
+      review: {
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/9#pullrequestreview-1',
+        state,
+        user: reviewer,
+      },
+      pull_request: {
+        number: 9,
+        title: 'Wire up webhooks',
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+        user: { id: 4242, login: 'marcus' },
+      },
+      repository: REPOSITORY,
+      sender: reviewer,
+    });
+
+    const commentFrom = (sender: object, body = 'Snapshots updated.') => ({
+      ...prCommentPayload({ body }),
+      sender,
+    });
+
+    it('still tells you a bot approved, for somebody who has not said otherwise', async () => {
+      // given
+      await setupAuthor();
+
+      // when
+      await send('pull_request_review', reviewPayload(STAMPHOG));
+
+      // then - the approval that lets you merge is the same news whoever gave it
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        actorLogin: 'stamphog[bot]',
+      });
+    });
+
+    it('stays quiet about a bot approving once bots are off', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when
+      await send('pull_request_review', reviewPayload(STAMPHOG));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('still tells you a person approved with bots off', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when
+      await send('pull_request_review', reviewPayload(NICO));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        actorLogin: 'nico',
+      });
+    });
+
+    it('still passes on a bot asking you to review a colleague’s pull request', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when - an assignment bot, on a person's work
+      await send('pull_request', {
+        ...reviewRequestedPayload(4242),
+        sender: { id: 1234, login: 'pr-assigner[bot]', type: 'Bot' },
+      });
+
+      // then - that is the author's ask, and it goes out in their name
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewRequested,
+        actorLogin: 'author',
+      });
+    });
+
+    it('stays quiet about a bot asking you to review a bot’s pull request', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+      const dependabot = { id: 49699333, login: 'dependabot[bot]', type: 'Bot' };
+      const payload = reviewRequestedPayload(4242);
+
+      // when - nobody human behind it at all
+      await send('pull_request', {
+        ...payload,
+        pull_request: { ...payload.pull_request, user: dependabot },
+        sender: dependabot,
+      });
+
+      // then
+      await expectNoPoke();
+    });
+
+    /** marcus's pull request, closed by whoever `sender` is. */
+    const mergedBy = (sender: object) => ({
+      action: 'closed',
+      installation: { id: Number(INSTALLATION_ID) },
+      repository: REPOSITORY,
+      sender,
+      pull_request: {
+        title: 'Wire up webhooks',
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+        merged: true,
+        user: { id: 4242, login: 'marcus' },
+      },
+    });
+
+    const MERGE_QUEUE = { id: 1234, login: 'github-merge-queue[bot]', type: 'Bot' };
+
+    it('stays quiet about a bot merging your pull request once bots are off', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when - anything out of a bot, the merge queue included
+      await send('pull_request', mergedBy(MERGE_QUEUE));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('stays quiet about a bot enabling auto-merge once bots are off', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when
+      await send('pull_request', {
+        ...mergedBy({ id: 1234, login: 'mergify[bot]', type: 'Bot' }),
+        action: 'auto_merge_enabled',
+        pull_request: {
+          title: 'Wire up webhooks',
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+          user: { id: 4242, login: 'marcus' },
+        },
+      });
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('still tells you a person merged your pull request with bots off', async () => {
+      // given
+      await setupAuthor({ botMode: 'none' });
+
+      // when
+      await send('pull_request', mergedBy(NICO));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMerged,
+        actorLogin: 'nico',
+      });
+    });
+
+    it('brings back the merge queue alone, once it is on your custom list of people', async () => {
+      // given - bots off, but somebody who still wants to hear their work landed
+      await setupAuthor({ botMode: 'custom', humanAccounts: ['github-merge-queue'] });
+
+      // when
+      await send('pull_request', mergedBy(MERGE_QUEUE));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestMerged,
+      });
+    });
+
+    it('counts a login ending in -bot as a bot, though GitHub calls it a user', async () => {
+      // given
+      await setupAuthor();
+
+      // when - a machine account driven by a personal token
+      await send('issue_comment', commentFrom({ id: 3131, login: 'posthog-bot', type: 'User' }));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('counts an account on your custom list as a bot', async () => {
+      // given
+      await setupAuthor({ botMode: 'custom', botAccounts: ['release-runner'] });
+
+      // when
+      await send('issue_comment', commentFrom({ id: 3131, login: 'Release-Runner', type: 'User' }));
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('drops a listed account’s review under custom', async () => {
+      // given
+      await setupAuthor({ botMode: 'custom', botAccounts: ['release-runner'] });
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewPayload({ id: 3131, login: 'release-runner', type: 'User' }),
+      );
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('hears a person whose name only looks like a bot’s, once they are on your list', async () => {
+      // given
+      await setupAuthor({ botMode: 'custom', humanAccounts: ['anna-bot'] });
+
+      // when
+      await send('issue_comment', commentFrom({ id: 3131, login: 'anna-bot', type: 'User' }));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestComment,
+        actorLogin: 'anna-bot',
+      });
+    });
+
+    it('hears a bot you count as a person under custom', async () => {
+      // given - somebody who wants stamphog's approval and nobody else's
+      await setupAuthor({ botMode: 'custom', humanAccounts: ['stamphog'] });
+
+      // when
+      await send('pull_request_review', reviewPayload(STAMPHOG));
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        actorLogin: 'stamphog[bot]',
+      });
+    });
+
+    it('ignores the lists unless bots are on custom', async () => {
+      // given - somebody who once counted stamphog as a person, and has since picked no bots
+      await setupAuthor({ botMode: 'none', humanAccounts: ['stamphog'] });
+
+      // when
+      await send('pull_request_review', reviewPayload(STAMPHOG));
+
+      // then - no bots means no bots, whatever is on a list they can no longer see
+      await expectNoPoke();
+    });
+
+    it('keeps an account on the bot list talking to you, unless bots are on custom', async () => {
+      // given - release-runner listed as a bot, but bots let through wholesale
+      await setupAuthor({ botMode: 'all', botAccounts: ['release-runner'] });
+
+      // when
+      await send('issue_comment', commentFrom({ id: 3131, login: 'release-runner', type: 'User' }));
+
+      // then - by the automatic idea of a bot, it is a person
+      expect(await firstNotification()).toMatchObject({ actorLogin: 'release-runner' });
+    });
+
+    it('lets a GitHub App you count as a person talk to you, and to nobody else', async () => {
+      // given - the author counts the agent as a person; a bystander it names does not
+      const author = await setupAuthor({ botMode: 'custom', humanAccounts: ['helper'] });
+      await setupMember('5151', 'bystander');
+
+      // when
+      await send(
+        'issue_comment',
+        commentFrom({ id: 8181, login: 'helper[bot]', type: 'Bot' }, 'Done - @bystander FYI.'),
+      );
+
+      // then
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestComment,
+        actorLogin: 'helper[bot]',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+      expect(deliverSpy.mock.calls[0][0]).toMatchObject({ id: author.id });
+    });
+  });
+
   describe('installation lifecycle', () => {
     const installationPayload = (action: string, extra: object = {}) => ({
       action,

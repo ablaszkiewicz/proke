@@ -5,12 +5,21 @@ import {
   InboxFilters,
   normalizeInboxSettings,
 } from '../../inbox/core/entities/inbox-filters.interface';
+import { normalizeAccountLogin } from '../../notifications/core/bot-accounts';
 import { normalizePokeSettings } from '../../notifications/core/poke-settings';
+import { InMemoryCacheService } from '../../shared/cache/in-memory-cache.service';
 import { TokenCipherService } from '../../shared/crypto/token-cipher.service';
 import { isTimezone } from '../../shared/time/local-day';
 import { UserEntity } from '../core/entities/user.entity';
 import { UserNormalized } from '../core/entities/user.interface';
 import { UserSerializer } from '../core/entities/user.serializer';
+
+/**
+ * How long "does anybody count this bot as a person" is believed. A minute, so somebody who has
+ * just added a bot to their list hears from it within one - and so a bot that comments on every
+ * push costs one query a minute rather than one a comment.
+ */
+const COUNTED_AS_PERSON_TTL_MS = 60_000;
 
 /** One person the warmer should build an inbox for, and the settings to build it under. */
 export interface InboxWarmTarget {
@@ -34,6 +43,7 @@ export class UserReadService {
   constructor(
     @InjectModel(UserEntity.name) private userModel: Model<UserEntity>,
     private readonly tokenCipher: TokenCipherService,
+    private readonly cache: InMemoryCacheService,
   ) {}
 
   public async readByIdOrThrow(id: string): Promise<UserNormalized> {
@@ -79,6 +89,32 @@ export class UserReadService {
       .exec();
 
     return user ? this.normalize(user) : null;
+  }
+
+  /**
+   * Whether anybody at all has said this account is a person to them - and meant it, which is
+   * to say has their bots on `custom`, the one mode their lists count under.
+   *
+   * The router's question about a GitHub App that is about to be silenced, asked before it knows
+   * who the event reaches: almost always no, and then the talking is dropped where it always
+   * was. A yes only means the poke goes on to be decided person by person - see
+   * GithubWebhookRouterService.suppressBotChatter.
+   */
+  public async isCountedAsPersonByAnybody(login: string): Promise<boolean> {
+    const normalized = normalizeAccountLogin(login);
+
+    if (!normalized) {
+      return false;
+    }
+
+    return this.cache.wrap<boolean>(
+      `user:human-accounts:${normalized}`,
+      COUNTED_AS_PERSON_TTL_MS,
+      async () =>
+        (await this.userModel
+          .exists({ 'pokeSettings.botMode': 'custom', 'pokeSettings.humanAccounts': normalized })
+          .exec()) !== null,
+    );
   }
 
   /**

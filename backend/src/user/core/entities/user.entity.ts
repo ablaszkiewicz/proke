@@ -56,6 +56,19 @@ export class PokeSettingsEntity implements PokeStoredSettings {
   @Prop()
   reviewRequestResolution?: string;
 
+  // Absent reads as `all`, so every row from before this existed keeps getting what it got. A
+  // plain string, checked on the way out like the review request setting.
+  @Prop()
+  botMode?: string;
+
+  // Normalised on the way in and again on the way out, so a row another deploy wrote with an
+  // `@` or a `[bot]` still matches.
+  @Prop({ type: [String], default: undefined })
+  botAccounts?: string[];
+
+  @Prop({ type: [String], default: undefined })
+  humanAccounts?: string[];
+
   @Prop()
   digestEnabled?: boolean;
 
@@ -168,3 +181,8 @@ UserSchema.index({ inboxLastUsedAt: 1 }, { sparse: true });
 // The digest sweep asks for everybody who has turned it on, several times an hour. Sparse for
 // the same reason: absent on most rows, and `true` is the only value worth finding.
 UserSchema.index({ 'pokeSettings.digestEnabled': 1 }, { sparse: true });
+
+// The router asks whether anybody counts a given GitHub App as a person, whenever one is about
+// to be silenced - see GithubWebhookRouterService.suppressBotChatter. Sparse because almost
+// nobody ever fills the list in.
+UserSchema.index({ 'pokeSettings.humanAccounts': 1 }, { sparse: true });

@@ -161,7 +161,8 @@ export class UserWriteService {
     timezone?: string,
     now: Date = new Date(),
   ): Promise<PokeSettings> {
-    // Field by field, not one subdocument: a body that says nothing about the digest leaves it.
+    // Field by field, not one subdocument: a body that says nothing about the digest, or about
+    // bots, leaves them.
     const previous = await this.userModel
       .findOneAndUpdate(
         { _id: new Types.ObjectId(userId) },
@@ -169,6 +170,13 @@ export class UserWriteService {
           $set: {
             'pokeSettings.mutedTypes': settings.mutedTypes,
             'pokeSettings.reviewRequestResolution': settings.reviewRequestResolution,
+            ...(settings.botMode === undefined ? {} : { 'pokeSettings.botMode': settings.botMode }),
+            ...(settings.botAccounts === undefined
+              ? {}
+              : { 'pokeSettings.botAccounts': settings.botAccounts }),
+            ...(settings.humanAccounts === undefined
+              ? {}
+              : { 'pokeSettings.humanAccounts': settings.humanAccounts }),
             ...(settings.digestEnabled === undefined
               ? {}
               : { 'pokeSettings.digestEnabled': settings.digestEnabled }),
@@ -191,6 +199,9 @@ export class UserWriteService {
     const after: PokeSettings = {
       mutedTypes: settings.mutedTypes,
       reviewRequestResolution: settings.reviewRequestResolution,
+      botMode: settings.botMode ?? before.botMode,
+      botAccounts: settings.botAccounts ?? before.botAccounts,
+      humanAccounts: settings.humanAccounts ?? before.humanAccounts,
       digestEnabled: settings.digestEnabled ?? before.digestEnabled,
       digestHour: settings.digestHour ?? before.digestHour,
     };

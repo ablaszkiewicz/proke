@@ -97,8 +97,18 @@ export type MetricName = CounterName | GaugeName | HistogramName;
 export type PokeDropReason =
   /** The payload carried no installation, so nothing could authorise the poke. */
   | 'no_installation'
-  /** A bot talking. The single largest source of the noise this product exists to stop. */
+  /**
+   * A bot talking. The single largest source of the noise this product exists to stop. Counted
+   * per candidate for a GitHub App, which is dropped before anybody is looked up, and per person
+   * for an account somebody has told us is a bot, which cannot be.
+   */
   | 'bot_chatter'
+  /**
+   * Something a bot did, for somebody who switched bots off. Apart from `bot_chatter` because
+   * that is a rule and this is a choice: how often people make it is the question the switch was
+   * built to answer.
+   */
+  | 'bot_muted'
   /** `@org/team` named a team we could not read - no such team, not visible, or too big. */
   | 'team_unresolved'
   /** A reply whose parent comment we could not attribute to anybody. */
@@ -224,6 +234,7 @@ export const CACHE_NAMESPACES = [
   'pr-diff',
   'teammates',
   'inbox-snapshot',
+  'human-accounts',
 ] as const;
 
 export type CacheNamespace = (typeof CACHE_NAMESPACES)[number] | 'other';

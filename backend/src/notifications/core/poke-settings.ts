@@ -1,3 +1,4 @@
+import { normalizeAccountList } from './bot-accounts';
 import { ALL_NOTIFICATION_TYPES, NotificationType } from './entities/notification-type.enum';
 
 /**
@@ -21,6 +22,31 @@ export type ReviewRequestResolution = (typeof REVIEW_REQUEST_RESOLUTIONS)[number
 
 export function isReviewRequestResolution(value: unknown): value is ReviewRequestResolution {
   return REVIEW_REQUEST_RESOLUTIONS.includes(value as ReviewRequestResolution);
+}
+
+/**
+ * Which bots can poke somebody.
+ *
+ * `all`: anything a bot does - a review, a request for one, a merge, auto-merge armed - reaches
+ * them, which is what every account starts on. What a bot does to a pull request is real work,
+ * and the approval that lets you merge is the same news whoever gave it.
+ *
+ * `none`: nothing a bot does reaches them, by the automatic idea of who a bot is - GitHub Apps,
+ * and logins ending in `-bot`.
+ *
+ * `custom`: the same silence, by their own idea of who a bot is - the automatic one corrected
+ * by two lists of logins, either way round. The lists are only consulted here, so `all` and
+ * `none` mean exactly what they say whatever was once typed into them.
+ *
+ * A bot's talking - comments, replies, mentions - never reaches anybody under any of the three.
+ * See bot-accounts.ts.
+ */
+export const BOT_MODES = ['all', 'none', 'custom'] as const;
+
+export type BotMode = (typeof BOT_MODES)[number];
+
+export function isBotMode(value: unknown): value is BotMode {
+  return BOT_MODES.includes(value as BotMode);
 }
 
 /**
@@ -53,6 +79,20 @@ export function isReviewRequestResolution(value: unknown): value is ReviewReques
 export interface PokeSettings {
   mutedTypes: NotificationType[];
   reviewRequestResolution: ReviewRequestResolution;
+  botMode: BotMode;
+  /**
+   * Logins that are bots to this person though nothing else says so - a machine account driven
+   * by a personal token, which GitHub calls a `User`. Normalised: see normalizeAccountLogin.
+   *
+   * Consulted under `custom` only, and kept under the others, so somebody who tries `none` and
+   * comes back finds their lists where they left them.
+   */
+  botAccounts: string[];
+  /**
+   * Logins that are people to this person, whatever GitHub or their name says. Wins a tie. The
+   * same `custom`-only rule as the list above.
+   */
+  humanAccounts: string[];
   digestEnabled: boolean;
   /** Nought to twenty-three, read in the timezone on the user row. */
   digestHour: number;
@@ -67,6 +107,9 @@ export interface PokeSettings {
 export const DEFAULT_POKE_SETTINGS: PokeSettings = {
   mutedTypes: [],
   reviewRequestResolution: 'any_review',
+  botMode: 'all',
+  botAccounts: [],
+  humanAccounts: [],
   digestEnabled: false,
   digestHour: 9,
 };
@@ -76,15 +119,18 @@ export function isDigestHour(value: unknown): value is number {
 }
 
 /**
- * A save, which is the whole set for the mutes and only what it mentions for the digest.
+ * A save, which is the whole set for the mutes and only what it mentions for everything after.
  *
  * Absence means different things: a type left out of `mutedTypes` is how unmuting is spelled,
- * while a body without the digest fields is a client that predates them, and a stale tab must
- * not be able to undo a schedule it has never heard of.
+ * while a body without the digest or bot fields is a client that predates them, and a stale tab
+ * must not be able to undo a schedule - or empty a list - it has never heard of.
  */
 export interface PokeSettingsUpdate {
   mutedTypes: NotificationType[];
   reviewRequestResolution: ReviewRequestResolution;
+  botMode?: BotMode;
+  botAccounts?: string[];
+  humanAccounts?: string[];
   digestEnabled?: boolean;
   digestHour?: number;
 }
@@ -100,6 +146,9 @@ export interface PokeSettingsUpdate {
 export interface PokeStoredSettings {
   mutedTypes?: string[];
   reviewRequestResolution?: string;
+  botMode?: string;
+  botAccounts?: string[];
+  humanAccounts?: string[];
   digestEnabled?: boolean;
   digestHour?: number;
 }
@@ -126,6 +175,11 @@ export function normalizePokeSettings(stored: PokeStoredSettings | null | undefi
     reviewRequestResolution: isReviewRequestResolution(resolution)
       ? resolution
       : DEFAULT_POKE_SETTINGS.reviewRequestResolution,
+    // A mode this deploy cannot spell reads as the default, for the same reason as the review
+    // request setting: whatever it meant, it cannot mean it here.
+    botMode: isBotMode(stored?.botMode) ? stored.botMode : DEFAULT_POKE_SETTINGS.botMode,
+    botAccounts: normalizeAccountList(stored?.botAccounts ?? []),
+    humanAccounts: normalizeAccountList(stored?.humanAccounts ?? []),
     digestEnabled: stored?.digestEnabled === true,
     digestHour: isDigestHour(stored?.digestHour)
       ? stored.digestHour

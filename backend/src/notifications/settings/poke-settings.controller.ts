@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { CurrentUserId } from '../../auth/core/decorators/current-user-id.decorator';
 import { UserWriteService } from '../../user/write/user-write.service';
+import { normalizeAccountList } from '../core/bot-accounts';
 import { DEFAULT_POKE_SETTINGS } from '../core/poke-settings';
 import { PokeSettingsResponse } from '../dto/poke-settings.response';
 import { UpdatePokeSettingsBody } from '../dto/update-poke-settings.body';
@@ -44,7 +45,11 @@ export class PokeSettingsController {
         mutedTypes: body.mutedTypes,
         reviewRequestResolution:
           body.reviewRequestResolution ?? DEFAULT_POKE_SETTINGS.reviewRequestResolution,
-        // Absences passed through: a client that has not heard of the digest cannot reset it.
+        // Absences passed through: a client that has not heard of the digest, or of bots, cannot
+        // reset them.
+        botMode: body.botMode,
+        botAccounts: body.botAccounts && normalizeAccountList(body.botAccounts),
+        humanAccounts: body.humanAccounts && normalizeAccountList(body.humanAccounts),
         digestEnabled: body.digestEnabled,
         digestHour: body.digestHour,
       },
@@ -59,6 +64,11 @@ export class PokeSettingsController {
       muted_types: settings.mutedTypes,
       muted_count: settings.mutedTypes.length,
       review_request_resolution: settings.reviewRequestResolution,
+      // Counts rather than the logins, the way the inbox reports its author list: those are
+      // somebody else's accounts, and how many people correct the guess is the question here.
+      bot_mode: settings.botMode,
+      bot_accounts_count: settings.botAccounts.length,
+      human_accounts_count: settings.humanAccounts.length,
       digest_enabled: settings.digestEnabled,
       digest_hour: settings.digestHour,
     });
