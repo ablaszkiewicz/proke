@@ -8,13 +8,16 @@ import {
   type PokeRow,
 } from "@/components/notifications/notificationTypes";
 import { PokeReel } from "@/components/notifications/PokeReel";
+import { Button } from "@/components/ui/button";
+import { LoginsInput, normalizeLogin } from "@/components/ui/LoginsInput";
+import { Modal } from "@/components/ui/Modal";
 import { ScrollFade } from "@/components/ui/ScrollFade";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type { NotificationType } from "@/lib/api/connections.api";
-import type { ReviewRequestResolution } from "@/lib/api/user.api";
+import type { BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useId, useRef, useState, type RefObject } from "react";
 
 const CHECK =
   "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z";
@@ -26,6 +29,14 @@ export interface PokesPanelProps {
   /** When a review request is struck through once somebody else reviews. */
   reviewRequestResolution: ReviewRequestResolution;
   onSetReviewRequestResolution: (resolution: ReviewRequestResolution) => void;
+  /** Which bots can proke you: every one, none, or none by your own idea of who is one. */
+  botMode: BotMode;
+  onSetBotMode: (mode: BotMode) => void;
+  /** The corrections to who counts as a bot that `custom` goes by, either way round. */
+  botAccounts: string[];
+  humanAccounts: string[];
+  /** Both lists at once, since moving a login from one to the other changes both. */
+  onSetBotLists: (botAccounts: string[], humanAccounts: string[]) => void;
   /** Whether the daily list of what is still waiting arrives, and at what hour. */
   digestEnabled: boolean;
   digestHour: number;
@@ -67,12 +78,25 @@ export interface PokesPanelProps {
  * happens to a poke after it has arrived, not whether it arrives - and its card in the reel is
  * that poke a little later, struck through. It goes quiet when the request itself is off:
  * there is nothing to cross out.
+ *
+ * ## Bots, under the reel
+ *
+ * One row beside the digest, and for the digest's reason: it is not a kind, so it has no card
+ * for the window and no place in the count. It says which of three answers you have picked -
+ * every bot, none, or your own rules - and opens a dialog to change it, where the rules live
+ * behind the third answer rather than on the panel. Most people never need them, and the ones
+ * who do are the ones who went looking.
  */
 export function PokesPanel({
   mutedTypes,
   onToggleType,
   reviewRequestResolution,
   onSetReviewRequestResolution,
+  botMode,
+  onSetBotMode,
+  botAccounts,
+  humanAccounts,
+  onSetBotLists,
   digestEnabled,
   digestHour,
   onSetDigestEnabled,
@@ -196,12 +220,28 @@ export function PokesPanel({
       */}
       <PokeReel index={activeIndex} className="mt-4 shrink-0" />
 
-      <DigestRow
-        enabled={digestEnabled}
-        hour={digestHour}
-        onSetEnabled={onSetDigestEnabled}
-        onSetHour={onSetDigestHour}
-      />
+      {/*
+        The two settings that are not kinds, under one rule: what bots may do, and the digest.
+        Neither has a card to show or a place in the count, so they sit below the window rather
+        than in the list it explains.
+      */}
+      <div className="mt-4 shrink-0 border-t pt-3">
+        <div className="-mx-2">
+          <BotsRow
+            mode={botMode}
+            botAccounts={botAccounts}
+            humanAccounts={humanAccounts}
+            onSetMode={onSetBotMode}
+            onSetLists={onSetBotLists}
+          />
+          <DigestRow
+            enabled={digestEnabled}
+            hour={digestHour}
+            onSetEnabled={onSetDigestEnabled}
+            onSetHour={onSetDigestHour}
+          />
+        </div>
+      </div>
 
       {/*
         Nothing under the list unless something has actually happened - a refused save, or every
@@ -390,6 +430,335 @@ function ResolutionRow({
   );
 }
 
+// Octicons' `dependabot`: its two paths run together, which one `d` draws the same.
+const ROBOT =
+  "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0v-1.5ZM6.25 0h2A.75.75 0 0 1 9 .75V3.5h3.25a2.25 2.25 0 0 1 2.25 2.25V8h.75a.75.75 0 0 1 0 1.5h-.75v2.75a2.25 2.25 0 0 1-2.25 2.25h-8.5a2.25 2.25 0 0 1-2.25-2.25V9.5H.75a.75.75 0 0 1 0-1.5h.75V5.75A2.25 2.25 0 0 1 3.75 3.5H7.5v-2H6.25a.75.75 0 0 1 0-1.5ZM3 5.75v6.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-6.5a.75.75 0 0 0-.75-.75h-8.5a.75.75 0 0 0-.75.75Z";
+
+const CHEVRON_RIGHT =
+  "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z";
+
+/**
+ * The three answers to "which bots can proke you", in the panel's words.
+ *
+ * `short` is what the row says it is set to; `title` and `detail` are the choice as the dialog
+ * offers it. The third is the only one with anything behind it - the two lists - and its line
+ * says what it shares with the second, because "configure yourself" alone does not say that
+ * the thing being configured is a silence.
+ */
+const BOT_MODE_OPTIONS: readonly {
+  value: BotMode;
+  short: string;
+  title: string;
+  detail: string;
+}[] = [
+  {
+    value: "all",
+    short: "All bots",
+    title: "All bots",
+    detail: "Reviews, review requests and merges from any bot.",
+  },
+  {
+    value: "none",
+    short: "No bots",
+    title: "No bots",
+    detail: "Nothing from GitHub Apps, or logins ending in -bot.",
+  },
+  {
+    value: "custom",
+    short: "Custom",
+    title: "Configure yourself",
+    detail: "No bots either, but you decide who counts as one.",
+  },
+];
+
+/**
+ * The bots: which of the three answers is picked, and the way into changing it.
+ *
+ * Drawn like the digest beside it - icon, name, a line saying what it is about - with the pick
+ * where the digest has its tick and a chevron saying there is more behind it, since three
+ * answers and two lists are not a thing a tick can say.
+ */
+function BotsRow({
+  mode,
+  botAccounts,
+  humanAccounts,
+  onSetMode,
+  onSetLists,
+}: {
+  mode: BotMode;
+  botAccounts: string[];
+  humanAccounts: string[];
+  onSetMode: (mode: BotMode) => void;
+  onSetLists: (botAccounts: string[], humanAccounts: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50",
+          "focus-visible:outline-2 focus-visible:-outline-offset-2"
+        )}
+      >
+        <Octicon
+          path={ROBOT}
+          className={cn(
+            "shrink-0 transition-colors",
+            mode === "all" ? "text-muted-foreground" : "text-foreground"
+          )}
+        />
+        <span className="flex-1">
+          Bots
+          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+            Which bots can proke you, and who counts as one.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          {current.short}
+          <Octicon path={CHEVRON_RIGHT} className="size-3.5 shrink-0" />
+        </span>
+      </button>
+
+      <BotsDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        mode={mode}
+        botAccounts={botAccounts}
+        humanAccounts={humanAccounts}
+        onSetMode={onSetMode}
+        onSetLists={onSetLists}
+      />
+    </>
+  );
+}
+
+/**
+ * Which bots can proke you, picked from three, with the rules behind the third.
+ *
+ * Everything saves as it is chosen, like every switch on the panel - there is nothing to
+ * submit, and Done only closes. The lists stay on the account when another answer is picked,
+ * only hidden and not applied, so somebody who tries "No bots" and comes back finds their
+ * rules where they left them.
+ *
+ * A login is only ever on one list. Putting it on one takes it off the other, so moving an
+ * account across is one step, and the server never has to decide what both at once meant.
+ */
+function BotsDialog({
+  open,
+  onClose,
+  mode,
+  botAccounts,
+  humanAccounts,
+  onSetMode,
+  onSetLists,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mode: BotMode;
+  botAccounts: string[];
+  humanAccounts: string[];
+  onSetMode: (mode: BotMode) => void;
+  onSetLists: (botAccounts: string[], humanAccounts: string[]) => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const groupName = useId();
+  const botsId = useId();
+  const peopleId = useId();
+  // Focus lands on the answer already picked, which is where arrow keys move from.
+  const pickedRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy={titleId}
+      describedBy={descriptionId}
+      initialFocusRef={pickedRef}
+    >
+      <h2 id={titleId} className="text-sm font-medium">
+        Bots
+      </h2>
+      <p id={descriptionId} className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        Which bots can proke you. Their comments and mentions never do, whichever you pick.
+      </p>
+
+      <fieldset className="mt-4 space-y-1.5">
+        <legend className="sr-only">Which bots can proke you</legend>
+        {BOT_MODE_OPTIONS.map((option) => (
+          <BotModeOption
+            key={option.value}
+            name={groupName}
+            title={option.title}
+            detail={option.detail}
+            checked={mode === option.value}
+            inputRef={mode === option.value ? pickedRef : undefined}
+            onSelect={() => onSetMode(option.value)}
+          />
+        ))}
+      </fieldset>
+
+      {mode === "custom" ? (
+        <div className="mt-4 border-t pt-3">
+          <p className="text-[12px] leading-snug text-muted-foreground">
+            GitHub Apps, and logins ending in <span className="font-mono">-bot</span>, count
+            already. Correct that here, either way round.
+          </p>
+
+          <AccountsField
+            id={botsId}
+            label="Also bots"
+            detail="Accounts that post through a token and look human."
+            logins={botAccounts}
+            removeLabel={(login) => `Stop counting ${login} as a bot`}
+            onChange={(next) =>
+              onSetLists(
+                next,
+                humanAccounts.filter((login) => !next.includes(login))
+              )
+            }
+          />
+
+          <AccountsField
+            id={peopleId}
+            label="Always people"
+            detail="Never counted as a bot, whatever their name or GitHub says."
+            logins={humanAccounts}
+            removeLabel={(login) => `Stop counting ${login} as a person`}
+            onChange={(next) =>
+              onSetLists(
+                botAccounts.filter((login) => !next.includes(login)),
+                next
+              )
+            }
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex justify-end">
+        <Button size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * One of the three answers: a real radio button, hidden, inside a card that is the whole target.
+ * Native so the arrow keys move between them and a screen reader hears one group of three.
+ */
+function BotModeOption({
+  name,
+  title,
+  detail,
+  checked,
+  inputRef,
+  onSelect,
+}: {
+  name: string;
+  title: string;
+  detail: string;
+  checked: boolean;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+        "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2",
+        checked ? "border-foreground/25 bg-accent" : "border-transparent hover:bg-accent/50"
+      )}
+    >
+      <input
+        ref={inputRef}
+        type="radio"
+        name={name}
+        checked={checked}
+        onChange={onSelect}
+        className="sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors",
+          checked ? "border-foreground" : "border-muted-foreground/40"
+        )}
+      >
+        {checked ? <span className="size-1.5 rounded-full bg-foreground" /> : null}
+      </span>
+      <span className="flex-1">
+        <span className="block text-[13px] font-medium leading-snug text-foreground">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+          {detail}
+        </span>
+      </span>
+    </label>
+  );
+}
+
+/** One of the two lists: what it is, what being on it does, and the logins on it. */
+function AccountsField({
+  id,
+  label,
+  detail,
+  logins,
+  removeLabel,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  detail: string;
+  logins: string[];
+  removeLabel: (login: string) => string;
+  onChange: (logins: string[]) => void;
+}) {
+  return (
+    <div className="mt-4">
+      <label htmlFor={id} className="block cursor-default">
+        <span className="block text-[13px] font-medium leading-snug text-foreground">
+          {label}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+          {detail}
+        </span>
+      </label>
+
+      <LoginsInput
+        id={id}
+        logins={logins}
+        onChange={onChange}
+        placeholder="Add a login…"
+        removeLabel={removeLabel}
+        normalize={normalizeAccountLogin}
+      />
+    </div>
+  );
+}
+
+/**
+ * The inbox's spelling, with a `[bot]` dropped as well: somebody naming a GitHub App types
+ * whichever they saw, and the server stores `dependabot` for both. Dropped here too so the chip
+ * on screen does not change its spelling the moment the save comes back.
+ *
+ * Nothing at all for what could not be a GitHub login, which the server would refuse: the field
+ * keeps it for correcting, where a chip would appear and then vanish behind this dialog with the
+ * refusal written somewhere underneath it.
+ */
+function normalizeAccountLogin(value: string): string {
+  const login = normalizeLogin(value).replace(/\[bot\]$/, "");
+
+  return /^[a-z0-9][a-z0-9-]{0,38}$/.test(login) ? login : "";
+}
+
 const CLOCK =
   "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z";
 
@@ -413,7 +782,8 @@ function hourName(hour: number): string {
  * The digest, which is a schedule rather than a kind of poke.
  *
  * Under the reel rather than in the list above it: a row up there is counted in the header and
- * previewed in the window, and this would be the tenth of nine kinds with no card to show.
+ * previewed in the window, and this would be the tenth of nine kinds with no card to show. The
+ * footer it sits in is the panel's, which it shares with the bots.
  */
 function DigestRow({
   enabled,
@@ -427,44 +797,42 @@ function DigestRow({
   onSetHour: (hour: number) => void;
 }) {
   return (
-    <div className="mt-4 shrink-0 border-t pt-3">
-      <div className="-mx-2">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          onClick={() => onSetEnabled(!enabled)}
-          className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50"
-        >
-          <Octicon
-            path={CLOCK}
-            className={cn(
-              "shrink-0 transition-colors",
-              enabled ? "text-foreground" : "text-muted-foreground/40"
-            )}
-          />
-          <span className="flex-1">
-            A daily digest
-            <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-              What is still waiting on your review, once a day.
-            </span>
+    <>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        onClick={() => onSetEnabled(!enabled)}
+        className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50"
+      >
+        <Octicon
+          path={CLOCK}
+          className={cn(
+            "shrink-0 transition-colors",
+            enabled ? "text-foreground" : "text-muted-foreground/40"
+          )}
+        />
+        <span className="flex-1">
+          A daily digest
+          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+            What is still waiting on your review, once a day.
           </span>
-          <Tick on={enabled} />
-        </button>
+        </span>
+        <Tick on={enabled} />
+      </button>
 
-        {enabled ? (
-          <Select
-            label="When the digest arrives"
-            options={DIGEST_HOURS}
-            value={String(hour)}
-            onChange={(value) => onSetHour(Number(value))}
-            className="px-2 py-1.5 text-sm hover:bg-accent/50"
-          >
-            <span className="flex-1 text-muted-foreground">Sent at</span>
-          </Select>
-        ) : null}
-      </div>
-    </div>
+      {enabled ? (
+        <Select
+          label="When the digest arrives"
+          options={DIGEST_HOURS}
+          value={String(hour)}
+          onChange={(value) => onSetHour(Number(value))}
+          className="px-2 py-1.5 text-sm hover:bg-accent/50"
+        >
+          <span className="flex-1 text-muted-foreground">Sent at</span>
+        </Select>
+      ) : null}
+    </>
   );
 }
 

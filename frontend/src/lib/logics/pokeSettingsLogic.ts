@@ -5,6 +5,7 @@ import type { NotificationType } from "../api/connections.api";
 import {
   DEFAULT_POKE_SETTINGS,
   PokeSettingsApi,
+  type BotMode,
   type PokeSettings,
   type ReviewRequestResolution,
 } from "../api/user.api";
@@ -53,6 +54,16 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
     /** Choose when a review request is struck through. Same timing as a flip. */
     setReviewRequestResolution: (resolution: ReviewRequestResolution) => ({
       resolution,
+    }),
+    /** Which bots can poke: all, none, or your own rules. Same timing as a flip. */
+    setBotMode: (mode: BotMode) => ({ mode }),
+    /**
+     * Both lists of who counts as what, together: moving a login from one to the other is one
+     * edit, and two saves would let the first land with the login on both.
+     */
+    setBotLists: (botAccounts: string[], humanAccounts: string[]) => ({
+      botAccounts,
+      humanAccounts,
     }),
     /** Turn the daily digest on or off. Same timing as a flip. */
     setDigestEnabled: (enabled: boolean) => ({ enabled }),
@@ -123,6 +134,8 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
           "Couldn't save that, so it's back to how it was.",
         toggleType: () => null,
         setReviewRequestResolution: () => null,
+        setBotMode: () => null,
+        setBotLists: () => null,
         setDigestEnabled: () => null,
         setDigestHour: () => null,
         dismissNotice: () => null,
@@ -167,6 +180,18 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       (settings: PokeSettings): ReviewRequestResolution =>
         settings.reviewRequestResolution,
     ],
+    botMode: [
+      (s) => [s.settings],
+      (settings: PokeSettings): BotMode => settings.botMode,
+    ],
+    botAccounts: [
+      (s) => [s.settings],
+      (settings: PokeSettings): string[] => settings.botAccounts,
+    ],
+    humanAccounts: [
+      (s) => [s.settings],
+      (settings: PokeSettings): string[] => settings.humanAccounts,
+    ],
     digestEnabled: [
       (s) => [s.settings],
       (settings: PokeSettings): boolean => settings.digestEnabled,
@@ -199,6 +224,18 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
         ...values.settings,
         reviewRequestResolution: resolution,
       };
+
+      actions.edit(next);
+      actions.saveSettings({ settings: next });
+    },
+    setBotMode: ({ mode }) => {
+      const next: PokeSettings = { ...values.settings, botMode: mode };
+
+      actions.edit(next);
+      actions.saveSettings({ settings: next });
+    },
+    setBotLists: ({ botAccounts, humanAccounts }) => {
+      const next: PokeSettings = { ...values.settings, botAccounts, humanAccounts };
 
       actions.edit(next);
       actions.saveSettings({ settings: next });

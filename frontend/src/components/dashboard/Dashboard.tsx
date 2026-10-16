@@ -27,6 +27,9 @@ export function Dashboard() {
   const {
     mutedTypes,
     reviewRequestResolution,
+    botMode,
+    botAccounts,
+    humanAccounts,
     digestEnabled,
     digestHour,
     notice,
@@ -34,6 +37,8 @@ export function Dashboard() {
   const {
     toggleType,
     setReviewRequestResolution,
+    setBotMode,
+    setBotLists,
     setDigestEnabled,
     setDigestHour,
   } = useActions(pokeSettingsLogic);
@@ -94,11 +99,16 @@ export function Dashboard() {
       pokes={{
         mutedTypes,
         reviewRequestResolution,
+        botMode,
+        botAccounts,
+        humanAccounts,
         digestEnabled,
         digestHour,
         notice,
         onToggleType: toggleType,
         onSetReviewRequestResolution: setReviewRequestResolution,
+        onSetBotMode: setBotMode,
+        onSetBotLists: setBotLists,
         onSetDigestEnabled: setDigestEnabled,
         onSetDigestHour: setDigestHour,
       }}
