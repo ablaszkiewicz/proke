@@ -102,6 +102,12 @@ interface EnvConfig {
      * which is what the e2e suite runs with - and a deploy that wants to hold one back.
      */
     announcementsEnabled: boolean;
+    /**
+     * How often the sweep looks for somebody with Slack connected who listens to nothing, and
+     * nought to turn it off. Not how often anybody is reminded: that is once a week at most,
+     * settled by a claim, so this only decides how soon after their week is up they hear.
+     */
+    listenReminderSweepIntervalMs: number;
   };
 }
 
@@ -179,6 +185,10 @@ export function getEnvConfig(): EnvConfig {
       // hours, and four passes an hour means only a long deploy costs anybody their digest.
       digestSweepIntervalMs: Number(process.env.DIGEST_SWEEP_INTERVAL_MS ?? 15 * 60_000),
       announcementsEnabled: process.env.ANNOUNCEMENTS_ENABLED !== 'false',
+      // An hour. The week is what matters, and nobody misses an hour's lateness on it.
+      listenReminderSweepIntervalMs: Number(
+        process.env.LISTEN_REMINDER_SWEEP_INTERVAL_MS ?? 60 * 60_000,
+      ),
     },
   };
 }

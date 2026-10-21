@@ -24,6 +24,8 @@ import { Announcement } from '../announcements/announcement.interface';
 import {
   buildAnnouncementMessage,
   buildDigestMessage,
+  buildListenReminderMessage,
+  buildListenReminderStoppedMessage,
   buildPokeMessage,
   buildTestMessage,
   buildWelcomeMessage,
@@ -233,6 +235,44 @@ export class SlackNotificationDeliveryService {
     });
 
     return outcome;
+  }
+
+  /** The weekly nudge to somebody who listens to nothing. See ListenReminderService. */
+  public async deliverListenReminder(userId: string): Promise<SlackDeliveryOutcome> {
+    const message = buildListenReminderMessage(`${getEnvConfig().app.url}/app`, userId);
+    const { outcome } = await this.send(userId, message, {
+      trigger: 'listen_reminder',
+      pokeType: 'listen_reminder',
+    });
+
+    return outcome;
+  }
+
+  /**
+   * Swaps the reminder's "Never remind me again" for a line saying it worked. The opt-out is
+   * already stored by now, so a refusal here costs a stale button and nothing else.
+   */
+  public async confirmListenReminderStopped(
+    teamId: string,
+    channelId: string,
+    messageTs: string,
+  ): Promise<void> {
+    const workspace = await this.workspaceReadService.readLiveWithToken(teamId);
+
+    if (!workspace) {
+      return;
+    }
+
+    try {
+      await this.slackApiService.updateMessage(
+        workspace.botToken,
+        channelId,
+        messageTs,
+        buildListenReminderStoppedMessage(`${getEnvConfig().app.url}/app`),
+      );
+    } catch (error) {
+      this.logger.warn(`Could not confirm a stopped listen reminder in ${teamId}: ${error}`);
+    }
   }
 
   private async send(

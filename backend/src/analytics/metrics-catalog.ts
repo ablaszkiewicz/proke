@@ -49,7 +49,8 @@ export type CounterName =
   | 'proke.inbox.warmed'
   | 'proke.inbox.warm.sweeps'
   | 'proke.digest.sent'
-  | 'proke.digest.sweeps';
+  | 'proke.digest.sweeps'
+  | 'proke.listen_reminder.sweeps';
 
 /** Gauges. A value that moves both ways, read at a moment. */
 export type GaugeName = 'proke.event_loop.delay';
@@ -283,6 +284,8 @@ export interface MetricAttributeMap {
   'proke.digest.sent': { outcome: DigestOutcome };
   'proke.digest.sweeps': { outcome: WarmSweepOutcome };
   'proke.digest.duration': Record<string, never>;
+  // What each reminder came to is already `proke.poke.delivered` with type `listen_reminder`.
+  'proke.listen_reminder.sweeps': { outcome: WarmSweepOutcome };
   'proke.event_loop.delay': { quantile: EventLoopQuantile };
   'http.server.duration': { route: string; method: string; status: string };
 }

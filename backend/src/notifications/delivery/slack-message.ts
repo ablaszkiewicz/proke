@@ -438,6 +438,77 @@ export function buildAnnouncementMessage(announcement: Announcement, appUrl: str
   return { text: announcement.text, blocks };
 }
 
+/**
+ * The `action_id` of the listen reminder's "Never remind me again" button: what the interactivity
+ * endpoint recognises it by. The value it carries is the proke user it was sent to.
+ */
+export const LISTEN_REMINDER_STOP_ACTION = 'listen_reminder_stop';
+
+const LISTEN_REMINDER_TEXT =
+  "*You're not listening to any repositories yet.* proke is connected to Slack, but it only " +
+  'pokes you about the organisations you listen to - so until you pick one, nothing will ' +
+  'arrive here.';
+
+/**
+ * The weekly nudge to somebody who connected Slack and then listened to nothing, which leaves
+ * proke with nothing to send them. See ListenReminderService.
+ *
+ * The one message with a button that does something rather than opening a page, so it is the
+ * one that needs Slack's interactivity switched on.
+ */
+export function buildListenReminderMessage(settingsUrl: string, userId: string): SlackMessage {
+  return {
+    text: "You're not listening to any repositories in proke yet, so no prokes will arrive.",
+    blocks: [
+      { type: 'section', text: { type: 'mrkdwn', text: LISTEN_REMINDER_TEXT } },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Open proke settings' },
+            url: settingsUrl,
+            style: 'primary',
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Never remind me again' },
+            action_id: LISTEN_REMINDER_STOP_ACTION,
+            value: userId,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * The same reminder once "Never remind me again" has been pressed: the button that did it gives
+ * way to a line saying it worked, and the way to the settings stays.
+ */
+export function buildListenReminderStoppedMessage(settingsUrl: string): SlackMessage {
+  return {
+    text: "Got it - proke won't remind you about listening to repositories again.",
+    blocks: [
+      { type: 'section', text: { type: 'mrkdwn', text: LISTEN_REMINDER_TEXT } },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Open proke settings' },
+            url: settingsUrl,
+          },
+        ],
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: "Got it - proke won't remind you about this again." }],
+      },
+    ],
+  };
+}
+
 export interface DigestPullRequest {
   number: number;
   title: string;

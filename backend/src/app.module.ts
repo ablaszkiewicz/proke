@@ -7,6 +7,7 @@ import { InboxModule } from './inbox/inbox.module';
 import { InboxWarmModule } from './inbox/warm/inbox-warm.module';
 import { AnnouncementModule } from './notifications/announcements/announcement.module';
 import { DigestModule } from './notifications/digest/digest.module';
+import { ListenReminderModule } from './notifications/listen-reminder/listen-reminder.module';
 import { PokeSettingsModule } from './notifications/settings/poke-settings.module';
 import { getEnvConfig } from './shared/configs/env-configs';
 import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
@@ -36,6 +37,8 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     DigestModule,
     // Sends each new entry in announcements.ts once, a little after start.
     AnnouncementModule,
+    // And the weekly one: a reminder to whoever has Slack connected but listens to nothing.
+    ListenReminderModule,
     SlackModule,
     GithubWebhookModule,
     SlackEventsModule,

@@ -163,6 +163,16 @@ export class UserEntity {
   @Prop()
   digestSentOn?: string;
 
+  // When the last "you are not listening to anything" reminder was claimed. An instant rather
+  // than a local day like the digest's: it is a week apart, and nobody notices which hour.
+  @Prop({ type: Date })
+  listenReminderSentAt?: Date;
+
+  // When they pressed "Never remind me again" on it. Present means never again - which is why it
+  // is a field of its own rather than the claim above pushed out to the year 9999.
+  @Prop({ type: Date })
+  listenReminderStoppedAt?: Date;
+
   @Prop()
   createdAt: Date;
 

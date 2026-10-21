@@ -14,6 +14,8 @@ import { AnnouncementDeliveryEntity } from '../../src/notifications/announcement
 import { AnnouncementRunEntity } from '../../src/notifications/announcements/store/entities/announcement-run.entity';
 import { DigestModule } from '../../src/notifications/digest/digest.module';
 import { DigestService } from '../../src/notifications/digest/digest.service';
+import { ListenReminderModule } from '../../src/notifications/listen-reminder/listen-reminder.module';
+import { ListenReminderService } from '../../src/notifications/listen-reminder/listen-reminder.service';
 import { PokeSettingsModule } from '../../src/notifications/settings/poke-settings.module';
 import { InboxWarmerService } from '../../src/inbox/warm/inbox-warmer.service';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
@@ -52,6 +54,9 @@ process.env.DIGEST_SWEEP_INTERVAL_MS ??= '0';
 
 /** The same, for the timer that sends announcements a little after start. */
 process.env.ANNOUNCEMENTS_ENABLED ??= 'false';
+
+/** And for the weekly listen reminder, which posts to Slack too. */
+process.env.LISTEN_REMINDER_SWEEP_INTERVAL_MS ??= '0';
 
 /**
  * No sweeping in the background.
@@ -98,6 +103,7 @@ export async function createTestApp() {
       PokeSettingsModule,
       DigestModule,
       AnnouncementModule,
+      ListenReminderModule,
       SlackModule,
       GithubWebhookModule,
       SlackEventsModule,
@@ -191,6 +197,8 @@ export async function createTestApp() {
       digestService: app.get(DigestService),
       // The same for announcements, which also takes the list to send.
       announcementService: app.get(AnnouncementService),
+      // The same again: a sweep at an instant of the spec's choosing.
+      listenReminderService: app.get(ListenReminderService),
       userReadService: app.get(UserReadService),
       userWriteService: app.get(UserWriteService),
       inMemoryCacheService,
