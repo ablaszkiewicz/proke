@@ -26,6 +26,15 @@ export class SubscriptionReadService {
     }));
   }
 
+  /** Which of these people listen to at least one organisation. */
+  public async readSubscribedUserIds(userIds: string[]): Promise<Set<string>> {
+    const subscribed: string[] = await this.subscriptionModel
+      .distinct('userId', { userId: { $in: userIds } })
+      .exec();
+
+    return new Set(subscribed);
+  }
+
   /**
    * The webhook router's one read. Null means no opt-in, which is a different answer from
    * "opted in and wants nothing" - only the second one is a preference question.

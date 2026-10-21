@@ -74,6 +74,11 @@ export type AnalyticsEvent =
    * relentless stream of empty ones.
    */
   | 'poke_settings_updated'
+  /*
+   * "Never remind me again" pressed on the weekly reminder to start listening. Once per person:
+   * pressing it again on an older copy of the message stops nothing new and fires nothing.
+   */
+  | 'listen_reminder_stopped'
   | 'account_deleted';
 
 /**
@@ -83,4 +88,5 @@ export type AnalyticsEvent =
  * the dashboard's test button and the message that proves a fresh connection works both go out
  * the same pipe, and both are worth telling apart from a real poke rather than hiding.
  */
-export type PokeTrigger = 'github_webhook' | 'test' | 'welcome' | 'digest' | 'announcement';
+export type PokeTrigger =
+  'github_webhook' | 'test' | 'welcome' | 'digest' | 'announcement' | 'listen_reminder';

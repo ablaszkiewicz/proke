@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   InboxFilters,
   normalizeInboxSettings,
@@ -177,6 +177,26 @@ export class UserReadService {
         },
       ];
     });
+  }
+
+  /**
+   * Which of these people are owed a listen reminder: never stopped them, and not had one since
+   * `sentBefore`. The claim still decides; this only spares a write for everybody it would refuse.
+   *
+   * `$not: { $gt }` rather than `$lte`, so a row that has never had one matches too.
+   */
+  public async readListenReminderDue(userIds: string[], sentBefore: Date): Promise<string[]> {
+    const users = await this.userModel
+      .find({
+        _id: { $in: userIds.filter((id) => Types.ObjectId.isValid(id)) },
+        listenReminderStoppedAt: null,
+        listenReminderSentAt: { $not: { $gt: sentBefore } },
+      })
+      .select({ _id: 1 })
+      .lean<Pick<UserEntity, '_id'>[]>()
+      .exec();
+
+    return users.map((user) => user._id.toString());
   }
 
   private normalize(user: UserEntity): UserNormalized {

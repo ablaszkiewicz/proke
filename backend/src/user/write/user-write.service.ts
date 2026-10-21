@@ -235,6 +235,40 @@ export class UserWriteService {
     return result.modifiedCount === 1;
   }
 
+  /**
+   * Takes this week's listen reminder, and answers whether this caller got it. One conditional
+   * write, for the reason claimDigest is one: two replicas must not both find it unclaimed.
+   */
+  public async claimListenReminder(userId: string, now: Date, sentBefore: Date): Promise<boolean> {
+    const result = await this.userModel.updateOne(
+      {
+        _id: new Types.ObjectId(userId),
+        listenReminderStoppedAt: null,
+        listenReminderSentAt: { $not: { $gt: sentBefore } },
+      },
+      { $set: { listenReminderSentAt: now } },
+    );
+
+    return result.modifiedCount === 1;
+  }
+
+  /**
+   * "Never remind me again". Answers whether this press is the one that stopped them, so a
+   * second press on an old copy of the message is not counted twice.
+   */
+  public async stopListenReminder(userId: string, now: Date = new Date()): Promise<boolean> {
+    if (!Types.ObjectId.isValid(userId)) {
+      return false;
+    }
+
+    const result = await this.userModel.updateOne(
+      { _id: new Types.ObjectId(userId), listenReminderStoppedAt: null },
+      { $set: { listenReminderStoppedAt: now } },
+    );
+
+    return result.modifiedCount === 1;
+  }
+
   /** Spends today only where their hour has been, so turning it on at four sends nothing at four. */
   private async claimDigestOnEnable(
     userId: string,
