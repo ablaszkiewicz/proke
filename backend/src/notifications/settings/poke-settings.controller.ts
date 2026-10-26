@@ -48,8 +48,8 @@ export class PokeSettingsController {
         // Absences passed through: a client that has not heard of the digest, or of bots, cannot
         // reset them.
         botMode: body.botMode,
-        botAccounts: body.botAccounts && normalizeAccountList(body.botAccounts),
-        humanAccounts: body.humanAccounts && normalizeAccountList(body.humanAccounts),
+        botListKind: body.botListKind,
+        botList: body.botList && normalizeAccountList(body.botList),
         digestEnabled: body.digestEnabled,
         digestHour: body.digestHour,
       },
@@ -64,11 +64,11 @@ export class PokeSettingsController {
       muted_types: settings.mutedTypes,
       muted_count: settings.mutedTypes.length,
       review_request_resolution: settings.reviewRequestResolution,
-      // Counts rather than the logins, the way the inbox reports its author list: those are
+      // A count rather than the logins, the way the inbox reports its author list: those are
       // somebody else's accounts, and how many people correct the guess is the question here.
       bot_mode: settings.botMode,
-      bot_accounts_count: settings.botAccounts.length,
-      human_accounts_count: settings.humanAccounts.length,
+      bot_list_kind: settings.botListKind,
+      bot_list_count: settings.botList.length,
       digest_enabled: settings.digestEnabled,
       digest_hour: settings.digestHour,
     });

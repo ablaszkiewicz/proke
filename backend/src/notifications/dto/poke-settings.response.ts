@@ -1,7 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { NotificationType } from '../core/entities/notification-type.enum';
 import {
+  BOT_LIST_KINDS,
   BOT_MODES,
+  BotListKind,
   BotMode,
   PokeSettings,
   REVIEW_REQUEST_RESOLUTIONS,
@@ -44,29 +46,29 @@ export class PokeSettingsResponse implements PokeSettings {
     description:
       'Which bots can poke this user. `all`: anything a bot does - a review, a request for one, ' +
       'a merge, auto-merge armed. `none`: nothing a bot does, by the automatic idea of who a ' +
-      'bot is - GitHub Apps, and logins ending in `-bot`. `custom`: the same silence, with that ' +
-      'idea corrected by `botAccounts` and `humanAccounts`, which count under `custom` only. ' +
-      'A review request a bot made on a person’s pull request counts as that person’s, and ' +
-      'comments and mentions from a bot never poke anybody. An account that has never touched ' +
-      'the settings answers `all`.',
+      'bot is - GitHub Apps, and logins ending in `-bot`. Either way `botList` has the last ' +
+      'word about the accounts on it. A review request a bot made on a person’s pull request ' +
+      'counts as that person’s, and comments and mentions from a bot never poke anybody unless ' +
+      'it is whitelisted. An account that has never touched the settings answers `all`.',
   })
   botMode: BotMode;
 
   @ApiProperty({
-    type: [String],
+    enum: BOT_LIST_KINDS,
     description:
-      'Logins this user counts as bots though GitHub calls them users - a machine account ' +
-      'driven by a personal token. Under `custom` only. Lowercased, without `@` or `[bot]`.',
+      'What `botList` means, under either mode. `whitelist`: those accounts always poke this ' +
+      'user, as a person would, comments included. `blacklist`: they never do. An account ' +
+      'that has never touched the settings answers `blacklist`.',
   })
-  botAccounts: string[];
+  botListKind: BotListKind;
 
   @ApiProperty({
     type: [String],
     description:
-      'Logins this user counts as people, whatever GitHub or their name says. Wins over ' +
-      '`botAccounts` where a login is on both. Lowercased, without `@` or `[bot]`.',
+      'The logins `botListKind` is about. Lowercased, without `@` or `[bot]`, so `dependabot` ' +
+      'and `dependabot[bot]` are one entry.',
   })
-  humanAccounts: string[];
+  botList: string[];
 
   @ApiProperty({
     description:

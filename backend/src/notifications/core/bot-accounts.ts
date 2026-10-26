@@ -6,15 +6,15 @@ import { PokeSettings } from './poke-settings';
  *
  * ## Three answers to "is this a bot", in order
  *
- * The reader's own word first, either way round, where they have chosen to give it - see
- * BotMode: a login on their list of people is a person whatever GitHub or the name says, and a
- * login on their list of bots is a bot. Then GitHub's,
- * which is exact for a GitHub App and silent about everything else. Then the name, for the
- * machine accounts GitHub cannot see through - a `release-bot` driven by a personal token is a
- * `User` to GitHub, and its comments read to everybody as a colleague talking.
+ * The reader's own list first, where they have put the account on it - see BotListKind: on a
+ * whitelist it is let through as a person would be, whatever GitHub or the name says, and on a
+ * blacklist it is a bot they do not want to hear from. Then GitHub's, which is exact for a
+ * GitHub App and silent about everything else. Then the name, for the machine accounts GitHub
+ * cannot see through - a `release-bot` driven by a personal token is a `User` to GitHub, and its
+ * comments read to everybody as a colleague talking.
  *
  * The name check is a suffix with its hyphen, `-bot`, and nothing looser: `robotnik`, `abbot`
- * and `talbot` are people. Anybody it still gets wrong has the list of people to say so on.
+ * and `talbot` are people. Anybody it still gets wrong has the whitelist to say so on.
  *
  * ## What a bot is denied
  *
@@ -22,14 +22,15 @@ import { PokeSettings } from './poke-settings';
  * anything compiles:
  *
  *  - Talking - comments, replies, mentions - never reaches anybody from a bot. That was always
- *    the rule for GitHub Apps; the lists only change who it applies to.
+ *    the rule for GitHub Apps; a whitelist is the one way past it.
  *  - Everything else a bot does - a verdict, a request for one, a merge, auto-merge armed -
- *    reaches them under `all`, and not under `none` or `custom`. Plenty of people want the
- *    approval that lets them merge, or the merge queue landing their work, whoever did it;
- *    plenty want to hear only from people. So it is theirs to say: anything out of a bot.
+ *    reaches them under `all`, and not under `none`. Plenty of people want the approval that
+ *    lets them merge, or the merge queue landing their work, whoever did it; plenty want to hear
+ *    only from people. So it is theirs to say: anything out of a bot. A blacklisted account is
+ *    denied it under both, because that is what putting it there says.
  *
  * Silencing bots silences a merge queue's merges too. That is what it says - and somebody who
- * wants those back without the rest picks `custom` and puts the queue on their list of people.
+ * wants those back without the rest picks `none` and whitelists the queue.
  */
 
 /** An account the way a payload names one: `sender`, `pull_request.user`, `review.user`. */
@@ -73,32 +74,49 @@ export function normalizeAccountList(values: string[]): string[] {
   return [...new Set(values.map(normalizeAccountLogin).filter((login) => login.length > 0))];
 }
 
-/** The reader's mode and two lists, which is all of their settings this needs. */
-export type BotAccountSettings = Pick<PokeSettings, 'botMode' | 'botAccounts' | 'humanAccounts'>;
+/** The reader's mode and their list, which is all of their settings this needs. */
+export type BotAccountSettings = Pick<PokeSettings, 'botMode' | 'botListKind' | 'botList'>;
 
-/**
- * Whether this account is a bot to this reader. Absent is a person - see botDropReason.
- *
- * The lists count only under `custom`. Anywhere else they are what somebody typed once and then
- * chose to stop using, and `none` silencing every bot except the ones on a list nobody can see
- * would be `none` meaning something it does not say.
- */
-export function isBotFor(
+/** Whether this account is on the reader's list, whichever kind of list it is. */
+function isListed(
   settings: BotAccountSettings,
   account: GithubAccount | null | undefined,
 ): boolean {
   const login = normalizeAccountLogin(account?.login ?? '');
-  const custom = settings.botMode === 'custom';
 
-  if (custom && login && settings.humanAccounts.includes(login)) {
+  return login.length > 0 && settings.botList.includes(login);
+}
+
+/** On the reader's whitelist: a person to them, whatever GitHub or the name says. */
+function isWhitelisted(
+  settings: BotAccountSettings,
+  account: GithubAccount | null | undefined,
+): boolean {
+  return settings.botListKind === 'whitelist' && isListed(settings, account);
+}
+
+/** On the reader's blacklist: a bot to them, and one they never want to hear from. */
+function isBlacklisted(
+  settings: BotAccountSettings,
+  account: GithubAccount | null | undefined,
+): boolean {
+  return settings.botListKind === 'blacklist' && isListed(settings, account);
+}
+
+/** Whether this account is a bot to this reader. Absent is a person - see botDropReason. */
+export function isBotFor(
+  settings: BotAccountSettings,
+  account: GithubAccount | null | undefined,
+): boolean {
+  if (isWhitelisted(settings, account)) {
     return false;
   }
 
-  if (custom && login && settings.botAccounts.includes(login)) {
+  if (isBlacklisted(settings, account)) {
     return true;
   }
 
-  return isGithubApp(account) || /-bot$/.test(login);
+  return isGithubApp(account) || /-bot$/.test(normalizeAccountLogin(account?.login ?? ''));
 }
 
 type BotRule = 'talking' | 'acting';
@@ -152,6 +170,9 @@ export interface PokeOrigin {
  * alone: the author of a merged pull request is the person being told, so asking whether they
  * are human would keep every merge.
  *
+ * That holds for a blacklisted assignment bot as much as for any other: the ask it passes on is
+ * still the colleague's, in their name, and blacklisting the bot was about what it does itself.
+ *
  * An absent author counts as a person, on the same reasoning as everything else here: a poke
  * nobody can account for is delivered rather than silently lost.
  */
@@ -168,7 +189,7 @@ export function botDropReason(
     return 'bot_chatter';
   }
 
-  if (settings.botMode === 'all') {
+  if (settings.botMode === 'all' && !isBlacklisted(settings, origin.actor)) {
     return null;
   }
 

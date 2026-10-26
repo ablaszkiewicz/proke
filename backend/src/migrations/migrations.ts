@@ -1,3 +1,4 @@
+import { botWhitelistBlacklist } from './list/2026-10-26-bot-whitelist-blacklist';
 import { Migration } from './migration.interface';
 
 /**
@@ -10,4 +11,4 @@ import { Migration } from './migration.interface';
  * Append only. Never edit, reorder or remove an entry that has been deployed: it has already run
  * as it was, and every database it ran on remembers it by id.
  */
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [botWhitelistBlacklist];

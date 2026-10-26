@@ -171,12 +171,10 @@ export class UserWriteService {
             'pokeSettings.mutedTypes': settings.mutedTypes,
             'pokeSettings.reviewRequestResolution': settings.reviewRequestResolution,
             ...(settings.botMode === undefined ? {} : { 'pokeSettings.botMode': settings.botMode }),
-            ...(settings.botAccounts === undefined
+            ...(settings.botListKind === undefined
               ? {}
-              : { 'pokeSettings.botAccounts': settings.botAccounts }),
-            ...(settings.humanAccounts === undefined
-              ? {}
-              : { 'pokeSettings.humanAccounts': settings.humanAccounts }),
+              : { 'pokeSettings.botListKind': settings.botListKind }),
+            ...(settings.botList === undefined ? {} : { 'pokeSettings.botList': settings.botList }),
             ...(settings.digestEnabled === undefined
               ? {}
               : { 'pokeSettings.digestEnabled': settings.digestEnabled }),
@@ -200,8 +198,8 @@ export class UserWriteService {
       mutedTypes: settings.mutedTypes,
       reviewRequestResolution: settings.reviewRequestResolution,
       botMode: settings.botMode ?? before.botMode,
-      botAccounts: settings.botAccounts ?? before.botAccounts,
-      humanAccounts: settings.humanAccounts ?? before.humanAccounts,
+      botListKind: settings.botListKind ?? before.botListKind,
+      botList: settings.botList ?? before.botList,
       digestEnabled: settings.digestEnabled ?? before.digestEnabled,
       digestHour: settings.digestHour ?? before.digestHour,
     };

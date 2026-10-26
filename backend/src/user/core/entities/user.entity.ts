@@ -61,13 +61,14 @@ export class PokeSettingsEntity implements PokeStoredSettings {
   @Prop()
   botMode?: string;
 
+  // Absent reads as `blacklist`, which with an empty list is no list at all.
+  @Prop()
+  botListKind?: string;
+
   // Normalised on the way in and again on the way out, so a row another deploy wrote with an
   // `@` or a `[bot]` still matches.
   @Prop({ type: [String], default: undefined })
-  botAccounts?: string[];
-
-  @Prop({ type: [String], default: undefined })
-  humanAccounts?: string[];
+  botList?: string[];
 
   @Prop()
   digestEnabled?: boolean;
@@ -192,7 +193,7 @@ UserSchema.index({ inboxLastUsedAt: 1 }, { sparse: true });
 // the same reason: absent on most rows, and `true` is the only value worth finding.
 UserSchema.index({ 'pokeSettings.digestEnabled': 1 }, { sparse: true });
 
-// The router asks whether anybody counts a given GitHub App as a person, whenever one is about
-// to be silenced - see GithubWebhookRouterService.suppressBotChatter. Sparse because almost
-// nobody ever fills the list in.
-UserSchema.index({ 'pokeSettings.humanAccounts': 1 }, { sparse: true });
+// The router asks whether anybody has whitelisted a given GitHub App, whenever one is about to be
+// silenced - see GithubWebhookRouterService.suppressBotChatter. Sparse because almost nobody
+// ever fills the list in.
+UserSchema.index({ 'pokeSettings.botList': 1 }, { sparse: true });
