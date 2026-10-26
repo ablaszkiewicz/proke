@@ -14,9 +14,7 @@ import {
 } from 'class-validator';
 import { ALL_NOTIFICATION_TYPES, NotificationType } from '../core/entities/notification-type.enum';
 import {
-  BOT_LIST_KINDS,
   BOT_MODES,
-  BotListKind,
   BotMode,
   REVIEW_REQUEST_RESOLUTIONS,
   ReviewRequestResolution,
@@ -69,11 +67,6 @@ export class UpdatePokeSettingsBody {
   @IsIn(BOT_MODES)
   botMode?: BotMode;
 
-  @ApiPropertyOptional({ enum: BOT_LIST_KINDS })
-  @IsOptional()
-  @IsIn(BOT_LIST_KINDS)
-  botListKind?: BotListKind;
-
   /**
    * A login each, the way somebody types one: an `@` or a `[bot]` is forgiven, and both are
    * dropped before anything is stored. Anything that could not be a GitHub login is refused
@@ -85,7 +78,14 @@ export class UpdatePokeSettingsBody {
   @IsArray()
   @ArrayMaxSize(MAX_ACCOUNTS)
   @Matches(ACCOUNT_LOGIN, { each: true })
-  botList?: string[];
+  allowedBots?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ACCOUNTS)
+  @Matches(ACCOUNT_LOGIN, { each: true })
+  blockedBots?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

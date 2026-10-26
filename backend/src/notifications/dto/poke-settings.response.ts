@@ -1,9 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { NotificationType } from '../core/entities/notification-type.enum';
 import {
-  BOT_LIST_KINDS,
   BOT_MODES,
-  BotListKind,
   BotMode,
   PokeSettings,
   REVIEW_REQUEST_RESOLUTIONS,
@@ -45,30 +43,31 @@ export class PokeSettingsResponse implements PokeSettings {
     enum: BOT_MODES,
     description:
       'Which bots can poke this user. `all`: anything a bot does - a review, a request for one, ' +
-      'a merge, auto-merge armed. `none`: nothing a bot does, by the automatic idea of who a ' +
-      'bot is - GitHub Apps, and logins ending in `-bot`. Either way `botList` has the last ' +
-      'word about the accounts on it. A review request a bot made on a person’s pull request ' +
-      'counts as that person’s, and comments and mentions from a bot never poke anybody unless ' +
-      'it is whitelisted. An account that has never touched the settings answers `all`.',
+      'a merge, auto-merge armed - except the bots on `blockedBots`. `none`: nothing a bot ' +
+      'does, by the automatic idea of who a bot is - GitHub Apps, and logins ending in `-bot` - ' +
+      'except the bots on `allowedBots`. A review request a bot made on a person’s pull ' +
+      'request counts as that person’s, and comments and mentions from a bot never poke ' +
+      'anybody unless it is an allowed bot. An account that has never touched the settings ' +
+      'answers `all`.',
   })
   botMode: BotMode;
 
   @ApiProperty({
-    enum: BOT_LIST_KINDS,
+    type: [String],
     description:
-      'What `botList` means, under either mode. `whitelist`: those accounts always poke this ' +
-      'user, as a person would, comments included. `blacklist`: they never do. An account ' +
-      'that has never touched the settings answers `blacklist`.',
+      'Logins that always poke this user under `none`, as a person would, comments included. ' +
+      'Kept but not read under `all`. Lowercased, without `@` or `[bot]`, so `dependabot` and ' +
+      '`dependabot[bot]` are one entry.',
   })
-  botListKind: BotListKind;
+  allowedBots: string[];
 
   @ApiProperty({
     type: [String],
     description:
-      'The logins `botListKind` is about. Lowercased, without `@` or `[bot]`, so `dependabot` ' +
-      'and `dependabot[bot]` are one entry.',
+      'Logins that never poke this user under `all`, even ones that look human. Kept but not ' +
+      'read under `none`. Spelled like `allowedBots`.',
   })
-  botList: string[];
+  blockedBots: string[];
 
   @ApiProperty({
     description:

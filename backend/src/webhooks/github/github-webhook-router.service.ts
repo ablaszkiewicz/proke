@@ -549,8 +549,8 @@ export class GithubWebhookRouterService {
    * GitHub App is caught here: GitHub's word holds for everybody, while every other way of being
    * a bot is one reader's call, made at the per-person gate in `route` once they are known.
    *
-   * The one exception is a bot somebody has whitelisted - an agent they talk to in review
-   * threads, say. Then nothing is dropped here, the lookups are paid, and the gate drops
+   * The one exception is a bot somebody has allowed - an agent they talk to in review threads,
+   * say. Then nothing is dropped here, the lookups are paid, and the gate drops
    * it for everybody else. Asked only when there was talking to drop, and remembered for a
    * minute, so a bot that comments on every push costs a query a minute rather than one a push.
    */

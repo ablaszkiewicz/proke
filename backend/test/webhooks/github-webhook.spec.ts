@@ -2857,13 +2857,9 @@ describe('Webhooks (github)', () => {
       });
     });
 
-    it('brings back the merge queue alone, once it is on your whitelist', async () => {
+    it('brings back the merge queue alone, once it is an allowed bot', async () => {
       // given - bots off, but somebody who still wants to hear their work landed
-      await setupAuthor({
-        botMode: 'none',
-        botListKind: 'whitelist',
-        botList: ['github-merge-queue'],
-      });
+      await setupAuthor({ botMode: 'none', allowedBots: ['github-merge-queue'] });
 
       // when
       await send('pull_request', mergedBy(MERGE_QUEUE));
@@ -2885,38 +2881,9 @@ describe('Webhooks (github)', () => {
       await expectNoPoke();
     });
 
-    it('counts an account on your blacklist as a bot', async () => {
-      // given
-      await setupAuthor({ botListKind: 'blacklist', botList: ['release-runner'] });
-
-      // when
-      await send('issue_comment', commentFrom({ id: 3131, login: 'Release-Runner', type: 'User' }));
-
-      // then
-      await expectNoPoke();
-    });
-
-    it('drops a blacklisted account’s review once bots are off, though it looks human', async () => {
-      // given
-      await setupAuthor({
-        botMode: 'none',
-        botListKind: 'blacklist',
-        botList: ['release-runner'],
-      });
-
-      // when
-      await send(
-        'pull_request_review',
-        reviewPayload({ id: 3131, login: 'release-runner', type: 'User' }),
-      );
-
-      // then
-      await expectNoPoke();
-    });
-
-    it('drops a blacklisted bot’s review even with every bot let through', async () => {
+    it('drops a blocked bot’s review with every other bot let through', async () => {
       // given - somebody who wants everything a bot does, except stamphog's
-      await setupAuthor({ botMode: 'all', botListKind: 'blacklist', botList: ['stamphog'] });
+      await setupAuthor({ botMode: 'all', blockedBots: ['stamphog'] });
 
       // when
       await send('pull_request_review', reviewPayload(STAMPHOG));
@@ -2925,9 +2892,9 @@ describe('Webhooks (github)', () => {
       await expectNoPoke();
     });
 
-    it('still lets every other bot through beside a blacklisted one', async () => {
+    it('still lets every other bot through beside a blocked one', async () => {
       // given
-      await setupAuthor({ botMode: 'all', botListKind: 'blacklist', botList: ['stamphog'] });
+      await setupAuthor({ botMode: 'all', blockedBots: ['stamphog'] });
 
       // when
       await send('pull_request', mergedBy(MERGE_QUEUE));
@@ -2938,9 +2905,23 @@ describe('Webhooks (github)', () => {
       });
     });
 
-    it('still passes on a colleague’s review request through a blacklisted assignment bot', async () => {
+    it('drops a blocked account’s review though it looks human', async () => {
       // given
-      await setupAuthor({ botMode: 'all', botListKind: 'blacklist', botList: ['pr-assigner'] });
+      await setupAuthor({ botMode: 'all', blockedBots: ['release-runner'] });
+
+      // when
+      await send(
+        'pull_request_review',
+        reviewPayload({ id: 3131, login: 'Release-Runner', type: 'User' }),
+      );
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('still passes on a colleague’s review request through a blocked assignment bot', async () => {
+      // given
+      await setupAuthor({ botMode: 'all', blockedBots: ['pr-assigner'] });
 
       // when
       await send('pull_request', {
@@ -2955,23 +2936,9 @@ describe('Webhooks (github)', () => {
       });
     });
 
-    it('hears a person whose name only looks like a bot’s, once they are whitelisted', async () => {
-      // given
-      await setupAuthor({ botListKind: 'whitelist', botList: ['anna-bot'] });
-
-      // when
-      await send('issue_comment', commentFrom({ id: 3131, login: 'anna-bot', type: 'User' }));
-
-      // then
-      expect(await firstNotification()).toMatchObject({
-        type: NotificationType.PullRequestComment,
-        actorLogin: 'anna-bot',
-      });
-    });
-
-    it('hears a whitelisted bot with bots off', async () => {
+    it('hears an allowed bot with bots off', async () => {
       // given - somebody who wants stamphog's approval and nobody else's
-      await setupAuthor({ botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
+      await setupAuthor({ botMode: 'none', allowedBots: ['stamphog'] });
 
       // when
       await send('pull_request_review', reviewPayload(STAMPHOG));
@@ -2983,9 +2950,9 @@ describe('Webhooks (github)', () => {
       });
     });
 
-    it('still drops every other bot beside a whitelisted one', async () => {
+    it('still drops every other bot beside an allowed one', async () => {
       // given
-      await setupAuthor({ botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
+      await setupAuthor({ botMode: 'none', allowedBots: ['stamphog'] });
 
       // when
       await send('pull_request', mergedBy(MERGE_QUEUE));
@@ -2994,35 +2961,34 @@ describe('Webhooks (github)', () => {
       await expectNoPoke();
     });
 
-    it('reads the list by its kind: a blacklisted bot is not let through with bots off', async () => {
-      // given - the same login as above, on the other kind of list
-      await setupAuthor({ botMode: 'none', botListKind: 'blacklist', botList: ['stamphog'] });
+    it('hears a person whose name only looks like a bot’s, once they are allowed', async () => {
+      // given
+      await setupAuthor({ botMode: 'none', allowedBots: ['anna-bot'] });
 
       // when
-      await send('pull_request_review', reviewPayload(STAMPHOG));
+      await send('issue_comment', commentFrom({ id: 3131, login: 'anna-bot', type: 'User' }));
 
       // then
-      await expectNoPoke();
+      expect(await firstNotification()).toMatchObject({
+        type: NotificationType.PullRequestComment,
+        actorLogin: 'anna-bot',
+      });
     });
 
-    it('lets a whitelisted bot’s comments through with every bot let through', async () => {
-      // given - all bots already poke; the whitelist is what lets its talking in too
-      await setupAuthor({ botMode: 'all', botListKind: 'whitelist', botList: ['posthog-bot'] });
+    it('reads only the list that goes with the mode', async () => {
+      // given - posthog-bot allowed back when bots were off, and every bot let in since
+      await setupAuthor({ botMode: 'all', allowedBots: ['posthog-bot'] });
 
       // when
       await send('issue_comment', commentFrom({ id: 3131, login: 'posthog-bot', type: 'User' }));
 
-      // then
-      expect(await firstNotification()).toMatchObject({ actorLogin: 'posthog-bot' });
+      // then - the allowed list is not read with every bot let in, and bots' talking stays out
+      await expectNoPoke();
     });
 
-    it('lets a GitHub App you whitelisted talk to you, and to nobody else', async () => {
-      // given - the author whitelists the agent; a bystander it names does not
-      const author = await setupAuthor({
-        botMode: 'none',
-        botListKind: 'whitelist',
-        botList: ['helper'],
-      });
+    it('lets a GitHub App you allowed talk to you, and to nobody else', async () => {
+      // given - the author allows the agent; a bystander it names does not
+      const author = await setupAuthor({ botMode: 'none', allowedBots: ['helper'] });
       await setupMember('5151', 'bystander');
 
       // when
@@ -3041,25 +3007,25 @@ describe('Webhooks (github)', () => {
       expect(deliverSpy.mock.calls[0][0]).toMatchObject({ id: author.id });
     });
 
-    it('opens the door for a GitHub App on somebody’s whitelist, and not on a blacklist', async () => {
+    it('opens the door only for a GitHub App somebody allowed with bots off', async () => {
       // given - the question the router asks before it knows who an event reaches
-      await setupAuthor({ botListKind: 'blacklist', botList: ['helper'] });
+      await setupAuthor({ botMode: 'all', allowedBots: ['helper'], blockedBots: ['agent'] });
       const bystander = await setupMember('5151', 'bystander');
       await bootstrap.models.userModel.updateOne(
         { _id: bystander.id },
-        {
-          $set: { pokeSettings: { mutedTypes: [], botListKind: 'whitelist', botList: ['agent'] } },
-        },
+        { $set: { pokeSettings: { mutedTypes: [], botMode: 'none', allowedBots: ['scout'] } } },
       );
       const userReadService = bootstrap.app.get(UserReadService);
 
       // when
-      const blacklisted = await userReadService.isCountedAsPersonByAnybody('helper[bot]');
-      const whitelisted = await userReadService.isCountedAsPersonByAnybody('agent[bot]');
+      const unread = await userReadService.isCountedAsPersonByAnybody('helper[bot]');
+      const blocked = await userReadService.isCountedAsPersonByAnybody('agent[bot]');
+      const allowed = await userReadService.isCountedAsPersonByAnybody('scout[bot]');
 
       // then
-      expect(blacklisted).toBe(false);
-      expect(whitelisted).toBe(true);
+      expect(unread).toBe(false);
+      expect(blocked).toBe(false);
+      expect(allowed).toBe(true);
     });
   });
 

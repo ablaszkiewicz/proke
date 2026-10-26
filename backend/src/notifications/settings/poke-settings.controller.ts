@@ -48,8 +48,8 @@ export class PokeSettingsController {
         // Absences passed through: a client that has not heard of the digest, or of bots, cannot
         // reset them.
         botMode: body.botMode,
-        botListKind: body.botListKind,
-        botList: body.botList && normalizeAccountList(body.botList),
+        allowedBots: body.allowedBots && normalizeAccountList(body.allowedBots),
+        blockedBots: body.blockedBots && normalizeAccountList(body.blockedBots),
         digestEnabled: body.digestEnabled,
         digestHour: body.digestHour,
       },
@@ -64,11 +64,11 @@ export class PokeSettingsController {
       muted_types: settings.mutedTypes,
       muted_count: settings.mutedTypes.length,
       review_request_resolution: settings.reviewRequestResolution,
-      // A count rather than the logins, the way the inbox reports its author list: those are
-      // somebody else's accounts, and how many people correct the guess is the question here.
+      // Counts rather than the logins, the way the inbox reports its author list: those are
+      // somebody else's accounts, and how many people make exceptions is the question here.
       bot_mode: settings.botMode,
-      bot_list_kind: settings.botListKind,
-      bot_list_count: settings.botList.length,
+      allowed_bots_count: settings.allowedBots.length,
+      blocked_bots_count: settings.blockedBots.length,
       digest_enabled: settings.digestEnabled,
       digest_hour: settings.digestHour,
     });

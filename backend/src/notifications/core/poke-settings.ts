@@ -25,18 +25,19 @@ export function isReviewRequestResolution(value: unknown): value is ReviewReques
 }
 
 /**
- * Which bots can poke somebody.
+ * Which bots can poke somebody, and the one list of exceptions that goes with the answer.
  *
  * `all`: anything a bot does - a review, a request for one, a merge, auto-merge armed - reaches
  * them, which is what every account starts on. What a bot does to a pull request is real work,
- * and the approval that lets you merge is the same news whoever gave it.
+ * and the approval that lets you merge is the same news whoever gave it. Except the bots on
+ * their `blockedBots`, which never do.
  *
  * `none`: nothing a bot does reaches them, by the automatic idea of who a bot is - GitHub Apps,
- * and logins ending in `-bot`.
+ * and logins ending in `-bot`. Except the bots on their `allowedBots`, which always do, the way
+ * a person would.
  *
- * Either way the reader's list has the last word about the accounts on it - see BotListKind. A
- * bot's talking - comments, replies, mentions - never reaches anybody unless it is whitelisted.
- * See bot-accounts.ts.
+ * A bot's talking - comments, replies, mentions - never reaches anybody under either, unless it
+ * is an allowed bot. See bot-accounts.ts.
  */
 export const BOT_MODES = ['all', 'none'] as const;
 
@@ -44,27 +45,6 @@ export type BotMode = (typeof BOT_MODES)[number];
 
 export function isBotMode(value: unknown): value is BotMode {
   return BOT_MODES.includes(value as BotMode);
-}
-
-/**
- * What the one list of logins means, whichever mode it sits under.
- *
- * `whitelist`: these always reach the reader, as a person would - their reviews, their merges,
- * and their comments too. Under `none` that is the bots somebody still wants; under `all` it is
- * a bot whose talking they want as well.
- *
- * `blacklist`: these never do. Under `all` that is the one bot somebody is tired of; under
- * `none` it is the machine account GitHub calls a `User`, which nothing else would catch.
- *
- * One list and a switch rather than two lists, so a login can never be on both and there is
- * nothing to decide about what both at once meant.
- */
-export const BOT_LIST_KINDS = ['whitelist', 'blacklist'] as const;
-
-export type BotListKind = (typeof BOT_LIST_KINDS)[number];
-
-export function isBotListKind(value: unknown): value is BotListKind {
-  return BOT_LIST_KINDS.includes(value as BotListKind);
 }
 
 /**
@@ -98,9 +78,17 @@ export interface PokeSettings {
   mutedTypes: NotificationType[];
   reviewRequestResolution: ReviewRequestResolution;
   botMode: BotMode;
-  botListKind: BotListKind;
-  /** The logins `botListKind` is about. Normalised: see normalizeAccountLogin. */
-  botList: string[];
+  /**
+   * Logins that always reach this person under `none`, whatever GitHub or their name says.
+   * Normalised: see normalizeAccountLogin.
+   *
+   * One list per mode rather than one list read either way round, so that switching modes never
+   * turns the bots somebody let in into the bots they keep out. Each is kept under the other
+   * mode, unread, for when they come back.
+   */
+  allowedBots: string[];
+  /** Logins that never reach this person under `all`, even ones that look human. */
+  blockedBots: string[];
   digestEnabled: boolean;
   /** Nought to twenty-three, read in the timezone on the user row. */
   digestHour: number;
@@ -116,9 +104,8 @@ export const DEFAULT_POKE_SETTINGS: PokeSettings = {
   mutedTypes: [],
   reviewRequestResolution: 'any_review',
   botMode: 'all',
-  // The kind that means something under `all`: a whitelist there only lets a bot's talking in.
-  botListKind: 'blacklist',
-  botList: [],
+  allowedBots: [],
+  blockedBots: [],
   digestEnabled: false,
   digestHour: 9,
 };
@@ -138,8 +125,8 @@ export interface PokeSettingsUpdate {
   mutedTypes: NotificationType[];
   reviewRequestResolution: ReviewRequestResolution;
   botMode?: BotMode;
-  botListKind?: BotListKind;
-  botList?: string[];
+  allowedBots?: string[];
+  blockedBots?: string[];
   digestEnabled?: boolean;
   digestHour?: number;
 }
@@ -156,8 +143,8 @@ export interface PokeStoredSettings {
   mutedTypes?: string[];
   reviewRequestResolution?: string;
   botMode?: string;
-  botListKind?: string;
-  botList?: string[];
+  allowedBots?: string[];
+  blockedBots?: string[];
   digestEnabled?: boolean;
   digestHour?: number;
 }
@@ -185,10 +172,8 @@ export function normalizePokeSettings(stored: PokeStoredSettings | null | undefi
       ? resolution
       : DEFAULT_POKE_SETTINGS.reviewRequestResolution,
     botMode: readBotMode(stored?.botMode),
-    botListKind: isBotListKind(stored?.botListKind)
-      ? stored.botListKind
-      : DEFAULT_POKE_SETTINGS.botListKind,
-    botList: normalizeAccountList(stored?.botList ?? []),
+    allowedBots: normalizeAccountList(stored?.allowedBots ?? []),
+    blockedBots: normalizeAccountList(stored?.blockedBots ?? []),
     digestEnabled: stored?.digestEnabled === true,
     digestHour: isDigestHour(stored?.digestHour)
       ? stored.digestHour
@@ -201,8 +186,8 @@ export function normalizePokeSettings(stored: PokeStoredSettings | null | undefi
  * setting: whatever it meant, it cannot mean it here.
  *
  * Except `custom`, which this deploy can still spell: it was "no bots, by my own rules", and the
- * migration to the list turned every one of them into `none`. One read here can only be a row
- * an older tab saved after that ran, and it meant `none` too.
+ * migration to the two lists turned every one of them into `none`. One read here can only be a
+ * row an older tab saved after that ran, and it meant `none` too.
  */
 function readBotMode(value: string | undefined): BotMode {
   if (value === 'custom') {

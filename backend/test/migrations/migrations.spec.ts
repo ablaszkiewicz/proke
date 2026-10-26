@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Connection, createConnection, mongo } from 'mongoose';
 import { botWhitelistBlacklist } from '../../src/migrations/list/2026-10-26-bot-whitelist-blacklist';
+import { botWhitelistBlacklistToAllowedAndBlocked } from '../../src/migrations/list/2026-10-26-bot-whitelist-blacklist-to-allowed-and-blocked';
 import { Migration } from '../../src/migrations/migration.interface';
 import { MIGRATIONS } from '../../src/migrations/migrations';
 import { MIGRATIONS_COLLECTION, runMigrations } from '../../src/migrations/run-migrations';
@@ -215,12 +216,14 @@ describe('Migrations', () => {
       // when
       await migrate();
 
-      // then
-      expect(normalizePokeSettings(await stored(id))).toMatchObject({
+      // then - in the shape it wrote, which the migration after it moves on again
+      expect(await stored(id)).toEqual({
+        mutedTypes: [],
         botMode: 'none',
         botListKind: 'whitelist',
         botList: [],
       });
+      expect(normalizePokeSettings(await stored(id)).botMode).toEqual('none');
     });
 
     it.each([
@@ -296,6 +299,175 @@ describe('Migrations', () => {
       expect(lines).toHaveLength(1);
       expect(lines[0]).toContain('custom became none for 1 with a whitelist');
       expect(lines[0]).not.toContain('stamphog');
+    });
+  });
+
+  /**
+   * The one list and its whitelist-or-blacklist switch becoming a list for each mode. Runs on a
+   * database the migration above has already been through.
+   */
+  describe('the bot list, split by mode', () => {
+    const users = () => db.collection('users');
+
+    const insert = async (pokeSettings?: object) => {
+      const { insertedId } = await users().insertOne({
+        githubId: randomUUID(),
+        ...(pokeSettings ? { pokeSettings: { mutedTypes: [], ...pokeSettings } } : {}),
+      });
+      return insertedId;
+    };
+
+    const stored = async (id: mongo.ObjectId) =>
+      (await users().findOne({ _id: id }))?.pokeSettings as Record<string, unknown> | undefined;
+
+    const migrate = () => runMigrations(db, [botWhitelistBlacklistToAllowedAndBlocked], quiet);
+
+    it('turns no bots and a whitelist into no bots and allowed bots', async () => {
+      // given
+      const id = await insert({ botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
+
+      // when
+      await migrate();
+
+      // then
+      expect(await stored(id)).toEqual({
+        mutedTypes: [],
+        botMode: 'none',
+        allowedBots: ['stamphog'],
+      });
+    });
+
+    it('turns every bot and a blacklist into every bot and blocked bots', async () => {
+      // given
+      const id = await insert({ botMode: 'all', botListKind: 'blacklist', botList: ['codecov'] });
+
+      // when
+      await migrate();
+
+      // then
+      expect(await stored(id)).toEqual({
+        mutedTypes: [],
+        botMode: 'all',
+        blockedBots: ['codecov'],
+      });
+    });
+
+    it.each([
+      { botMode: 'all', botListKind: 'whitelist', field: 'allowedBots' },
+      { botMode: 'none', botListKind: 'blacklist', field: 'blockedBots' },
+    ])(
+      'keeps a $botListKind under $botMode for the mode that reads it',
+      async ({ botMode, botListKind, field }) => {
+        // given - one of the two pairings that no longer exist
+        const id = await insert({ botMode, botListKind, botList: ['release-runner'] });
+
+        // when
+        await migrate();
+
+        // then - the mode is left as it was, and the list waits for the other one
+        expect(await stored(id)).toEqual({
+          mutedTypes: [],
+          botMode,
+          [field]: ['release-runner'],
+        });
+      },
+    );
+
+    it('reads a list with no kind as the blacklist it defaulted to', async () => {
+      // given
+      const id = await insert({ botList: ['codecov'] });
+
+      // when
+      await migrate();
+
+      // then
+      expect(await stored(id)).toEqual({ mutedTypes: [], blockedBots: ['codecov'] });
+    });
+
+    it('drops an empty list and its kind, leaving the mode', async () => {
+      // given - the one shape production actually had
+      const id = await insert({ botMode: 'all', botListKind: 'blacklist', botList: [] });
+
+      // when
+      await migrate();
+
+      // then
+      expect(await stored(id)).toEqual({ mutedTypes: [], botMode: 'all' });
+    });
+
+    it('leaves everybody else alone', async () => {
+      // given
+      const untouched = await insert();
+      const muted = await insert({ mutedTypes: ['issue_comment'], botMode: 'none' });
+
+      // when
+      await migrate();
+
+      // then
+      expect(await stored(untouched)).toBeUndefined();
+      expect(await stored(muted)).toEqual({ mutedTypes: ['issue_comment'], botMode: 'none' });
+    });
+
+    it('changes nothing the second time', async () => {
+      // given
+      const id = await insert({ botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
+      await botWhitelistBlacklistToAllowedAndBlocked.up(db);
+      const once = await stored(id);
+
+      // when - not through the runner, which would skip it: the migration itself has to be safe
+      const summary = await botWhitelistBlacklistToAllowedAndBlocked.up(db);
+
+      // then
+      expect(await stored(id)).toEqual(once);
+      expect(summary).toContain('moved the bot list off 0');
+    });
+
+    it('drops the index on the old list', async () => {
+      // given
+      await users().createIndex({ 'pokeSettings.botList': 1 }, { sparse: true });
+
+      // when
+      await migrate();
+
+      // then
+      const names = (await users().indexes()).map((index) => index.name);
+      expect(names).not.toContain('pokeSettings.botList_1');
+    });
+
+    it('says what it did in counts, and nothing anybody could be found by', async () => {
+      // given
+      await insert({ botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
+      const lines: string[] = [];
+
+      // when
+      await runMigrations(db, [botWhitelistBlacklistToAllowedAndBlocked], (line) =>
+        lines.push(line),
+      );
+
+      // then - this lands in a public CI log
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('moved the bot list off 1 (1 to allowed bots');
+      expect(lines[0]).not.toContain('stamphog');
+    });
+
+    it('takes configure-yourself all the way to allowed bots, with the migration before it', async () => {
+      // given - a row from before either ran
+      const id = await insert({ botMode: 'custom', humanAccounts: ['github-merge-queue'] });
+
+      // when
+      await runMigrations(db, MIGRATIONS, quiet);
+
+      // then - read the way the server reads it
+      expect(await stored(id)).toEqual({
+        mutedTypes: [],
+        botMode: 'none',
+        allowedBots: ['github-merge-queue'],
+      });
+      expect(normalizePokeSettings(await stored(id))).toMatchObject({
+        botMode: 'none',
+        allowedBots: ['github-merge-queue'],
+        blockedBots: [],
+      });
     });
   });
 });

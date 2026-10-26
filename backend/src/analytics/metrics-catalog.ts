@@ -235,7 +235,7 @@ export const CACHE_NAMESPACES = [
   'pr-diff',
   'teammates',
   'inbox-snapshot',
-  'whitelisted-bots',
+  'allowed-bots',
 ] as const;
 
 export type CacheNamespace = (typeof CACHE_NAMESPACES)[number] | 'other';
