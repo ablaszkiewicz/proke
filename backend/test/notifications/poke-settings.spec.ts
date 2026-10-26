@@ -54,8 +54,8 @@ describe('Poke settings', () => {
       mutedTypes: [],
       reviewRequestResolution: 'any_review',
       botMode: 'all',
-      botAccounts: [],
-      humanAccounts: [],
+      botListKind: 'blacklist',
+      botList: [],
       digestEnabled: false,
       digestHour: 9,
     });
@@ -175,8 +175,8 @@ describe('Poke settings', () => {
         mutedTypes: [NotificationType.IssueComment],
         reviewRequestResolution: 'any_review',
         botMode: 'all',
-        botAccounts: [],
-        humanAccounts: [],
+        botListKind: 'blacklist',
+        botList: [],
         digestEnabled: false,
         digestHour: 9,
       });
@@ -194,8 +194,8 @@ describe('Poke settings', () => {
         mutedTypes: [NotificationType.IssueMention],
         reviewRequestResolution: 'strict',
         botMode: 'all',
-        botAccounts: [],
-        humanAccounts: [],
+        botListKind: 'blacklist',
+        botList: [],
         digestEnabled: false,
         digestHour: 9,
       });
@@ -245,26 +245,38 @@ describe('Poke settings', () => {
 
       // when
       const saved = await save(token, {
-        botMode: 'custom',
-        botAccounts: ['release-runner'],
-        humanAccounts: ['stamphog'],
+        botMode: 'none',
+        botListKind: 'whitelist',
+        botList: ['stamphog'],
       });
 
       // then
       expect(saved.status).toEqual(200);
       expect(saved.body).toMatchObject({
-        botMode: 'custom',
-        botAccounts: ['release-runner'],
-        humanAccounts: ['stamphog'],
+        botMode: 'none',
+        botListKind: 'whitelist',
+        botList: ['stamphog'],
       });
 
       // and
       const profile = await readProfile(token);
       expect(profile.body.pokeSettings).toMatchObject({
-        botMode: 'custom',
-        botAccounts: ['release-runner'],
-        humanAccounts: ['stamphog'],
+        botMode: 'none',
+        botListKind: 'whitelist',
+        botList: ['stamphog'],
       });
+    });
+
+    it('keeps the list when only its kind changes', async () => {
+      // given
+      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+      await save(token, { botListKind: 'whitelist', botList: ['stamphog'] });
+
+      // when - the same logins, read the other way round
+      const response = await save(token, { botListKind: 'blacklist' });
+
+      // then
+      expect(response.body).toMatchObject({ botListKind: 'blacklist', botList: ['stamphog'] });
     });
 
     it('spells a login one way, however it was typed', async () => {
@@ -273,30 +285,28 @@ describe('Poke settings', () => {
 
       // when - an @ from the handle, a [bot] from the app's name, a capital from memory
       const response = await save(token, {
-        botAccounts: ['@Release-Runner', 'release-runner', ' deploy-helper '],
-        humanAccounts: ['stamphog[bot]'],
+        botList: ['@Release-Runner', 'release-runner', ' deploy-helper ', 'stamphog[bot]'],
       });
 
       // then - deduplicated, and the same machine whether or not GitHub calls it an app
       expect(response.status).toEqual(200);
-      expect(response.body.botAccounts).toEqual(['release-runner', 'deploy-helper']);
-      expect(response.body.humanAccounts).toEqual(['stamphog']);
+      expect(response.body.botList).toEqual(['release-runner', 'deploy-helper', 'stamphog']);
     });
 
     it('leaves them alone when a client does not mention them', async () => {
       // given
       const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
-      await save(token, { botMode: 'custom', botAccounts: ['release-runner'] });
+      await save(token, { botMode: 'none', botListKind: 'whitelist', botList: ['stamphog'] });
 
       // when - a tab opened before these existed, switching a kind off
       const response = await update(token, [NotificationType.IssueComment]);
 
-      // then - it cannot let bots back in, or empty a list, by not knowing about them
+      // then - it cannot let bots back in, or empty the list, by not knowing about them
       expect(response.body).toMatchObject({
         mutedTypes: [NotificationType.IssueComment],
-        botMode: 'custom',
-        botAccounts: ['release-runner'],
-        humanAccounts: [],
+        botMode: 'none',
+        botListKind: 'whitelist',
+        botList: ['stamphog'],
       });
     });
 
@@ -305,7 +315,7 @@ describe('Poke settings', () => {
       const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
 
       // when
-      const response = await save(token, { botAccounts: ['release runner'] });
+      const response = await save(token, { botList: ['release runner'] });
 
       // then - stored, it would match nobody and look like the feature not working
       expect(response.status).toEqual(400);
@@ -316,15 +326,31 @@ describe('Poke settings', () => {
       const { user, token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
       await bootstrap.models.userModel.updateOne(
         { _id: user.id },
-        { $set: { pokeSettings: { mutedTypes: [], botAccounts: ['@Release-Runner', ''] } } },
+        { $set: { pokeSettings: { mutedTypes: [], botList: ['@Release-Runner', ''] } } },
       );
 
       // when
       const response = await readProfile(token);
 
       // then
-      expect(response.body.pokeSettings.botAccounts).toEqual(['release-runner']);
+      expect(response.body.pokeSettings.botList).toEqual(['release-runner']);
       expect(response.body.pokeSettings.botMode).toBe('all');
+      expect(response.body.pokeSettings.botListKind).toBe('blacklist');
+    });
+
+    it('reads custom, which a tab from before the switch may still save, as no bots', async () => {
+      // given - written between the migration and the deploy that followed it
+      const { user, token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+      await bootstrap.models.userModel.updateOne(
+        { _id: user.id },
+        { $set: { pokeSettings: { mutedTypes: [], botMode: 'custom' } } },
+      );
+
+      // when
+      const response = await readProfile(token);
+
+      // then - custom silenced bots, and so does this
+      expect(response.body.pokeSettings.botMode).toEqual('none');
     });
 
     it('reads a stored mode it does not know as letting every bot through', async () => {
@@ -342,15 +368,18 @@ describe('Poke settings', () => {
       expect(response.body.pokeSettings.botMode).toEqual('all');
     });
 
-    it('refuses a mode it does not know', async () => {
-      // given
-      const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
+    it.each([{ botMode: 'some' }, { botMode: 'custom' }, { botListKind: 'greylist' }])(
+      'refuses a value it does not know: %o',
+      async (body) => {
+        // given
+        const { token } = await bootstrap.utils.authUtils.setupUser({ githubId: '4242' });
 
-      // when
-      const response = await save(token, { botMode: 'some' });
+        // when
+        const response = await save(token, body);
 
-      // then
-      expect(response.status).toEqual(400);
-    });
+        // then
+        expect(response.status).toEqual(400);
+      },
+    );
   });
 });

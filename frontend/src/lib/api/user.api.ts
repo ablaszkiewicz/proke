@@ -22,18 +22,17 @@ export interface PokeSettings {
   /**
    * Which bots can poke. `all`: anything a bot does - a review, a request for one, a merge.
    * `none`: nothing, by the server's own guess at who a bot is - GitHub Apps, and logins ending
-   * in `-bot`. `custom`: nothing either, by that guess corrected with the two lists below. A
-   * bot's comments never poke anybody under any of them. Mirrors the backend's BotMode.
+   * in `-bot`. Either way the list below has the last word about the logins on it, and a bot's
+   * comments never poke anybody unless it is whitelisted. Mirrors the backend's BotMode.
    */
   botMode: BotMode;
   /**
-   * Logins counted as bots though GitHub calls them users - a machine account driven by a
-   * token. Lowercased, with no `@` and no `[bot]`, the way the server stores them. Applied under
-   * `custom` only, and kept under the others.
+   * What `botList` means, under either mode: `whitelist` always pokes, as a person would,
+   * comments included; `blacklist` never does. Mirrors the backend's BotListKind.
    */
-  botAccounts: string[];
-  /** Logins counted as people whatever GitHub or their name says. The same `custom`-only rule. */
-  humanAccounts: string[];
+  botListKind: BotListKind;
+  /** Lowercased, with no `@` and no `[bot]`, the way the server stores them. */
+  botList: string[];
   digestEnabled: boolean;
   /** Nought to twenty-three, read in this browser's timezone. */
   digestHour: number;
@@ -41,11 +40,13 @@ export interface PokeSettings {
 
 export type ReviewRequestResolution = "any_review" | "strict";
 
-export type BotMode = "all" | "none" | "custom";
+export type BotMode = "all" | "none";
+
+export type BotListKind = "whitelist" | "blacklist";
 
 /**
- * Nothing muted, struck through at the first review, bots let through and nobody's guess
- * corrected, no digest. What an untouched account means.
+ * Nothing muted, struck through at the first review, bots let through and nobody listed, no
+ * digest. What an untouched account means.
  *
  * The digest is the one thing off rather than on: nobody is given a new daily message for having
  * signed up.
@@ -54,8 +55,8 @@ export const DEFAULT_POKE_SETTINGS: PokeSettings = {
   mutedTypes: [],
   reviewRequestResolution: "any_review",
   botMode: "all",
-  botAccounts: [],
-  humanAccounts: [],
+  botListKind: "blacklist",
+  botList: [],
   digestEnabled: false,
   digestHour: 9,
 };

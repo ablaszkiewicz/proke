@@ -15,8 +15,8 @@ import { UserNormalized } from '../core/entities/user.interface';
 import { UserSerializer } from '../core/entities/user.serializer';
 
 /**
- * How long "does anybody count this bot as a person" is believed. A minute, so somebody who has
- * just added a bot to their list hears from it within one - and so a bot that comments on every
+ * How long "has anybody whitelisted this bot" is believed. A minute, so somebody who has just
+ * added a bot to their whitelist hears from it within one - and so a bot that comments on every
  * push costs one query a minute rather than one a comment.
  */
 const COUNTED_AS_PERSON_TTL_MS = 60_000;
@@ -92,8 +92,8 @@ export class UserReadService {
   }
 
   /**
-   * Whether anybody at all has said this account is a person to them - and meant it, which is
-   * to say has their bots on `custom`, the one mode their lists count under.
+   * Whether anybody at all has said this account is a person to them, which is to say has it on
+   * a whitelist. A blacklist with the same login on it says the opposite, and does not count.
    *
    * The router's question about a GitHub App that is about to be silenced, asked before it knows
    * who the event reaches: almost always no, and then the talking is dropped where it always
@@ -108,11 +108,11 @@ export class UserReadService {
     }
 
     return this.cache.wrap<boolean>(
-      `user:human-accounts:${normalized}`,
+      `user:whitelisted-bots:${normalized}`,
       COUNTED_AS_PERSON_TTL_MS,
       async () =>
         (await this.userModel
-          .exists({ 'pokeSettings.botMode': 'custom', 'pokeSettings.humanAccounts': normalized })
+          .exists({ 'pokeSettings.botListKind': 'whitelist', 'pokeSettings.botList': normalized })
           .exec()) !== null,
     );
   }
