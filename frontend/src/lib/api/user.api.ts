@@ -20,19 +20,19 @@ export interface PokeSettings {
    */
   reviewRequestResolution: ReviewRequestResolution;
   /**
-   * Which bots can poke. `all`: anything a bot does - a review, a request for one, a merge.
-   * `none`: nothing, by the server's own guess at who a bot is - GitHub Apps, and logins ending
-   * in `-bot`. Either way the list below has the last word about the logins on it, and a bot's
-   * comments never poke anybody unless it is whitelisted. Mirrors the backend's BotMode.
+   * Which bots can poke. `all`: anything a bot does - a review, a request for one, a merge -
+   * except the blocked bots. `none`: nothing, by the server's own guess at who a bot is - GitHub
+   * Apps, and logins ending in `-bot` - except the allowed bots. A bot's comments never poke
+   * anybody unless it is allowed. Mirrors the backend's BotMode.
    */
   botMode: BotMode;
   /**
-   * What `botList` means, under either mode: `whitelist` always pokes, as a person would,
-   * comments included; `blacklist` never does. Mirrors the backend's BotListKind.
+   * Let through under `none`, comments included. Lowercased, with no `@` and no `[bot]`, the way
+   * the server stores them. Kept, unread, under `all`.
    */
-  botListKind: BotListKind;
-  /** Lowercased, with no `@` and no `[bot]`, the way the server stores them. */
-  botList: string[];
+  allowedBots: string[];
+  /** Kept out under `all`, even ones that look human. Kept, unread, under `none`. */
+  blockedBots: string[];
   digestEnabled: boolean;
   /** Nought to twenty-three, read in this browser's timezone. */
   digestHour: number;
@@ -41,8 +41,6 @@ export interface PokeSettings {
 export type ReviewRequestResolution = "any_review" | "strict";
 
 export type BotMode = "all" | "none";
-
-export type BotListKind = "whitelist" | "blacklist";
 
 /**
  * Nothing muted, struck through at the first review, bots let through and nobody listed, no
@@ -55,8 +53,8 @@ export const DEFAULT_POKE_SETTINGS: PokeSettings = {
   mutedTypes: [],
   reviewRequestResolution: "any_review",
   botMode: "all",
-  botListKind: "blacklist",
-  botList: [],
+  allowedBots: [],
+  blockedBots: [],
   digestEnabled: false,
   digestHour: 9,
 };

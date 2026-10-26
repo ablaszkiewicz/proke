@@ -5,7 +5,6 @@ import type { NotificationType } from "../api/connections.api";
 import {
   DEFAULT_POKE_SETTINGS,
   PokeSettingsApi,
-  type BotListKind,
   type BotMode,
   type PokeSettings,
   type ReviewRequestResolution,
@@ -56,12 +55,12 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
     setReviewRequestResolution: (resolution: ReviewRequestResolution) => ({
       resolution,
     }),
-    /** Which bots can poke: all or none. Same timing as a flip. */
+    /** Which bots can poke: all or none. Same timing as a flip. Both lists stay as they are. */
     setBotMode: (mode: BotMode) => ({ mode }),
-    /** Whether the list is a whitelist or a blacklist. The logins on it stay. */
-    setBotListKind: (kind: BotListKind) => ({ kind }),
-    /** The logins on the list, whole. */
-    setBotList: (logins: string[]) => ({ logins }),
+    /** The bots let through with bots off, whole. */
+    setAllowedBots: (logins: string[]) => ({ logins }),
+    /** The bots kept out with every other bot let in, whole. */
+    setBlockedBots: (logins: string[]) => ({ logins }),
     /** Turn the daily digest on or off. Same timing as a flip. */
     setDigestEnabled: (enabled: boolean) => ({ enabled }),
     /** Choose the hour it arrives, in this browser's timezone. */
@@ -132,8 +131,8 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
         toggleType: () => null,
         setReviewRequestResolution: () => null,
         setBotMode: () => null,
-        setBotListKind: () => null,
-        setBotList: () => null,
+        setAllowedBots: () => null,
+        setBlockedBots: () => null,
         setDigestEnabled: () => null,
         setDigestHour: () => null,
         dismissNotice: () => null,
@@ -188,13 +187,13 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       (s) => [s.settings],
       (settings: PokeSettings): BotMode => settings.botMode,
     ],
-    botListKind: [
+    allowedBots: [
       (s) => [s.settings],
-      (settings: PokeSettings): BotListKind => settings.botListKind,
+      (settings: PokeSettings): string[] => settings.allowedBots,
     ],
-    botList: [
+    blockedBots: [
       (s) => [s.settings],
-      (settings: PokeSettings): string[] => settings.botList,
+      (settings: PokeSettings): string[] => settings.blockedBots,
     ],
     digestEnabled: [
       (s) => [s.settings],
@@ -238,14 +237,14 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       actions.edit(next);
       actions.saveSettings({ settings: next });
     },
-    setBotListKind: ({ kind }) => {
-      const next: PokeSettings = { ...values.settings, botListKind: kind };
+    setAllowedBots: ({ logins }) => {
+      const next: PokeSettings = { ...values.settings, allowedBots: logins };
 
       actions.edit(next);
       actions.saveSettings({ settings: next });
     },
-    setBotList: ({ logins }) => {
-      const next: PokeSettings = { ...values.settings, botList: logins };
+    setBlockedBots: ({ logins }) => {
+      const next: PokeSettings = { ...values.settings, blockedBots: logins };
 
       actions.edit(next);
       actions.saveSettings({ settings: next });

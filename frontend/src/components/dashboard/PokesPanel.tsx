@@ -15,7 +15,7 @@ import { ScrollFade } from "@/components/ui/ScrollFade";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type { NotificationType } from "@/lib/api/connections.api";
-import type { BotListKind, BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
+import type { BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
 import { cn } from "@/lib/utils";
 import { useId, useRef, useState, type RefObject } from "react";
 
@@ -32,12 +32,12 @@ export interface PokesPanelProps {
   /** Which bots can proke you: every one, or none. */
   botMode: BotMode;
   onSetBotMode: (mode: BotMode) => void;
-  /** Whether the list below is let through or kept out, under either mode. */
-  botListKind: BotListKind;
-  onSetBotListKind: (kind: BotListKind) => void;
-  /** The logins on it. */
-  botList: string[];
-  onSetBotList: (logins: string[]) => void;
+  /** The exceptions to "no bots", let through. */
+  allowedBots: string[];
+  onSetAllowedBots: (logins: string[]) => void;
+  /** The exceptions to "all bots", kept out. */
+  blockedBots: string[];
+  onSetBlockedBots: (logins: string[]) => void;
   /** Whether the daily list of what is still waiting arrives, and at what hour. */
   digestEnabled: boolean;
   digestHour: number;
@@ -84,9 +84,9 @@ export interface PokesPanelProps {
  *
  * One row beside the digest, and for the digest's reason: it is not a kind, so it has no card
  * for the window and no place in the count. It says which of two answers you have picked -
- * every bot, or none - and how many are on your list, and opens a dialog to change either. The
- * list lives in the dialog rather than on the panel: most people never need one, and the ones
- * who do are the ones who went looking.
+ * every bot, or none - and how many exceptions you have made to it, and opens a dialog to change
+ * either. The exceptions live in the dialog rather than on the panel: most people never need
+ * one, and the ones who do are the ones who went looking.
  */
 export function PokesPanel({
   mutedTypes,
@@ -95,10 +95,10 @@ export function PokesPanel({
   onSetReviewRequestResolution,
   botMode,
   onSetBotMode,
-  botListKind,
-  onSetBotListKind,
-  botList,
-  onSetBotList,
+  allowedBots,
+  onSetAllowedBots,
+  blockedBots,
+  onSetBlockedBots,
   digestEnabled,
   digestHour,
   onSetDigestEnabled,
@@ -231,11 +231,11 @@ export function PokesPanel({
         <div className="-mx-2">
           <BotsRow
             mode={botMode}
-            listKind={botListKind}
-            list={botList}
+            allowed={allowedBots}
+            blocked={blockedBots}
             onSetMode={onSetBotMode}
-            onSetListKind={onSetBotListKind}
-            onSetList={onSetBotList}
+            onSetAllowed={onSetAllowedBots}
+            onSetBlocked={onSetBlockedBots}
           />
           <DigestRow
             enabled={digestEnabled}
@@ -441,49 +441,38 @@ const CHEVRON_RIGHT =
   "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z";
 
 /**
- * The two answers to "which bots can proke you", in the panel's words. `title` is what the
- * toggle and the row say; `detail` is the line under the toggle saying what it means.
+ * The two answers to "which bots can proke you", in the panel's words, and the exceptions each
+ * one takes. `title` is what the toggle and the row say; `detail` is the line under the toggle.
+ * `field`, `fieldDetail` and `count` are the list that goes with the answer - let through under
+ * one, kept out under the other - and what the row calls the logins on it.
  */
-const BOT_MODE_OPTIONS: readonly SegmentOption<BotMode>[] = [
+const BOT_MODE_OPTIONS: readonly (SegmentOption<BotMode> & {
+  detail: string;
+  field: string;
+  fieldDetail: string;
+  count: string;
+})[] = [
   {
     value: "all",
     title: "All bots",
-    detail: "Reviews, review requests and merges from any bot.",
+    detail: "Reviews, review requests and merges from any bot. Never their comments or mentions.",
+    field: "Blocked bots",
+    fieldDetail: "Never prokes you, even if it looks human.",
+    count: "blocked",
   },
   {
     value: "none",
     title: "No bots",
     detail: "Nothing from GitHub Apps, or logins ending in -bot.",
-  },
-];
-
-/**
- * The two things the list can be, in the panel's words. `field` and `count` are what the input
- * and the row call the logins on it, which say what the list does where the kind's name does not.
- */
-const BOT_LIST_OPTIONS: readonly (SegmentOption<BotListKind> & {
-  field: string;
-  count: string;
-})[] = [
-  {
-    value: "whitelist",
-    title: "Whitelist",
-    detail: "Always prokes you, comments included, the way a person would.",
     field: "Allowed bots",
+    fieldDetail: "Always prokes you, comments and mentions included, the way a person would.",
     count: "allowed",
   },
-  {
-    value: "blacklist",
-    title: "Blacklist",
-    detail: "Never prokes you, even if it looks human.",
-    field: "Blocked bots",
-    count: "blocked",
-  },
 ];
 
 /**
- * The bots: which of the two answers is picked, how many are listed, and the way into changing
- * either.
+ * The bots: which of the two answers is picked, how many exceptions it has, and the way into
+ * changing either.
  *
  * Drawn like the digest beside it - icon, name, a line saying what it is about - with the pick
  * where the digest has its tick and a chevron saying there is more behind it, since an answer
@@ -491,23 +480,23 @@ const BOT_LIST_OPTIONS: readonly (SegmentOption<BotListKind> & {
  */
 function BotsRow({
   mode,
-  listKind,
-  list,
+  allowed,
+  blocked,
   onSetMode,
-  onSetListKind,
-  onSetList,
+  onSetAllowed,
+  onSetBlocked,
 }: {
   mode: BotMode;
-  listKind: BotListKind;
-  list: string[];
+  allowed: string[];
+  blocked: string[];
   onSetMode: (mode: BotMode) => void;
-  onSetListKind: (kind: BotListKind) => void;
-  onSetList: (logins: string[]) => void;
+  onSetAllowed: (logins: string[]) => void;
+  onSetBlocked: (logins: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
-  const kind =
-    BOT_LIST_OPTIONS.find((option) => option.value === listKind) ?? BOT_LIST_OPTIONS[0];
+  // Only the list the answer reads: the other is kept for coming back to, and does nothing now.
+  const exceptions = mode === "none" ? allowed : blocked;
 
   return (
     <>
@@ -524,7 +513,9 @@ function BotsRow({
           path={ROBOT}
           className={cn(
             "shrink-0 transition-colors",
-            mode === "all" && list.length === 0 ? "text-muted-foreground" : "text-foreground"
+            mode === "all" && exceptions.length === 0
+              ? "text-muted-foreground"
+              : "text-foreground"
           )}
         />
         <span className="flex-1">
@@ -535,7 +526,7 @@ function BotsRow({
         </span>
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
           {current.title}
-          {list.length > 0 ? ` · ${list.length} ${kind.count}` : null}
+          {exceptions.length > 0 ? ` · ${exceptions.length} ${current.count}` : null}
           <Octicon path={CHEVRON_RIGHT} className="size-3.5 shrink-0" />
         </span>
       </button>
@@ -544,56 +535,53 @@ function BotsRow({
         open={open}
         onClose={() => setOpen(false)}
         mode={mode}
-        listKind={listKind}
-        list={list}
+        allowed={allowed}
+        blocked={blocked}
         onSetMode={onSetMode}
-        onSetListKind={onSetListKind}
-        onSetList={onSetList}
+        onSetAllowed={onSetAllowed}
+        onSetBlocked={onSetBlocked}
       />
     </>
   );
 }
 
 /**
- * Which bots can proke you, and the exceptions: two toggles and the one list they are about.
+ * Which bots can proke you, and the exceptions: one toggle, and the one list that goes with
+ * where it is.
  *
- * The first says what happens to every bot; the second says whether the list is let through or
- * kept out; the list is the logins it applies to. Any of the four pairings means something - no
- * bots but these, every bot but these, no bots and these too, every bot and these ones' comments
- * as well - so neither toggle hides or locks the other.
+ * All bots takes a list of the bots to keep out; No bots takes a list of the bots to let in.
+ * Each answer keeps its own list, so switching never turns the bots somebody let in into the
+ * bots they keep out - the other list is only hidden, and is there again on the way back.
  *
  * Everything saves as it is chosen, like every switch on the panel - there is nothing to submit,
- * and Done only closes. Switching between whitelist and blacklist keeps the logins: it is the
- * same accounts, read the other way round.
+ * and Done only closes.
  */
 function BotsDialog({
   open,
   onClose,
   mode,
-  listKind,
-  list,
+  allowed,
+  blocked,
   onSetMode,
-  onSetListKind,
-  onSetList,
+  onSetAllowed,
+  onSetBlocked,
 }: {
   open: boolean;
   onClose: () => void;
   mode: BotMode;
-  listKind: BotListKind;
-  list: string[];
+  allowed: string[];
+  blocked: string[];
   onSetMode: (mode: BotMode) => void;
-  onSetListKind: (kind: BotListKind) => void;
-  onSetList: (logins: string[]) => void;
+  onSetAllowed: (logins: string[]) => void;
+  onSetBlocked: (logins: string[]) => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
   const listId = useId();
   // Focus lands on the answer already picked, which is the first thing anybody comes to change.
   const pickedRef = useRef<HTMLButtonElement>(null);
-  const currentMode =
-    BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
-  const currentKind =
-    BOT_LIST_OPTIONS.find((option) => option.value === listKind) ?? BOT_LIST_OPTIONS[0];
+  const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
+  const letIn = mode === "none";
 
   return (
     <Modal
@@ -607,8 +595,7 @@ function BotsDialog({
         Bots
       </h2>
       <p id={descriptionId} className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        Which bots can proke you. Their comments and mentions never do, unless you whitelist
-        them.
+        Which bots can proke you, and the exceptions.
       </p>
 
       <Segmented
@@ -619,25 +606,21 @@ function BotsDialog({
         onPick={onSetMode}
         className="mt-4"
       />
-      <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
-        {currentMode.detail}
-      </p>
+      <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">{current.detail}</p>
 
-      <div className="mt-4 border-t pt-4">
-        <Segmented
-          label="What the list does"
-          options={BOT_LIST_OPTIONS}
-          value={listKind}
-          onPick={onSetListKind}
-        />
-
+      <div className="mt-4 border-t pt-0.5">
+        {/*
+          Keyed on the answer, so switching swaps one list for the other rather than handing
+          whatever was half-typed into one field to the other list.
+        */}
         <AccountsField
+          key={mode}
           id={listId}
-          label={currentKind.field}
-          detail={currentKind.detail}
-          logins={list}
-          removeLabel={(login) => `Take ${login} off the ${currentKind.title.toLowerCase()}`}
-          onChange={onSetList}
+          label={current.field}
+          detail={current.fieldDetail}
+          logins={letIn ? allowed : blocked}
+          removeLabel={(login) => (letIn ? `Stop allowing ${login}` : `Stop blocking ${login}`)}
+          onChange={letIn ? onSetAllowed : onSetBlocked}
         />
       </div>
 
@@ -653,7 +636,6 @@ function BotsDialog({
 interface SegmentOption<T extends string> {
   value: T;
   title: string;
-  detail: string;
 }
 
 /**
