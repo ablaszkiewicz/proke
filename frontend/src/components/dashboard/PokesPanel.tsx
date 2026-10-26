@@ -15,7 +15,7 @@ import { ScrollFade } from "@/components/ui/ScrollFade";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type { NotificationType } from "@/lib/api/connections.api";
-import type { BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
+import type { BotListKind, BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
 import { cn } from "@/lib/utils";
 import { useId, useRef, useState, type RefObject } from "react";
 
@@ -29,14 +29,15 @@ export interface PokesPanelProps {
   /** When a review request is struck through once somebody else reviews. */
   reviewRequestResolution: ReviewRequestResolution;
   onSetReviewRequestResolution: (resolution: ReviewRequestResolution) => void;
-  /** Which bots can proke you: every one, none, or none by your own idea of who is one. */
+  /** Which bots can proke you: every one, or none. */
   botMode: BotMode;
   onSetBotMode: (mode: BotMode) => void;
-  /** The corrections to who counts as a bot that `custom` goes by, either way round. */
-  botAccounts: string[];
-  humanAccounts: string[];
-  /** Both lists at once, since moving a login from one to the other changes both. */
-  onSetBotLists: (botAccounts: string[], humanAccounts: string[]) => void;
+  /** Whether the list below is let through or kept out, under either mode. */
+  botListKind: BotListKind;
+  onSetBotListKind: (kind: BotListKind) => void;
+  /** The logins on it. */
+  botList: string[];
+  onSetBotList: (logins: string[]) => void;
   /** Whether the daily list of what is still waiting arrives, and at what hour. */
   digestEnabled: boolean;
   digestHour: number;
@@ -82,9 +83,9 @@ export interface PokesPanelProps {
  * ## Bots, under the reel
  *
  * One row beside the digest, and for the digest's reason: it is not a kind, so it has no card
- * for the window and no place in the count. It says which of three answers you have picked -
- * every bot, none, or your own rules - and opens a dialog to change it, where the rules live
- * behind the third answer rather than on the panel. Most people never need them, and the ones
+ * for the window and no place in the count. It says which of two answers you have picked -
+ * every bot, or none - and how many are on your list, and opens a dialog to change either. The
+ * list lives in the dialog rather than on the panel: most people never need one, and the ones
  * who do are the ones who went looking.
  */
 export function PokesPanel({
@@ -94,9 +95,10 @@ export function PokesPanel({
   onSetReviewRequestResolution,
   botMode,
   onSetBotMode,
-  botAccounts,
-  humanAccounts,
-  onSetBotLists,
+  botListKind,
+  onSetBotListKind,
+  botList,
+  onSetBotList,
   digestEnabled,
   digestHour,
   onSetDigestEnabled,
@@ -229,10 +231,11 @@ export function PokesPanel({
         <div className="-mx-2">
           <BotsRow
             mode={botMode}
-            botAccounts={botAccounts}
-            humanAccounts={humanAccounts}
+            listKind={botListKind}
+            list={botList}
             onSetMode={onSetBotMode}
-            onSetLists={onSetBotLists}
+            onSetListKind={onSetBotListKind}
+            onSetList={onSetBotList}
           />
           <DigestRow
             enabled={digestEnabled}
@@ -438,61 +441,73 @@ const CHEVRON_RIGHT =
   "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z";
 
 /**
- * The three answers to "which bots can proke you", in the panel's words.
- *
- * `short` is what the row says it is set to; `title` and `detail` are the choice as the dialog
- * offers it. The third is the only one with anything behind it - the two lists - and its line
- * says what it shares with the second, because "configure yourself" alone does not say that
- * the thing being configured is a silence.
+ * The two answers to "which bots can proke you", in the panel's words. `title` is what the
+ * toggle and the row say; `detail` is the line under the toggle saying what it means.
  */
-const BOT_MODE_OPTIONS: readonly {
-  value: BotMode;
-  short: string;
-  title: string;
-  detail: string;
-}[] = [
+const BOT_MODE_OPTIONS: readonly SegmentOption<BotMode>[] = [
   {
     value: "all",
-    short: "All bots",
     title: "All bots",
     detail: "Reviews, review requests and merges from any bot.",
   },
   {
     value: "none",
-    short: "No bots",
     title: "No bots",
     detail: "Nothing from GitHub Apps, or logins ending in -bot.",
-  },
-  {
-    value: "custom",
-    short: "Custom",
-    title: "Configure yourself",
-    detail: "No bots either, but you decide who counts as one.",
   },
 ];
 
 /**
- * The bots: which of the three answers is picked, and the way into changing it.
+ * The two things the list can be, in the panel's words. `field` and `count` are what the input
+ * and the row call the logins on it, which say what the list does where the kind's name does not.
+ */
+const BOT_LIST_OPTIONS: readonly (SegmentOption<BotListKind> & {
+  field: string;
+  count: string;
+})[] = [
+  {
+    value: "whitelist",
+    title: "Whitelist",
+    detail: "Always prokes you, comments included, the way a person would.",
+    field: "Allowed bots",
+    count: "allowed",
+  },
+  {
+    value: "blacklist",
+    title: "Blacklist",
+    detail: "Never prokes you, even if it looks human.",
+    field: "Blocked bots",
+    count: "blocked",
+  },
+];
+
+/**
+ * The bots: which of the two answers is picked, how many are listed, and the way into changing
+ * either.
  *
  * Drawn like the digest beside it - icon, name, a line saying what it is about - with the pick
- * where the digest has its tick and a chevron saying there is more behind it, since three
- * answers and two lists are not a thing a tick can say.
+ * where the digest has its tick and a chevron saying there is more behind it, since an answer
+ * and a list are not a thing a tick can say.
  */
 function BotsRow({
   mode,
-  botAccounts,
-  humanAccounts,
+  listKind,
+  list,
   onSetMode,
-  onSetLists,
+  onSetListKind,
+  onSetList,
 }: {
   mode: BotMode;
-  botAccounts: string[];
-  humanAccounts: string[];
+  listKind: BotListKind;
+  list: string[];
   onSetMode: (mode: BotMode) => void;
-  onSetLists: (botAccounts: string[], humanAccounts: string[]) => void;
+  onSetListKind: (kind: BotListKind) => void;
+  onSetList: (logins: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
+  const kind =
+    BOT_LIST_OPTIONS.find((option) => option.value === listKind) ?? BOT_LIST_OPTIONS[0];
 
   return (
     <>
@@ -509,17 +524,18 @@ function BotsRow({
           path={ROBOT}
           className={cn(
             "shrink-0 transition-colors",
-            mode === "all" ? "text-muted-foreground" : "text-foreground"
+            mode === "all" && list.length === 0 ? "text-muted-foreground" : "text-foreground"
           )}
         />
         <span className="flex-1">
           Bots
           <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-            Which bots can proke you, and who counts as one.
+            Which bots can proke you, and which are the exceptions.
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-          {current.short}
+          {current.title}
+          {list.length > 0 ? ` · ${list.length} ${kind.count}` : null}
           <Octicon path={CHEVRON_RIGHT} className="size-3.5 shrink-0" />
         </span>
       </button>
@@ -528,50 +544,56 @@ function BotsRow({
         open={open}
         onClose={() => setOpen(false)}
         mode={mode}
-        botAccounts={botAccounts}
-        humanAccounts={humanAccounts}
+        listKind={listKind}
+        list={list}
         onSetMode={onSetMode}
-        onSetLists={onSetLists}
+        onSetListKind={onSetListKind}
+        onSetList={onSetList}
       />
     </>
   );
 }
 
 /**
- * Which bots can proke you, picked from three, with the rules behind the third.
+ * Which bots can proke you, and the exceptions: two toggles and the one list they are about.
  *
- * Everything saves as it is chosen, like every switch on the panel - there is nothing to
- * submit, and Done only closes. The lists stay on the account when another answer is picked,
- * only hidden and not applied, so somebody who tries "No bots" and comes back finds their
- * rules where they left them.
+ * The first says what happens to every bot; the second says whether the list is let through or
+ * kept out; the list is the logins it applies to. Any of the four pairings means something - no
+ * bots but these, every bot but these, no bots and these too, every bot and these ones' comments
+ * as well - so neither toggle hides or locks the other.
  *
- * A login is only ever on one list. Putting it on one takes it off the other, so moving an
- * account across is one step, and the server never has to decide what both at once meant.
+ * Everything saves as it is chosen, like every switch on the panel - there is nothing to submit,
+ * and Done only closes. Switching between whitelist and blacklist keeps the logins: it is the
+ * same accounts, read the other way round.
  */
 function BotsDialog({
   open,
   onClose,
   mode,
-  botAccounts,
-  humanAccounts,
+  listKind,
+  list,
   onSetMode,
-  onSetLists,
+  onSetListKind,
+  onSetList,
 }: {
   open: boolean;
   onClose: () => void;
   mode: BotMode;
-  botAccounts: string[];
-  humanAccounts: string[];
+  listKind: BotListKind;
+  list: string[];
   onSetMode: (mode: BotMode) => void;
-  onSetLists: (botAccounts: string[], humanAccounts: string[]) => void;
+  onSetListKind: (kind: BotListKind) => void;
+  onSetList: (logins: string[]) => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const groupName = useId();
-  const botsId = useId();
-  const peopleId = useId();
-  // Focus lands on the answer already picked, which is where arrow keys move from.
-  const pickedRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  // Focus lands on the answer already picked, which is the first thing anybody comes to change.
+  const pickedRef = useRef<HTMLButtonElement>(null);
+  const currentMode =
+    BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
+  const currentKind =
+    BOT_LIST_OPTIONS.find((option) => option.value === listKind) ?? BOT_LIST_OPTIONS[0];
 
   return (
     <Modal
@@ -585,60 +607,39 @@ function BotsDialog({
         Bots
       </h2>
       <p id={descriptionId} className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        Which bots can proke you. Their comments and mentions never do, whichever you pick.
+        Which bots can proke you. Their comments and mentions never do, unless you whitelist
+        them.
       </p>
 
-      <fieldset className="mt-4 space-y-1.5">
-        <legend className="sr-only">Which bots can proke you</legend>
-        {BOT_MODE_OPTIONS.map((option) => (
-          <BotModeOption
-            key={option.value}
-            name={groupName}
-            title={option.title}
-            detail={option.detail}
-            checked={mode === option.value}
-            inputRef={mode === option.value ? pickedRef : undefined}
-            onSelect={() => onSetMode(option.value)}
-          />
-        ))}
-      </fieldset>
+      <Segmented
+        label="Which bots can proke you"
+        options={BOT_MODE_OPTIONS}
+        value={mode}
+        pickedRef={pickedRef}
+        onPick={onSetMode}
+        className="mt-4"
+      />
+      <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
+        {currentMode.detail}
+      </p>
 
-      {mode === "custom" ? (
-        <div className="mt-4 border-t pt-3">
-          <p className="text-[12px] leading-snug text-muted-foreground">
-            GitHub Apps, and logins ending in <span className="font-mono">-bot</span>, count
-            already. Correct that here, either way round.
-          </p>
+      <div className="mt-4 border-t pt-4">
+        <Segmented
+          label="What the list does"
+          options={BOT_LIST_OPTIONS}
+          value={listKind}
+          onPick={onSetListKind}
+        />
 
-          <AccountsField
-            id={botsId}
-            label="Also bots"
-            detail="Accounts that post through a token and look human."
-            logins={botAccounts}
-            removeLabel={(login) => `Stop counting ${login} as a bot`}
-            onChange={(next) =>
-              onSetLists(
-                next,
-                humanAccounts.filter((login) => !next.includes(login))
-              )
-            }
-          />
-
-          <AccountsField
-            id={peopleId}
-            label="Always people"
-            detail="Never counted as a bot, whatever their name or GitHub says."
-            logins={humanAccounts}
-            removeLabel={(login) => `Stop counting ${login} as a person`}
-            onChange={(next) =>
-              onSetLists(
-                botAccounts.filter((login) => !next.includes(login)),
-                next
-              )
-            }
-          />
-        </div>
-      ) : null}
+        <AccountsField
+          id={listId}
+          label={currentKind.field}
+          detail={currentKind.detail}
+          logins={list}
+          removeLabel={(login) => `Take ${login} off the ${currentKind.title.toLowerCase()}`}
+          onChange={onSetList}
+        />
+      </div>
 
       <div className="mt-5 flex justify-end">
         <Button size="sm" onClick={onClose}>
@@ -649,63 +650,63 @@ function BotsDialog({
   );
 }
 
-/**
- * One of the three answers: a real radio button, hidden, inside a card that is the whole target.
- * Native so the arrow keys move between them and a screen reader hears one group of three.
- */
-function BotModeOption({
-  name,
-  title,
-  detail,
-  checked,
-  inputRef,
-  onSelect,
-}: {
-  name: string;
+interface SegmentOption<T extends string> {
+  value: T;
   title: string;
   detail: string;
-  checked: boolean;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  onSelect: () => void;
+}
+
+/**
+ * Two or more answers side by side, one of them picked - the inbox's time window, at the width
+ * of the dialog.
+ *
+ * `aria-pressed` buttons in a labelled group, the way the inbox's are, rather than radios: each
+ * is a press that takes effect at once, and there is nothing to submit.
+ */
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  pickedRef,
+  onPick,
+  className,
+}: {
+  label: string;
+  options: readonly SegmentOption<T>[];
+  value: T;
+  pickedRef?: RefObject<HTMLButtonElement | null>;
+  onPick: (value: T) => void;
+  className?: string;
 }) {
   return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors",
-        "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2",
-        checked ? "border-foreground/25 bg-accent" : "border-transparent hover:bg-accent/50"
-      )}
-    >
-      <input
-        ref={inputRef}
-        type="radio"
-        name={name}
-        checked={checked}
-        onChange={onSelect}
-        className="sr-only"
-      />
-      <span
-        aria-hidden="true"
-        className={cn(
-          "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors",
-          checked ? "border-foreground" : "border-muted-foreground/40"
-        )}
-      >
-        {checked ? <span className="size-1.5 rounded-full bg-foreground" /> : null}
-      </span>
-      <span className="flex-1">
-        <span className="block text-[13px] font-medium leading-snug text-foreground">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
-          {detail}
-        </span>
-      </span>
-    </label>
+    <div role="group" aria-label={label} className={cn("flex gap-1", className)}>
+      {options.map((option) => {
+        const selected = option.value === value;
+
+        return (
+          <button
+            key={option.value}
+            ref={selected ? pickedRef : undefined}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onPick(option.value)}
+            className={cn(
+              "flex-1 rounded-md py-1.5 text-center text-[12px] font-medium transition-colors",
+              "focus-visible:outline-2 focus-visible:-outline-offset-2",
+              selected
+                ? "bg-primary text-primary-foreground"
+                : "bg-foreground/10 text-muted-foreground hover:bg-foreground/20 hover:text-foreground"
+            )}
+          >
+            {option.title}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-/** One of the two lists: what it is, what being on it does, and the logins on it. */
+/** The list: what it is, what being on it does, and the logins on it. */
 function AccountsField({
   id,
   label,

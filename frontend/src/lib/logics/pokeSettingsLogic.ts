@@ -5,6 +5,7 @@ import type { NotificationType } from "../api/connections.api";
 import {
   DEFAULT_POKE_SETTINGS,
   PokeSettingsApi,
+  type BotListKind,
   type BotMode,
   type PokeSettings,
   type ReviewRequestResolution,
@@ -55,16 +56,12 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
     setReviewRequestResolution: (resolution: ReviewRequestResolution) => ({
       resolution,
     }),
-    /** Which bots can poke: all, none, or your own rules. Same timing as a flip. */
+    /** Which bots can poke: all or none. Same timing as a flip. */
     setBotMode: (mode: BotMode) => ({ mode }),
-    /**
-     * Both lists of who counts as what, together: moving a login from one to the other is one
-     * edit, and two saves would let the first land with the login on both.
-     */
-    setBotLists: (botAccounts: string[], humanAccounts: string[]) => ({
-      botAccounts,
-      humanAccounts,
-    }),
+    /** Whether the list is a whitelist or a blacklist. The logins on it stay. */
+    setBotListKind: (kind: BotListKind) => ({ kind }),
+    /** The logins on the list, whole. */
+    setBotList: (logins: string[]) => ({ logins }),
     /** Turn the daily digest on or off. Same timing as a flip. */
     setDigestEnabled: (enabled: boolean) => ({ enabled }),
     /** Choose the hour it arrives, in this browser's timezone. */
@@ -135,7 +132,8 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
         toggleType: () => null,
         setReviewRequestResolution: () => null,
         setBotMode: () => null,
-        setBotLists: () => null,
+        setBotListKind: () => null,
+        setBotList: () => null,
         setDigestEnabled: () => null,
         setDigestHour: () => null,
         dismissNotice: () => null,
@@ -159,11 +157,17 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       ): PokeSettings | null =>
         savedByServer ?? userData?.pokeSettings ?? null,
     ],
-    /** The set the panel draws. Complete, never partial. */
+    /**
+     * The set the panel draws. Complete, never partial - including against a server from before
+     * a field existed, which leaves it out: the frontend and the backend deploy separately, so
+     * for a few minutes either may be ahead of the other.
+     */
     settings: [
       (s) => [s.edited, s.saved],
-      (edited: PokeSettings | null, saved: PokeSettings | null): PokeSettings =>
-        edited ?? saved ?? DEFAULT_POKE_SETTINGS,
+      (edited: PokeSettings | null, saved: PokeSettings | null): PokeSettings => ({
+        ...DEFAULT_POKE_SETTINGS,
+        ...(edited ?? saved),
+      }),
     ],
     /**
      * Whether the account has been read. Until it has, the panel is drawing the defaults - which
@@ -184,13 +188,13 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       (s) => [s.settings],
       (settings: PokeSettings): BotMode => settings.botMode,
     ],
-    botAccounts: [
+    botListKind: [
       (s) => [s.settings],
-      (settings: PokeSettings): string[] => settings.botAccounts,
+      (settings: PokeSettings): BotListKind => settings.botListKind,
     ],
-    humanAccounts: [
+    botList: [
       (s) => [s.settings],
-      (settings: PokeSettings): string[] => settings.humanAccounts,
+      (settings: PokeSettings): string[] => settings.botList,
     ],
     digestEnabled: [
       (s) => [s.settings],
@@ -234,8 +238,14 @@ export const pokeSettingsLogic = kea<pokeSettingsLogicType>([
       actions.edit(next);
       actions.saveSettings({ settings: next });
     },
-    setBotLists: ({ botAccounts, humanAccounts }) => {
-      const next: PokeSettings = { ...values.settings, botAccounts, humanAccounts };
+    setBotListKind: ({ kind }) => {
+      const next: PokeSettings = { ...values.settings, botListKind: kind };
+
+      actions.edit(next);
+      actions.saveSettings({ settings: next });
+    },
+    setBotList: ({ logins }) => {
+      const next: PokeSettings = { ...values.settings, botList: logins };
 
       actions.edit(next);
       actions.saveSettings({ settings: next });
