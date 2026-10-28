@@ -29,7 +29,7 @@ import {
   buildPokeMessage,
   buildTestMessage,
   buildWelcomeMessage,
-  DigestPullRequest,
+  DigestPullRequests,
 } from './slack-message';
 
 /**
@@ -210,7 +210,7 @@ export class SlackNotificationDeliveryService {
    */
   public async deliverDigest(
     userId: string,
-    pullRequests: DigestPullRequest[],
+    pullRequests: DigestPullRequests,
     now: Date,
   ): Promise<SlackDeliveryOutcome> {
     const inboxUrl = `${getEnvConfig().app.url}/app/inbox`;

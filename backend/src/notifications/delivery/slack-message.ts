@@ -520,6 +520,19 @@ export interface DigestPullRequest {
   changedFiles: number;
 }
 
+/**
+ * The digest's rows, under the two headings it has, each oldest first.
+ *
+ * Who counts as a teammate is the inbox's rule, settings and all - see `groupWaitingOnYou` - so
+ * somebody who switched "your team" off there gets everything under `others` here too.
+ */
+export interface DigestPullRequests {
+  /** Written by somebody the reader shares a GitHub team with. Listed first. */
+  team: DigestPullRequest[];
+  /** Everything else waiting on them, bots included. */
+  others: DigestPullRequest[];
+}
+
 /** Past twenty, a count of what is left is more use than more rows. */
 const MAX_DIGEST_ROWS = 20;
 
@@ -529,7 +542,7 @@ const MAX_SECTION_CHARS = 2800;
 const MAX_DIGEST_TITLE_CHARS = 80;
 
 /**
- * The day's list of what is waiting on somebody, oldest first.
+ * The day's list of what is waiting on somebody: their team's first, then everyone else's.
  *
  * No avatars: Slack fetches every image while posting and rejects the whole message if one
  * fails, and a digest would carry one per row.
@@ -538,21 +551,44 @@ const MAX_DIGEST_TITLE_CHARS = 80;
  * the one line each leave out.
  */
 export function buildDigestMessage(
-  pullRequests: DigestPullRequest[],
+  pullRequests: DigestPullRequests,
   now: Date,
   inboxUrl: string,
 ): SlackMessage {
-  const shown = pullRequests.slice(0, MAX_DIGEST_ROWS);
-  const hidden = pullRequests.length - shown.length;
+  const all = [...pullRequests.team, ...pullRequests.others];
+  // The twenty go to the team first, so a long tail of strangers never pushes a teammate out.
+  const shownTeam = pullRequests.team.slice(0, MAX_DIGEST_ROWS);
+  const shownOthers = pullRequests.others.slice(0, MAX_DIGEST_ROWS - shownTeam.length);
+  const hidden = all.length - shownTeam.length - shownOthers.length;
   const heading =
-    pullRequests.length === 1
+    all.length === 1
       ? '*1 pull request is waiting on your review.*'
-      : `*${pullRequests.length} pull requests are waiting on your review.*`;
+      : `*${all.length} pull requests are waiting on your review.*`;
 
   const blocks: unknown[] = [{ type: 'section', text: { type: 'mrkdwn', text: heading } }];
 
-  for (const chunk of chunkLines(shown.map((pullRequest) => digestLine(pullRequest, now)))) {
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+  // Headings only where there is a team to set apart: one list under "Everyone else" says no
+  // more than the same list with no heading at all.
+  const groups: { label?: string; rows: DigestPullRequest[] }[] =
+    shownTeam.length === 0
+      ? [{ rows: shownOthers }]
+      : [
+          { label: 'Your team', rows: shownTeam },
+          { label: 'Everyone else', rows: shownOthers },
+        ];
+
+  for (const { label, rows } of groups) {
+    if (rows.length === 0) {
+      continue;
+    }
+
+    // The label rides in the first chunk rather than a block of its own, so it can never be
+    // left at the bottom of one section with its rows starting in the next.
+    const lines = rows.map((pullRequest) => digestLine(pullRequest, now));
+
+    for (const chunk of chunkLines(label ? [`*${label}*`, ...lines] : lines)) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+    }
   }
 
   if (hidden > 0) {
@@ -579,7 +615,7 @@ export function buildDigestMessage(
     ],
   });
 
-  return { text: digestFallback(pullRequests), blocks };
+  return { text: digestFallback(all), blocks };
 }
 
 /** All somebody sees in the notification preview, so it has to carry the point alone. */

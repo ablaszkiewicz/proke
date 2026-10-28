@@ -53,8 +53,14 @@ describe('The daily digest', () => {
     ...overrides,
   });
 
-  /** One GraphQL answer and one teams answer: exactly what building one inbox costs. */
-  const mockOneRefresh = (waitingOnYou: any[] = [pullRequest()]) => {
+  /**
+   * One GraphQL answer and one teams answer: exactly what building one inbox costs. Plus one
+   * members answer per team, where a spec gives the viewer teams - `{ slug: [logins] }`.
+   */
+  const mockOneRefresh = (
+    waitingOnYou: any[] = [pullRequest()],
+    teams: Record<string, string[]> = {},
+  ) => {
     nock('https://api.github.com')
       .post('/graphql')
       .reply(200, {
@@ -64,8 +70,26 @@ describe('The daily digest', () => {
           waitingOnYou: { nodes: waitingOnYou },
         },
       });
-    nock('https://api.github.com').get('/user/teams').query(true).reply(200, []);
+    nock('https://api.github.com')
+      .get('/user/teams')
+      .query(true)
+      .reply(
+        200,
+        Object.keys(teams).map((slug) => ({ slug, name: slug, organization: { login: 'acme' } })),
+      );
+
+    for (const [slug, logins] of Object.entries(teams)) {
+      nock('https://api.github.com')
+        .get(`/orgs/acme/teams/${slug}/members`)
+        .query(true)
+        .reply(
+          200,
+          logins.map((login) => ({ login })),
+        );
+    }
   };
+
+  const teammate = { __typename: 'User', login: 'cleo', avatarUrl: 'https://avatars/cleo' };
 
   /** Registered even where nothing should be sent, so an accidental post fails an assertion. */
   const capturePost = () => {
@@ -335,12 +359,13 @@ describe('The daily digest', () => {
     });
   });
 
-  describe('what it says', () => {
-    const lines = (posts: any[]) =>
-      posts[0].blocks
-        .filter((block: any) => block.type === 'section')
-        .map((block: any) => block.text.text);
+  /** The text of every section, in order: the heading, then the list in as many as it took. */
+  const lines = (posts: any[]): string[] =>
+    posts[0].blocks
+      .filter((block: any) => block.type === 'section')
+      .map((block: any) => block.text.text);
 
+  describe('what it says', () => {
     it('leads with the count and lists the oldest first', async () => {
       await digestUser();
       mockOneRefresh([
@@ -549,6 +574,164 @@ describe('The daily digest', () => {
       expect(list.indexOf('Older')).toBeLessThan(list.indexOf('Middling'));
       expect(list.indexOf('Middling')).toBeLessThan(list.indexOf('Newer'));
       expect(list).toContain('age unknown');
+    });
+  });
+
+  describe('your team', () => {
+    // The teammate's is the newer of the two, so oldest-first alone would have put it second.
+    it('lists teammates under their own heading, above everyone else', async () => {
+      await digestUser();
+      mockOneRefresh(
+        [
+          pullRequest({ number: 1, title: 'From a stranger', createdAt: '2026-09-08T08:30:00Z' }),
+          pullRequest({
+            number: 2,
+            title: 'From a teammate',
+            createdAt: '2026-09-11T04:30:00Z',
+            author: teammate,
+          }),
+        ],
+        { platform: ['ada', 'cleo'] },
+      );
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const [heading, team, others, ...rest] = lines(posts);
+
+      expect(heading).toEqual('*2 pull requests are waiting on your review.*');
+      expect(team.split('\n')[0]).toEqual('*Your team*');
+      expect(team).toContain('#2 From a teammate');
+      expect(team).not.toContain('From a stranger');
+      expect(others.split('\n')[0]).toEqual('*Everyone else*');
+      expect(others).toContain('#1 From a stranger');
+      expect(rest).toEqual([]);
+    });
+
+    it('lists each heading oldest first', async () => {
+      await digestUser();
+      mockOneRefresh(
+        [
+          pullRequest({
+            number: 1,
+            title: 'Newer',
+            createdAt: '2026-09-11T04:30:00Z',
+            author: teammate,
+          }),
+          pullRequest({
+            number: 2,
+            title: 'Older',
+            createdAt: '2026-09-08T08:30:00Z',
+            author: teammate,
+          }),
+        ],
+        { platform: ['ada', 'cleo'] },
+      );
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const [, team] = lines(posts);
+
+      expect(team.indexOf('Older')).toBeLessThan(team.indexOf('Newer'));
+    });
+
+    it('draws no headings when nobody waiting is a teammate', async () => {
+      await digestUser();
+      mockOneRefresh([pullRequest()], { platform: ['ada', 'cleo'] });
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const text = JSON.stringify(posts[0].blocks);
+
+      expect(text).not.toContain('Your team');
+      expect(text).not.toContain('Everyone else');
+    });
+
+    it('leaves out "Everyone else" when everybody waiting is a teammate', async () => {
+      await digestUser();
+      mockOneRefresh([pullRequest({ author: teammate })], { platform: ['ada', 'cleo'] });
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const [, team, ...rest] = lines(posts);
+
+      expect(team.split('\n')[0]).toEqual('*Your team*');
+      expect(rest).toEqual([]);
+      expect(JSON.stringify(posts[0].blocks)).not.toContain('Everyone else');
+    });
+
+    // The inbox's switch, so the digest and the page never disagree about who is a teammate.
+    it('puts teammates in with everyone else when their inbox is set to', async () => {
+      const { token } = await digestUser();
+
+      await request(server())
+        .put('/inbox/settings')
+        .send({ separateTeam: false })
+        .set(auth(token))
+        .expect(200);
+
+      mockOneRefresh([pullRequest({ author: teammate })], { platform: ['ada', 'cleo'] });
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      expect(posts).toHaveLength(1);
+      expect(JSON.stringify(posts[0].blocks)).not.toContain('Your team');
+    });
+
+    it('does not count a teammate in a team the inbox is set to leave out', async () => {
+      const { token } = await digestUser();
+
+      await request(server())
+        .put('/inbox/settings')
+        .send({ excludedTeams: ['acme/everyone'] })
+        .set(auth(token))
+        .expect(200);
+
+      mockOneRefresh([pullRequest({ author: teammate })], { everyone: ['ada', 'cleo'] });
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      expect(posts).toHaveLength(1);
+      expect(JSON.stringify(posts[0].blocks)).not.toContain('Your team');
+    });
+
+    it('gives the twenty rows to teammates first', async () => {
+      await digestUser();
+      mockOneRefresh(
+        [
+          ...Array.from({ length: 18 }, (_unused, index) =>
+            pullRequest({
+              number: index + 1,
+              title: 'Stranger',
+              createdAt: '2026-09-01T08:30:00Z',
+            }),
+          ),
+          ...Array.from({ length: 5 }, (_unused, index) =>
+            pullRequest({ number: 101 + index, title: 'Teammate', author: teammate }),
+          ),
+        ],
+        { platform: ['ada', 'cleo'] },
+      );
+      const posts = capturePost();
+
+      await digest().sweep(MORNING_IN_LISBON);
+
+      const text = lines(posts).join('\n');
+      const context = posts[0].blocks.find((block: any) => block.type === 'context');
+
+      expect(text).toContain('*23 pull requests are waiting on your review.*');
+
+      for (let number = 101; number <= 105; number += 1) {
+        expect(text).toContain(`#${number} Teammate`);
+      }
+
+      expect(text.match(/Stranger/g)).toHaveLength(15);
+      expect(context.elements[0].text).toEqual('and 3 more waiting on you.');
     });
   });
 

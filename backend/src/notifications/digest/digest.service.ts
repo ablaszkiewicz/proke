@@ -1,7 +1,11 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { MetricsService } from '../../analytics/metrics.service';
 import { buildFiltersOf } from '../../inbox/core/entities/inbox-filters.interface';
-import { InboxPullRequest } from '../../inbox/core/entities/inbox.interface';
+import {
+  InboxPullRequest,
+  InboxSectionContent,
+  InboxSectionKey,
+} from '../../inbox/core/entities/inbox.interface';
 import { groupWaitingOnYou } from '../../inbox/inbox-classifier';
 import { InboxRefreshService } from '../../inbox/inbox-refresh.service';
 import { pool } from '../../shared/async/pool';
@@ -10,7 +14,7 @@ import { localMomentIn } from '../../shared/time/local-day';
 import { DigestTarget, UserReadService } from '../../user/read/user-read.service';
 import { UserWriteService } from '../../user/write/user-write.service';
 import { SlackNotificationDeliveryService } from '../delivery/slack-notification-delivery.service';
-import { DigestPullRequest } from '../delivery/slack-message';
+import { DigestPullRequest, DigestPullRequests } from '../delivery/slack-message';
 
 /** Without it, a deploy during somebody's digest hour holds their digest until the next sweep. */
 const FIRST_SWEEP_DELAY_MS = 20_000;
@@ -109,10 +113,13 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
         return;
       }
 
-      // Through the grouping, not the stored rows: ignoredAuthors is applied on the way out.
-      const waiting = groupWaitingOnYou(result.snapshot.waitingOnYou, target.settings)
-        .flatMap((section) => section.pullRequests)
-        .sort(byOldestFirst);
+      // Through the grouping, not the stored rows: ignoredAuthors is applied on the way out, and
+      // so is who counts as a teammate.
+      const sections = groupWaitingOnYou(result.snapshot.waitingOnYou, target.settings);
+      const waiting: DigestPullRequests = {
+        team: rowsIn(sections, (key) => key === InboxSectionKey.Team),
+        others: rowsIn(sections, (key) => key !== InboxSectionKey.Team),
+      };
 
       const day = localMomentIn(target.timezone, now).day;
 
@@ -123,17 +130,13 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
       }
 
       // Below the claim, so a quiet day is spent rather than rebuilt every quarter of an hour.
-      if (waiting.length === 0) {
+      if (waiting.team.length + waiting.others.length === 0) {
         this.metrics.count('proke.digest.sent', { outcome: 'empty' });
 
         return;
       }
 
-      const outcome = await this.deliveryService.deliverDigest(
-        target.userId,
-        waiting.map(toDigestPullRequest),
-        now,
-      );
+      const outcome = await this.deliveryService.deliverDigest(target.userId, waiting, now);
 
       this.metrics.count('proke.digest.sent', {
         outcome: outcome === 'sent' ? 'sent' : outcome === 'failed' ? 'failed' : 'undeliverable',
@@ -150,6 +153,18 @@ function isDue(target: DigestTarget, now: Date): boolean {
   const moment = localMomentIn(target.timezone, now);
 
   return moment.hour >= target.hour && target.sentOn !== moment.day;
+}
+
+/** One digest heading's rows, out of the inbox's piles. Bots go in with everyone else. */
+function rowsIn(
+  sections: InboxSectionContent[],
+  keep: (key: InboxSectionKey) => boolean,
+): DigestPullRequest[] {
+  return sections
+    .filter((section) => keep(section.key))
+    .flatMap((section) => section.pullRequests)
+    .sort(byOldestFirst)
+    .map(toDigestPullRequest);
 }
 
 function byOldestFirst(left: InboxPullRequest, right: InboxPullRequest): number {
