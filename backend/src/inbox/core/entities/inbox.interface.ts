@@ -19,6 +19,8 @@ export enum InboxSectionKey {
   RecentDrafts = 'recent-drafts',
   /** Yours: a note to yourself. Asking nothing of anyone. */
   Drafts = 'drafts',
+  /** Yours: already in. Nothing left to do at all - the record of what you shipped lately. */
+  Merged = 'merged',
   /** Waiting on you: written by someone you share a GitHub team with. */
   Team = 'team',
   /** Waiting on you: written by a person you do not. */
@@ -33,6 +35,7 @@ export const YOURS_SECTIONS = [
   InboxSectionKey.WaitingForReviewers,
   InboxSectionKey.RecentDrafts,
   InboxSectionKey.Drafts,
+  InboxSectionKey.Merged,
 ] as const;
 
 export const WAITING_SECTIONS = [

@@ -14,13 +14,15 @@ export const SECTION_TITLES: Record<InboxSectionKey, string> = {
   "waiting-for-reviewers": "Waiting for reviewers",
   "recent-drafts": "Recent drafts",
   drafts: "Drafts",
+  merged: "Merged",
   team: "Your team",
   others: "Everyone else",
   bots: "Bots",
 };
 
 /**
- * Closed on arrival. A draft is a note to yourself rather than a queue.
+ * Closed on arrival. A draft is a note to yourself rather than a queue, and a merged pull request
+ * is not even that - it is what you finished, there for the day somebody asks what you shipped.
  *
  * "Recent drafts" is not in here, and that is the whole reason it is a separate section: a draft
  * you touched inside the window is what you are in the middle of, so it is worth the space every
@@ -31,4 +33,4 @@ export const SECTION_TITLES: Record<InboxSectionKey, string> = {
  * A reader who turns the split off gets every draft in the pile below, and no recent heading at
  * all: an empty section is not drawn, so nothing here has to know the setting exists.
  */
-export const CLOSED_BY_DEFAULT: InboxSectionKey[] = ["drafts"];
+export const CLOSED_BY_DEFAULT: InboxSectionKey[] = ["drafts", "merged"];

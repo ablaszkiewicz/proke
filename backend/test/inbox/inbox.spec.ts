@@ -42,7 +42,12 @@ describe('Inbox', () => {
     ...overrides,
   });
 
-  const mockInbox = (data: { yours?: any[]; waitingOnYou?: any[]; viewer?: string }) =>
+  const mockInbox = (data: {
+    yours?: any[];
+    waitingOnYou?: any[];
+    merged?: any[];
+    viewer?: string;
+  }) =>
     nock('https://api.github.com')
       .post('/graphql')
       .reply(200, {
@@ -50,6 +55,7 @@ describe('Inbox', () => {
           viewer: { login: data.viewer ?? 'ada' },
           yours: { nodes: data.yours ?? [] },
           waitingOnYou: { nodes: data.waitingOnYou ?? [] },
+          merged: { nodes: data.merged ?? [] },
         },
       });
 
@@ -249,6 +255,50 @@ describe('Inbox', () => {
       expect(
         section(body, 'waitingOnYou', 'others').pullRequests.map((p: any) => p.number),
       ).toEqual([11, 10]);
+    });
+
+    it('lists your merged pull requests in their own pile, most recently merged first', async () => {
+      const { token } = await bootstrap.utils.authUtils.setupUser({
+        githubAccessToken: 'gho_token',
+      });
+
+      mockInbox({
+        yours: [pullRequest({ number: 1, reviewThreads: { nodes: [] } })],
+        merged: [
+          pullRequest({
+            number: 20,
+            reviewDecision: 'APPROVED',
+            mergedAt: '2026-05-01T00:00:00Z',
+            updatedAt: '2026-05-01T00:00:00Z',
+          }),
+          // Merged first and thanked for since. The comment moved `updatedAt`, and must not move
+          // the row back above the one merged after it.
+          pullRequest({
+            number: 21,
+            reviewDecision: 'APPROVED',
+            mergedAt: '2026-04-01T00:00:00Z',
+            updatedAt: '2026-06-01T00:00:00Z',
+          }),
+          pullRequest({ number: 22, mergedAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }),
+        ],
+      });
+      mockNoTeams();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/inbox/refresh')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(section(body, 'yours', 'merged').pullRequests.map((p: any) => p.number)).toEqual([
+        22, 20, 21,
+      ]);
+
+      // Signed off and merged is finished, not "nothing left to do but press the button" - so
+      // none of it leaks into the open piles, and the open row stays where it was.
+      expect(section(body, 'yours', 'approved').pullRequests).toEqual([]);
+      expect(
+        section(body, 'yours', 'waiting-for-reviewers').pullRequests.map((p: any) => p.number),
+      ).toEqual([1]);
     });
 
     it('separates teammates from everyone else and from machines', async () => {
@@ -676,6 +726,7 @@ describe('Inbox', () => {
         'waiting-for-reviewers',
         'recent-drafts',
         'drafts',
+        'merged',
       ]);
       expect(body.waitingOnYou.map((s: any) => s.key)).toEqual(['team', 'others', 'bots']);
     });

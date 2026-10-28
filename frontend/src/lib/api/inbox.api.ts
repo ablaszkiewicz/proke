@@ -11,6 +11,7 @@ export type InboxSectionKey =
   | "waiting-for-reviewers"
   | "recent-drafts"
   | "drafts"
+  | "merged"
   | "team"
   | "others"
   | "bots";

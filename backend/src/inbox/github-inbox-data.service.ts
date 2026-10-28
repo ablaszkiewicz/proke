@@ -46,12 +46,20 @@ export interface GithubInboxPullRequest {
   reviewDecision?: string;
   /** Whether any review thread is still open. Only asked for on the viewer's own pull requests. */
   hasUnresolvedThreads: boolean;
+  /**
+   * When it went in, ISO 8601. Only asked for on the merged half, where it is what the pile is
+   * ordered by - `updatedAt` there moves on every comment left after the merge, and would put a
+   * pull request merged in March back on top for somebody saying thanks.
+   */
+  mergedAt?: string;
 }
 
 export interface GithubInbox {
   viewerLogin: string;
   yours: GithubInboxPullRequest[];
   waitingOnYou: GithubInboxPullRequest[];
+  /** The viewer's own, already merged. Not open, so not in `yours`. */
+  merged: GithubInboxPullRequest[];
 }
 
 /** GitHub rejects the token. Its own type so callers can say which credential died. */
@@ -65,6 +73,8 @@ export class GithubInboxTokenRejectedError extends Error {
 /** Past this many of your own open pull requests, the sections stop being a list of work. */
 const MAX_YOURS = 50;
 const MAX_WAITING = 50;
+/** Enough to find what went in this week, and no more. It is a record, not a queue. */
+const MAX_MERGED = 20;
 /** Enough to answer "is anything still open" without paying for a hundred nodes per row. */
 const MAX_THREADS = 30;
 
@@ -109,7 +119,12 @@ export class GithubInboxDataService {
           },
           body: JSON.stringify({
             query: INBOX_QUERY,
-            variables: { yours: MAX_YOURS, waiting: MAX_WAITING, threads: MAX_THREADS },
+            variables: {
+              yours: MAX_YOURS,
+              waiting: MAX_WAITING,
+              merged: MAX_MERGED,
+              threads: MAX_THREADS,
+            },
           }),
         },
       );
@@ -149,6 +164,7 @@ export class GithubInboxDataService {
       viewerLogin,
       yours: normalizeSearch(body?.data?.yours),
       waitingOnYou: normalizeSearch(body?.data?.waitingOnYou),
+      merged: normalizeSearch(body?.data?.merged),
     };
   }
 }
@@ -181,6 +197,7 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
         hasUnresolvedThreads: Boolean(
           node.reviewThreads?.nodes?.some((thread: any) => thread?.isResolved === false),
         ),
+        mergedAt: node.mergedAt ?? undefined,
       };
     });
 }
@@ -212,9 +229,20 @@ function normalizeSearch(search: any): GithubInboxPullRequest[] {
  * are the work you have started and not sent - but somebody else's draft is not waiting on you,
  * whatever GitHub says about the review request sitting on it. Excluded in the search rather
  * than after it so the page limit is spent on rows that will be shown.
+ *
+ * The merged half is the viewer's own again, closed and in. No `archived:false` on it: the
+ * reason that qualifier is on the other two is that nothing can be done to a pull request in an
+ * archived repository, and nothing is going to be done to these anyway. GitHub cannot sort a
+ * search by merge time, so it is asked by `updated` and the classifier reorders by `mergedAt` -
+ * which loses nothing at the top of the list. A pull request is never updated before it is
+ * merged, so everything merged since the last row came back was updated since then too; all
+ * the cut can drop is something from further down that a later comment would have lifted.
+ *
+ * One more search adds nothing to the bill. Twenty rows with no connections of their own round
+ * away in GitHub's cost formula, and the query is still the single point it was.
  */
 const INBOX_QUERY = `
-query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
+query Inbox($yours: Int!, $waiting: Int!, $merged: Int!, $threads: Int!) {
   viewer { login }
   yours: search(
     query: "is:open is:pr author:@me archived:false sort:updated-desc"
@@ -234,6 +262,13 @@ query Inbox($yours: Int!, $waiting: Int!, $threads: Int!) {
     first: $waiting
   ) {
     nodes { ... on PullRequest { ...Row } }
+  }
+  merged: search(
+    query: "is:pr is:merged author:@me sort:updated-desc"
+    type: ISSUE
+    first: $merged
+  ) {
+    nodes { ... on PullRequest { ...Row mergedAt } }
   }
 }
 

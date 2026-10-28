@@ -117,7 +117,7 @@ function sharesTeam(pullRequest: InboxStoredPullRequest, excludedTeams: string[]
 }
 
 /**
- * Most recently updated first, within every section.
+ * Most recently updated first, within every section but the merged one - see `byMergedRecency`.
  *
  * On GitHub's `updatedAt`, which is the field GitHub sorts its own lists by and the same one the
  * search behind this is asked to order on - so the page and the query agree about what "top of
@@ -146,7 +146,21 @@ function byRecency(a: GithubInboxPullRequest, b: GithubInboxPullRequest): number
  * of the section nothing.
  */
 function updatedMs(pullRequest: GithubInboxPullRequest): number {
-  const parsed = Date.parse(pullRequest.updatedAt || '');
+  return epochMs(pullRequest.updatedAt);
+}
+
+/**
+ * Most recently merged first, which is the one pile not ordered by `updatedAt` - see `mergedAt`
+ * on GithubInboxPullRequest for what that would get wrong.
+ */
+function byMergedRecency(a: GithubInboxPullRequest, b: GithubInboxPullRequest): number {
+  const byMerged = epochMs(b.mergedAt) - epochMs(a.mergedAt);
+
+  return byMerged === 0 ? b.number - a.number : byMerged;
+}
+
+function epochMs(timestamp: string | undefined): number {
+  const parsed = Date.parse(timestamp || '');
 
   return Number.isNaN(parsed) ? 0 : parsed;
 }
@@ -217,6 +231,9 @@ function teamsByMember(teams: ViewerTeamMembership[] | null): Map<string, string
  * The client renders headings from this list, so a section that vanished when it emptied would
  * make the page reshuffle as work is finished - and "Approved: nothing" is a useful thing to be
  * told, where a missing heading is just a gap.
+ *
+ * A key nothing is sorted into still gets its heading, which is how the merged pile goes
+ * through here empty and is filled in afterwards.
  */
 function group(
   pullRequests: GithubInboxPullRequest[],
@@ -280,8 +297,17 @@ export function classify(
   const byMember = teamsByMember(teams);
 
   return {
+    // The merged pile is not a rule over the open rows, it is a different answer from GitHub -
+    // so nothing in `yoursSection` can send a row there, and it is filled from that answer.
     yours: group(inbox.yours, YOURS_SECTIONS, (pullRequest) =>
       yoursSection(pullRequest, filters, now),
+    ).map((section) =>
+      section.key === InboxSectionKey.Merged
+        ? {
+            key: section.key,
+            pullRequests: [...inbox.merged].sort(byMergedRecency).map(toPullRequest),
+          }
+        : section,
     ),
     // Sorted here rather than at serve time, because the order does not depend on any setting -
     // and sorting once when the snapshot is written beats sorting on every read of it.

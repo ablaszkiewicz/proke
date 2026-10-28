@@ -74,6 +74,8 @@ export interface MockPullRequest {
   isDraft?: boolean;
   approved?: boolean;
   unresolvedThreads?: boolean;
+  /** Already in. Only ever on yours, and `hoursAgo` is then when it was merged. */
+  merged?: boolean;
   isBot?: boolean;
   /** Which of your teams this author is in. Empty is everyone else. */
   teams?: string[];
@@ -165,6 +167,30 @@ export const MOCK_PULL_REQUESTS: MockPullRequest[] = [
     mine: true,
     hoursAgo: 1900,
     isDraft: true,
+  },
+
+  // Yours, merged.
+  {
+    id: "y9",
+    number: 4826,
+    title: "Order every inbox section by when it last moved",
+    repositoryFullName: "acme/api",
+    login: "you",
+    mine: true,
+    hoursAgo: 6,
+    approved: true,
+    merged: true,
+  },
+  {
+    id: "y10",
+    number: 4790,
+    title: "Keep the inbox settings on the account",
+    repositoryFullName: "acme/web",
+    login: "you",
+    mine: true,
+    hoursAgo: 75,
+    approved: true,
+    merged: true,
   },
 
   // Waiting on you: teammates.
@@ -282,15 +308,23 @@ const YOURS_SECTIONS: InboxSectionKey[] = [
   "waiting-for-reviewers",
   "recent-drafts",
   "drafts",
+  "merged",
 ];
 
 const WAITING_SECTIONS: InboxSectionKey[] = ["team", "others", "bots"];
 
-/** Drafts first, then open threads above approved. A copy of the server's `yoursSection`. */
+/**
+ * Drafts first, then open threads above approved. A copy of the server's `yoursSection`, plus
+ * the merged pile - which on the server is a search of its own rather than a rule.
+ */
 function yoursSection(
   pullRequest: MockPullRequest,
   filters: InboxFilters
 ): InboxSectionKey {
+  if (pullRequest.merged) {
+    return "merged";
+  }
+
   if (pullRequest.isDraft) {
     const hours =
       filters.recentDrafts === "off"
