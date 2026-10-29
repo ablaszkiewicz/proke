@@ -15,7 +15,12 @@ import { ScrollFade } from "@/components/ui/ScrollFade";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { useScrollEdges } from "@/components/ui/useScrollEdges";
 import type { NotificationType } from "@/lib/api/connections.api";
-import type { BotMode, ReviewRequestResolution } from "@/lib/api/user.api";
+import type {
+  BotMode,
+  PokeSender,
+  PokeSenders,
+  ReviewRequestResolution,
+} from "@/lib/api/user.api";
 import { cn } from "@/lib/utils";
 import { useId, useRef, useState, type RefObject } from "react";
 
@@ -38,6 +43,13 @@ export interface PokesPanelProps {
   /** The exceptions to "all bots", kept out. */
   blockedBots: string[];
   onSetBlockedBots: (logins: string[]) => void;
+  /**
+   * Who has been proking you lately, which the bots dialog suggests from. Optional, and nothing is
+   * suggested without it - so the drafts gallery, and a failed read, show the field on its own.
+   */
+  senders?: PokeSenders | null;
+  /** A suggestion taken, by which list and how far down it was. Only for counting. */
+  onSuggestionPicked?: (list: BotListName, rank: number) => void;
   /** Whether the daily list of what is still waiting arrives, and at what hour. */
   digestEnabled: boolean;
   digestHour: number;
@@ -86,7 +98,8 @@ export interface PokesPanelProps {
  * for the window and no place in the count. It says which of two answers you have picked -
  * every bot, or none - and how many exceptions you have made to it, and opens a dialog to change
  * either. The exceptions live in the dialog rather than on the panel: most people never need
- * one, and the ones who do are the ones who went looking.
+ * one, and the ones who do are the ones who went looking. Under the list, the dialog suggests
+ * the bots that have been proking you lately, one press each to add.
  */
 export function PokesPanel({
   mutedTypes,
@@ -99,6 +112,8 @@ export function PokesPanel({
   onSetAllowedBots,
   blockedBots,
   onSetBlockedBots,
+  senders,
+  onSuggestionPicked,
   digestEnabled,
   digestHour,
   onSetDigestEnabled,
@@ -236,6 +251,8 @@ export function PokesPanel({
             onSetMode={onSetBotMode}
             onSetAllowed={onSetAllowedBots}
             onSetBlocked={onSetBlockedBots}
+            senders={senders ?? null}
+            onSuggestionPicked={onSuggestionPicked}
           />
           <DigestRow
             enabled={digestEnabled}
@@ -440,17 +457,23 @@ const ROBOT =
 const CHEVRON_RIGHT =
   "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z";
 
+/** Which of the two lists, by what it does - for counting which one a suggestion went on. */
+export type BotListName = "blocked" | "allowed";
+
 /**
  * The two answers to "which bots can proke you", in the panel's words, and the exceptions each
  * one takes. `title` is what the toggle and the row say; `detail` is the line under the toggle.
  * `field`, `fieldDetail` and `count` are the list that goes with the answer - let through under
- * one, kept out under the other - and what the row calls the logins on it.
+ * one, kept out under the other - and what the row calls the logins on it. `suggested` heads the
+ * bots offered for the list, and `verb` is what pressing one does.
  */
 const BOT_MODE_OPTIONS: readonly (SegmentOption<BotMode> & {
   detail: string;
   field: string;
   fieldDetail: string;
-  count: string;
+  count: BotListName;
+  suggested: string;
+  verb: string;
 })[] = [
   {
     value: "all",
@@ -459,6 +482,8 @@ const BOT_MODE_OPTIONS: readonly (SegmentOption<BotMode> & {
     field: "Blocked bots",
     fieldDetail: "Never prokes you, even if it looks human.",
     count: "blocked",
+    suggested: "Proked you most",
+    verb: "Block",
   },
   {
     value: "none",
@@ -467,8 +492,48 @@ const BOT_MODE_OPTIONS: readonly (SegmentOption<BotMode> & {
     field: "Allowed bots",
     fieldDetail: "Always prokes you, comments and mentions included, the way a person would.",
     count: "allowed",
+    suggested: "Tried to proke you",
+    verb: "Allow",
   },
 ];
+
+/** Enough to cover the bots anybody's organisation runs, few enough to read at a glance. */
+const MAX_SUGGESTIONS = 5;
+
+/** One bot worth offering for the list on screen, and how many prokes say so. */
+interface BotSuggestion {
+  login: string;
+  count: number;
+}
+
+/**
+ * The bots worth offering for the list on screen, from who has been proking you lately.
+ *
+ * Under All bots, the ones whose prokes actually reached you: a bot whose only prokes were
+ * comments was kept out already, and blocking it would change nothing. Under No bots, every
+ * proke a bot sent your way, kept back or not - letting it in brings all of them, comments
+ * included.
+ *
+ * Only bots, by the server's own idea of one. Under No bots a person is never kept out, so there
+ * is nothing to allow; under All bots a person could be blocked, but a list of your colleagues
+ * offered for blocking is not a thing anybody wants to open. And never a login already on the
+ * list, so taking a suggestion moves it up into the list rather than leaving it in both places.
+ */
+function suggestBots(
+  senders: PokeSender[],
+  mode: BotMode,
+  listed: string[]
+): BotSuggestion[] {
+  return senders
+    .filter((sender) => sender.bot && !listed.includes(sender.login))
+    .map((sender) => ({
+      login: sender.login,
+      count: mode === "all" ? sender.reached : sender.reached + sender.held,
+    }))
+    .filter((suggestion) => suggestion.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, MAX_SUGGESTIONS);
+}
 
 /**
  * The bots: which of the two answers is picked, how many exceptions it has, and the way into
@@ -485,6 +550,8 @@ function BotsRow({
   onSetMode,
   onSetAllowed,
   onSetBlocked,
+  senders,
+  onSuggestionPicked,
 }: {
   mode: BotMode;
   allowed: string[];
@@ -492,6 +559,8 @@ function BotsRow({
   onSetMode: (mode: BotMode) => void;
   onSetAllowed: (logins: string[]) => void;
   onSetBlocked: (logins: string[]) => void;
+  senders: PokeSenders | null;
+  onSuggestionPicked?: (list: BotListName, rank: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
@@ -540,6 +609,8 @@ function BotsRow({
         onSetMode={onSetMode}
         onSetAllowed={onSetAllowed}
         onSetBlocked={onSetBlocked}
+        senders={senders}
+        onSuggestionPicked={onSuggestionPicked}
       />
     </>
   );
@@ -554,7 +625,7 @@ function BotsRow({
  * bots they keep out - the other list is only hidden, and is there again on the way back.
  *
  * Everything saves as it is chosen, like every switch on the panel - there is nothing to submit,
- * and Done only closes.
+ * and Done only closes. A suggestion taken is the same as the login typed in.
  */
 function BotsDialog({
   open,
@@ -565,6 +636,8 @@ function BotsDialog({
   onSetMode,
   onSetAllowed,
   onSetBlocked,
+  senders,
+  onSuggestionPicked,
 }: {
   open: boolean;
   onClose: () => void;
@@ -574,6 +647,8 @@ function BotsDialog({
   onSetMode: (mode: BotMode) => void;
   onSetAllowed: (logins: string[]) => void;
   onSetBlocked: (logins: string[]) => void;
+  senders: PokeSenders | null;
+  onSuggestionPicked?: (list: BotListName, rank: number) => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -582,6 +657,9 @@ function BotsDialog({
   const pickedRef = useRef<HTMLButtonElement>(null);
   const current = BOT_MODE_OPTIONS.find((option) => option.value === mode) ?? BOT_MODE_OPTIONS[0];
   const letIn = mode === "none";
+  const logins = letIn ? allowed : blocked;
+  const suggestions = suggestBots(senders?.senders ?? [], mode, logins);
+  const since = senders ? `in the last ${senders.windowDays} days` : "";
 
   return (
     <Modal
@@ -618,9 +696,21 @@ function BotsDialog({
           id={listId}
           label={current.field}
           detail={current.fieldDetail}
-          logins={letIn ? allowed : blocked}
+          logins={logins}
           removeLabel={(login) => (letIn ? `Stop allowing ${login}` : `Stop blocking ${login}`)}
           onChange={letIn ? onSetAllowed : onSetBlocked}
+        />
+
+        <SuggestedBots
+          heading={`${current.suggested} ${since}`}
+          suggestions={suggestions}
+          pickLabel={(suggestion) =>
+            `${current.verb} ${suggestion.login}, ${prokes(suggestion.count)} ${since}`
+          }
+          onPick={(login, rank) => {
+            (letIn ? onSetAllowed : onSetBlocked)([...logins, login]);
+            onSuggestionPicked?.(current.count, rank);
+          }}
         />
       </div>
 
@@ -723,6 +813,65 @@ function AccountsField({
         removeLabel={removeLabel}
         normalize={normalizeAccountLogin}
       />
+    </div>
+  );
+}
+
+const PLUS =
+  "M7.75 2a.75.75 0 0 1 .75.75V7h4.25a.75.75 0 0 1 0 1.5H8.5v4.25a.75.75 0 0 1-1.5 0V8.5H2.75a.75.75 0 0 1 0-1.5H7V2.75A.75.75 0 0 1 7.75 2Z";
+
+function prokes(count: number): string {
+  return count === 1 ? "1 proke" : `${count} prokes`;
+}
+
+/**
+ * The bots that have been proking you, offered for the list above them - one press each.
+ *
+ * Drawn as chips like the list's own, so it is plain that one becomes the other, but hollow and
+ * with a plus where those have an ×: these are not on the list yet. The count is how many prokes
+ * put it here, which is the reason to take it or not.
+ *
+ * Nothing at all when there is nothing to offer - no heading over an empty row, and no line
+ * saying there is nothing, which would be true on most visits and read by nobody.
+ */
+function SuggestedBots({
+  heading,
+  suggestions,
+  pickLabel,
+  onPick,
+}: {
+  heading: string;
+  suggestions: BotSuggestion[];
+  pickLabel: (suggestion: BotSuggestion) => string;
+  onPick: (login: string, rank: number) => void;
+}) {
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3">
+      <span className="block text-[11px] leading-snug text-muted-foreground">{heading}</span>
+
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        {suggestions.map((suggestion, rank) => (
+          <button
+            key={suggestion.login}
+            type="button"
+            onClick={() => onPick(suggestion.login, rank)}
+            aria-label={pickLabel(suggestion)}
+            title={prokes(suggestion.count)}
+            className={cn(
+              "flex items-center gap-1 rounded-md border border-dashed border-foreground/20 py-0.5 pl-1 pr-1.5 text-[12px] text-muted-foreground transition-colors",
+              "hover:border-foreground/30 hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2"
+            )}
+          >
+            <Octicon path={PLUS} size={10} className="shrink-0" />
+            <span className="max-w-[10rem] truncate">{suggestion.login}</span>
+            <span className="tabular-nums text-muted-foreground/60">{suggestion.count}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

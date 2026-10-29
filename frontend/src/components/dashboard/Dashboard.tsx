@@ -2,6 +2,7 @@ import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { captureEvent } from "@/lib/analytics/analytics";
 import { authLogic } from "@/lib/logics/authLogic";
 import { connectionsLogic } from "@/lib/logics/connectionsLogic";
+import { pokeSendersLogic } from "@/lib/logics/pokeSendersLogic";
 import { pokeSettingsLogic } from "@/lib/logics/pokeSettingsLogic";
 import { slackLogic } from "@/lib/logics/slackLogic";
 import { useActions, useValues } from "kea";
@@ -43,11 +44,15 @@ export function Dashboard() {
     setDigestEnabled,
     setDigestHour,
   } = useActions(pokeSettingsLogic);
+  // Its own read, unlike the settings: only the bots dialog wants it, so it is not on the profile.
+  const { senders } = useValues(pokeSendersLogic);
+  const { loadSenders } = useActions(pokeSendersLogic);
 
   useEffect(() => {
     loadConnections();
     loadConnection();
-  }, [loadConnections, loadConnection]);
+    loadSenders();
+  }, [loadConnections, loadConnection, loadSenders]);
 
   // Loaded once we have a profile, or once we have stopped trying - a failed fetch must still
   // show Log out.
@@ -111,6 +116,11 @@ export function Dashboard() {
         onSetBotMode: setBotMode,
         onSetAllowedBots: setAllowedBots,
         onSetBlockedBots: setBlockedBots,
+        senders,
+        // The save that follows is the server's to see; that it came from a suggestion rather
+        // than from somebody typing the login is only known here.
+        onSuggestionPicked: (list, rank) =>
+          captureEvent("bot_suggestion_clicked", { list, rank }),
         onSetDigestEnabled: setDigestEnabled,
         onSetDigestHour: setDigestHour,
       }}

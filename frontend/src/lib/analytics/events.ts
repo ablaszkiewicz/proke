@@ -31,6 +31,7 @@ export type AnalyticsEvent =
   | 'org_unsubscribe_clicked'
   | 'org_uninstall_clicked'
   | 'org_manage_clicked'
+  | 'bot_suggestion_clicked'
   | 'slack_connect_clicked'
   | 'slack_install_clicked'
   | 'slack_disconnect_clicked'

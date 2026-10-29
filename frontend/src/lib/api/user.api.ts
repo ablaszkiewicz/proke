@@ -93,6 +93,40 @@ export class UserApi {
   }
 }
 
+/**
+ * One account that has been proking you lately, counted per proke. Spelled the way the bot lists
+ * are, so it can go on either as it is.
+ */
+export interface PokeSender {
+  login: string;
+  /** A GitHub App or a login ending in `-bot`, whatever either list says about it. */
+  bot: boolean;
+  /** Prokes from it that reached you. */
+  reached: number;
+  /** Prokes from it your bot settings kept back. */
+  held: number;
+  lastPokedAt: string;
+}
+
+/**
+ * Who has been proking you, most first - at most two dozen, the bots kept over people when there
+ * are more. Nothing older than `windowDays`.
+ */
+export interface PokeSenders {
+  windowDays: number;
+  senders: PokeSender[];
+}
+
+export class PokeSendersApi {
+  public static async read(jwtToken: string): Promise<PokeSenders> {
+    const response = await axios.get<PokeSenders>("/notifications/senders", {
+      headers: { Authorization: `Bearer ${jwtToken}` },
+    });
+
+    return response.data;
+  }
+}
+
 export class PokeSettingsApi {
   /**
    * Replaces the whole set. Unmuting is spelled by sending it without that type in it, so there
