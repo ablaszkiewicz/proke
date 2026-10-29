@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthSessionModule } from '../../auth/session/auth-session.module';
 import { AnnouncementStoreModule } from '../../notifications/announcements/store/announcement-store.module';
 import { PokeMessageWriteModule } from '../../notifications/messages/write/poke-message-write.module';
+import { PokeSenderStoreModule } from '../../notifications/senders/store/poke-sender-store.module';
 import { SlackLinkWriteModule } from '../../slack/links/write/slack-link-write.module';
 import { SlackWorkspaceWriteModule } from '../../slack/workspaces/write/slack-workspace-write.module';
 import { SubscriptionWriteModule } from '../../subscriptions/write/subscription-write.module';
@@ -22,6 +23,7 @@ import { UserDeletionService } from './user-deletion.service';
     SlackLinkWriteModule,
     SlackWorkspaceWriteModule,
     PokeMessageWriteModule,
+    PokeSenderStoreModule,
     AnnouncementStoreModule,
   ],
   controllers: [UserCoreController],

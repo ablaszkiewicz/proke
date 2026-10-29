@@ -3,6 +3,7 @@ import { AnalyticsService } from '../../analytics/analytics.service';
 import { AuthSessionService } from '../../auth/session/auth-session.service';
 import { AnnouncementStoreService } from '../../notifications/announcements/store/announcement-store.service';
 import { PokeMessageWriteService } from '../../notifications/messages/write/poke-message-write.service';
+import { PokeSenderStoreService } from '../../notifications/senders/store/poke-sender-store.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
 import { SubscriptionWriteService } from '../../subscriptions/write/subscription-write.service';
@@ -33,6 +34,7 @@ export class UserDeletionService {
     private readonly slackLinkWriteService: SlackLinkWriteService,
     private readonly slackWorkspaceWriteService: SlackWorkspaceWriteService,
     private readonly pokeMessageWriteService: PokeMessageWriteService,
+    private readonly pokeSenderStoreService: PokeSenderStoreService,
     private readonly announcementStoreService: AnnouncementStoreService,
     private readonly analytics: AnalyticsService,
   ) {}
@@ -55,6 +57,9 @@ export class UserDeletionService {
     // Pokes we were holding open in case a review settled them - which also means the
     // repository names and pull request titles denormalised onto those rows.
     await this.pokeMessageWriteService.deleteForUser(userId);
+
+    // Who has been poking them, and how often.
+    await this.pokeSenderStoreService.deleteForUser(userId);
 
     // Which announcements reached them.
     await this.announcementStoreService.deleteForUser(userId);

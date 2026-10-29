@@ -93,6 +93,14 @@ function isBlocked(settings: BotAccountSettings, account: GithubAccount | null |
   return settings.botMode === 'all' && isOn(settings.blockedBots, account);
 }
 
+/**
+ * The automatic idea of who a bot is - GitHub's word, then the name - before anybody's lists.
+ * What `none` silences, and what the bots dialog suggests from.
+ */
+export function looksLikeBot(account: GithubAccount | null | undefined): boolean {
+  return isGithubApp(account) || /-bot$/.test(normalizeAccountLogin(account?.login ?? ''));
+}
+
 /** Whether this account is a bot to this reader. Absent is a person - see botDropReason. */
 export function isBotFor(
   settings: BotAccountSettings,
@@ -106,7 +114,7 @@ export function isBotFor(
     return true;
   }
 
-  return isGithubApp(account) || /-bot$/.test(normalizeAccountLogin(account?.login ?? ''));
+  return looksLikeBot(account);
 }
 
 type BotRule = 'talking' | 'acting';

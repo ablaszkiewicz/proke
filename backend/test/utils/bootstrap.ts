@@ -16,6 +16,8 @@ import { DigestModule } from '../../src/notifications/digest/digest.module';
 import { DigestService } from '../../src/notifications/digest/digest.service';
 import { ListenReminderModule } from '../../src/notifications/listen-reminder/listen-reminder.module';
 import { ListenReminderService } from '../../src/notifications/listen-reminder/listen-reminder.service';
+import { PokeSendersModule } from '../../src/notifications/senders/poke-senders.module';
+import { PokeSendersEntity } from '../../src/notifications/senders/store/entities/poke-senders.entity';
 import { PokeSettingsModule } from '../../src/notifications/settings/poke-settings.module';
 import { InboxWarmerService } from '../../src/inbox/warm/inbox-warmer.service';
 import { InstallationEntity } from '../../src/installations/core/entities/installation.entity';
@@ -101,6 +103,7 @@ export async function createTestApp() {
       InboxModule,
       InboxWarmModule,
       PokeSettingsModule,
+      PokeSendersModule,
       DigestModule,
       AnnouncementModule,
       ListenReminderModule,
@@ -134,6 +137,9 @@ export async function createTestApp() {
   const pokeMessageModel: Model<PokeMessageEntity> = module.get(
     getModelToken(PokeMessageEntity.name),
   );
+  const pokeSendersModel: Model<PokeSendersEntity> = module.get(
+    getModelToken(PokeSendersEntity.name),
+  );
   const announcementRunModel: Model<AnnouncementRunEntity> = module.get(
     getModelToken(AnnouncementRunEntity.name),
   );
@@ -149,6 +155,7 @@ export async function createTestApp() {
     await slackWorkspaceModel.deleteMany({});
     await slackLinkModel.deleteMany({});
     await pokeMessageModel.deleteMany({});
+    await pokeSendersModel.deleteMany({});
     await refreshTokenModel.deleteMany({});
     await announcementRunModel.deleteMany({});
     await announcementDeliveryModel.deleteMany({});
@@ -177,6 +184,7 @@ export async function createTestApp() {
       slackWorkspaceModel,
       slackLinkModel,
       pokeMessageModel,
+      pokeSendersModel,
       refreshTokenModel,
       announcementRunModel,
       announcementDeliveryModel,

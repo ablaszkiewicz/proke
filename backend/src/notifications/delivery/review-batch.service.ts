@@ -141,8 +141,11 @@ export class ReviewBatchService implements OnModuleDestroy {
  * alike. A review request has no such id - the team and the person are asked in two unrelated
  * webhooks - so it is known by the pull request it is about, which is the one thing the two
  * share.
+ *
+ * Exported for PokeSenderStoreService, which counts a poke once however many pieces it came in -
+ * including the pieces nobody was sent, which never reach this file.
  */
-function pieceOf(
+export function pieceOf(
   notification: GithubNotificationNormalized,
 ): { kind: BatchKind; id: string } | undefined {
   if (notification.reviewId) {

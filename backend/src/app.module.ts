@@ -8,6 +8,7 @@ import { InboxWarmModule } from './inbox/warm/inbox-warm.module';
 import { AnnouncementModule } from './notifications/announcements/announcement.module';
 import { DigestModule } from './notifications/digest/digest.module';
 import { ListenReminderModule } from './notifications/listen-reminder/listen-reminder.module';
+import { PokeSendersModule } from './notifications/senders/poke-senders.module';
 import { PokeSettingsModule } from './notifications/settings/poke-settings.module';
 import { getEnvConfig } from './shared/configs/env-configs';
 import { HttpMetricsModule } from './shared/http/http-metrics.middleware';
@@ -33,6 +34,9 @@ import { SlackEventsModule } from './webhooks/slack/slack-events.module';
     // What kinds of poke somebody wants, account-wide. The delivery side of notifications is
     // wired in under the webhook module; this is only the settings route.
     PokeSettingsModule,
+    // Who has been poking somebody, for the bots dialog to suggest from. The counting is done by
+    // the webhook router; this is only the route that reads it.
+    PokeSendersModule,
     // The other scheduler: the daily list of what is still waiting on somebody.
     DigestModule,
     // Sends each new entry in announcements.ts once, a little after start.

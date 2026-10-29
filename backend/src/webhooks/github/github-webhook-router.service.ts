@@ -28,10 +28,12 @@ import { ReviewBatchService } from '../../notifications/delivery/review-batch.se
 import {
   BOT_CHATTER_TYPES,
   botDropReason,
+  GithubAccount,
   isGithubApp,
   PokeOrigin,
 } from '../../notifications/core/bot-accounts';
 import { isPokeTypeMuted } from '../../notifications/core/poke-settings';
+import { PokeSenderStoreService } from '../../notifications/senders/store/poke-sender-store.service';
 import { isNotificationAllowed } from '../../subscriptions/core/notification-preferences';
 import { SubscriptionReadService } from '../../subscriptions/read/subscription-read.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
@@ -127,6 +129,7 @@ export class GithubWebhookRouterService {
     private readonly commentAuthorDataService: GithubCommentAuthorDataService,
     private readonly threadParticipantsDataService: GithubThreadParticipantsDataService,
     private readonly pokeResolutionService: PokeResolutionService,
+    private readonly senderStore: PokeSenderStoreService,
     private readonly metrics: MetricsService,
   ) {}
 
@@ -433,6 +436,12 @@ export class GithubWebhookRouterService {
       // Named after the candidate that would have won, which is the poke this person lost.
       if (wanted.length === 0) {
         this.dropped(botDropReason(user.pokeSettings, allowed[0].type, origin) ?? 'bot_chatter');
+
+        // Counted though nobody was poked: a bot kept back is exactly what the bots dialog
+        // suggests letting in. Without the access check below, because only an account and a
+        // number are kept - nothing that says where - and an account acting in an organisation
+        // this person listens to is not a secret from them.
+        await this.senderStore.record(user.id, pokedBy(origin, allowed[0]), 'held', allowed[0]);
         continue;
       }
 
@@ -443,6 +452,9 @@ export class GithubWebhookRouterService {
       }
 
       await this.deliveryService.submit(user, await this.withDiff(wanted[0], installationId));
+      // After the poke rather than before it: the count is for a dialog, and never worth a
+      // moment's delay to the thing it counts.
+      await this.senderStore.record(user.id, pokedBy(origin, wanted[0]), 'reached', wanted[0]);
     }
   }
 
@@ -1072,6 +1084,23 @@ function requester(payload: any, context: EventContext): EventContext {
   }
 
   return { ...context, actorLogin: author };
+}
+
+/**
+ * Whose poke this is to the person reading it, which is not always whoever acted: a bot asking
+ * for a review on somebody's pull request asks in their name - see `requester` - and is counted
+ * as them. That ask reaches people whatever they think of the bot, so the bot is not the account
+ * worth suggesting they block.
+ */
+function pokedBy(
+  origin: PokeOrigin,
+  notification: GithubNotificationNormalized,
+): GithubAccount | undefined {
+  return (
+    [origin.actor, origin.author].find(
+      (account) => account?.login !== undefined && account.login === notification.actorLogin,
+    ) ?? origin.actor
+  );
 }
 
 /**

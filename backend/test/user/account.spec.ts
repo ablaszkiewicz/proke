@@ -133,6 +133,11 @@ describe('Account', () => {
         userId: user.id,
         outcome: 'sent',
       });
+      await bootstrap.models.pokeSendersModel.create({
+        userId: user.id,
+        senders: [{ login: 'dependabot', bot: true, count: 3, held: 0, lastAt: new Date() }],
+        updatedAt: new Date(),
+      });
 
       return { user, token };
     };
@@ -156,6 +161,9 @@ describe('Account', () => {
       expect(
         await bootstrap.models.announcementDeliveryModel.countDocuments({ userId: user.id }),
       ).toEqual(0);
+      expect(await bootstrap.models.pokeSendersModel.countDocuments({ userId: user.id })).toEqual(
+        0,
+      );
     });
 
     it('leaves the workspace installed for everyone else, but stops pointing at the user', async () => {

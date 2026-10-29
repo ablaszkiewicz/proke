@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { GithubAppModule } from '../../github-app/github-app.module';
 import { InstallationWriteModule } from '../../installations/write/installation-write.module';
 import { NotificationsCoreModule } from '../../notifications/core/notifications-core.module';
+import { PokeSenderStoreModule } from '../../notifications/senders/store/poke-sender-store.module';
 import { InMemoryCacheModule } from '../../shared/cache/in-memory-cache.module';
 import { SubscriptionReadModule } from '../../subscriptions/read/subscription-read.module';
 import { SubscriptionWriteModule } from '../../subscriptions/write/subscription-write.module';
@@ -18,6 +19,7 @@ import { GithubWebhookController } from './github-webhook.controller';
     GithubAppModule,
     InstallationWriteModule,
     NotificationsCoreModule,
+    PokeSenderStoreModule,
     SubscriptionReadModule,
     SubscriptionWriteModule,
     InMemoryCacheModule,
