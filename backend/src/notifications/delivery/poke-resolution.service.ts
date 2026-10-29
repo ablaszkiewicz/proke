@@ -211,6 +211,8 @@ export class PokeResolutionService {
         by_self: resolution.bySelf,
         repository: message.repositoryFullName,
         repository_owner: message.repositoryFullName.split('/')[0],
+        slack_team_id: workspace.teamId,
+        slack_team_name: workspace.teamName,
         actor_login: resolution.actorLogin,
       });
 
@@ -304,6 +306,8 @@ export class PokeResolutionService {
       this.analytics.capture(message.userId, 'poke_annotated', {
         repository: message.repositoryFullName,
         repository_owner: message.repositoryFullName.split('/')[0],
+        slack_team_id: workspace.teamId,
+        slack_team_name: workspace.teamName,
         actor_login: event.actorLogin,
         reviewer_count: reviewers.length,
         // Which of the two things this was: somebody talking, or a verdict the reader's strict

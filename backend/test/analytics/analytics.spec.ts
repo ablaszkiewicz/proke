@@ -129,6 +129,8 @@ describe('Analytics', () => {
         trigger: 'github_webhook',
         repository: 'ablaszkiewicz/proke',
         repository_owner: 'ablaszkiewicz',
+        slack_team_id: TEAM_ID,
+        slack_team_name: 'Acme',
         actor_login: 'ada',
       });
     });
@@ -169,6 +171,8 @@ describe('Analytics', () => {
         reason: 'failed',
         poke_type: NotificationType.ReviewRequested,
         repository: 'ablaszkiewicz/proke',
+        slack_team_id: TEAM_ID,
+        slack_team_name: 'Acme',
       });
     });
 

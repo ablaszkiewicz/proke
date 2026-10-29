@@ -14,6 +14,7 @@ import {
 import { SlackLinkNormalized } from '../../slack/links/core/entities/slack-link.interface';
 import { SlackLinkReadService } from '../../slack/links/read/slack-link-read.service';
 import { SlackLinkWriteService } from '../../slack/links/write/slack-link-write.service';
+import { SlackWorkspaceNormalized } from '../../slack/workspaces/core/entities/slack-workspace.interface';
 import { SlackWorkspaceReadService } from '../../slack/workspaces/read/slack-workspace-read.service';
 import { SlackWorkspaceWriteService } from '../../slack/workspaces/write/slack-workspace-write.service';
 import { UserNormalized } from '../../user/core/entities/user.interface';
@@ -306,7 +307,7 @@ export class SlackNotificationDeliveryService {
 
     try {
       const reference = await this.post(link, workspace.botToken, message);
-      this.record(userId, context, 'poke_sent');
+      this.record(userId, context, workspace, 'poke_sent');
       this.delivered(context, 'sent');
 
       return {
@@ -323,7 +324,7 @@ export class SlackNotificationDeliveryService {
       //
       // Recorded before the rethrow, so the test button's failures are counted like any other
       // rather than disappearing into the exception that reports them.
-      this.record(userId, context, 'poke_failed', outcome);
+      this.record(userId, context, workspace, 'poke_failed', outcome);
       this.delivered(context, outcome);
 
       if (options.rethrow) {
@@ -347,6 +348,7 @@ export class SlackNotificationDeliveryService {
   private record(
     userId: string,
     context: PokeContext,
+    workspace: SlackWorkspaceNormalized,
     event: 'poke_sent' | 'poke_failed',
     reason?: SlackDeliveryOutcome,
   ): void {
@@ -357,6 +359,11 @@ export class SlackNotificationDeliveryService {
       // Split out here rather than in a query: grouping pokes by organisation is the first
       // question anyone asks of this data, and it should not need string surgery in HogQL.
       repository_owner: context.repository?.split('/')[0],
+      // The other half of "which organisation": repository_owner is whose code the poke was
+      // about, this is whose Slack it landed in. Usually the same company, not always - and the
+      // synthetic messages, which have no repository, still have a workspace.
+      slack_team_id: workspace.teamId,
+      slack_team_name: workspace.teamName,
       actor_login: context.actorLogin,
       review_state: context.reviewState,
       has_excerpt: context.hasExcerpt,
