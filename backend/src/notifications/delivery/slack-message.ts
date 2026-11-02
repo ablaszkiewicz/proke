@@ -6,6 +6,7 @@ import {
   GithubNotificationNormalized,
   GithubReviewVerdict,
   isReviewVerdict,
+  MergeReadiness,
   PokeResolution,
   PokeResolutionKind,
   PokeReviewer,
@@ -67,6 +68,9 @@ const LEAD: Record<NotificationType, (notification: GithubNotificationNormalized
   // "enabled auto-merge on", never "is merging": the checks have not finished, and a poke that
   // promises an outcome they could still refuse is one that gets to be wrong.
   [NotificationType.AutoMergeEnabled]: () => ({ verb: 'enabled auto-merge', preposition: 'on' }),
+  // Only reached for an approval GitHub has somehow lost the state of. The readiness itself is
+  // told after the link, by READINESS, because it is about the pull request, not the reviewer.
+  [NotificationType.ReadyToMerge]: () => ({ verb: 'approved' }),
   [NotificationType.PullRequestComment]: () => ({ verb: 'commented', preposition: 'on' }),
   // The same sentence, and deliberately so: the link that finishes it says whether it was an
   // issue or a pull request, so spelling it out here would only make the line longer.
@@ -105,6 +109,17 @@ function mentioned(notification: GithubNotificationNormalized): Clause {
 const REVIEW: Record<GithubReviewVerdict, Clause & { icon: string }> = {
   approved: { icon: '✅', verb: 'approved' },
   changes_requested: { icon: '❌', verb: 'requested changes', preposition: 'on' },
+};
+
+/**
+ * What follows the link on a ready-to-merge poke: the author's next move, in as few words as
+ * say it. The marker replaces the approval's ✅ where something is in the way, because what the
+ * line asks of the reader is no longer "go and merge".
+ */
+const READINESS: Record<MergeReadiness, { suffix: string; icon?: string }> = {
+  ready: { suffix: 'ready to merge' },
+  conflicts: { suffix: 'has merge conflicts', icon: '⚠️' },
+  failing: { suffix: 'checks are failing', icon: '🔴' },
 };
 
 /**
@@ -191,6 +206,8 @@ export function buildPokeMessage(
 
   const lead = `${actor} ${deed}`;
   const icon = leadIcon(notification, review);
+  const readiness = readinessOf(notification);
+  const after = readiness ? ` · ${readiness.suffix}` : '';
   const label = subject(notification);
   const excerpt = notification.excerpt ? truncate(notification.excerpt) : undefined;
   const avatar = avatarUrl(notification.ownerAvatarUrl);
@@ -200,7 +217,8 @@ export function buildPokeMessage(
   // Unbolded once it is struck through: bold under a strikethrough is heavier than the live
   // messages around it, which is backwards for the one message that no longer needs doing.
   const linked = link(notification.htmlUrl, label);
-  const headline = `${icon}${actorLinked} ${escape(deed)} ${settled ? linked : `*${linked}*`}`;
+  const headline =
+    `${icon}${actorLinked} ${escape(deed)} ${settled ? linked : `*${linked}*`}` + escape(after);
 
   return {
     // Slack shows this, not the blocks, in the notification banner and the sidebar preview -
@@ -213,7 +231,7 @@ export function buildPokeMessage(
     // the end, because the request is still the news and they are a footnote to it.
     text:
       (settled ? `${settled.plain} · ` : '') +
-      `${icon}${lead} ${label} · ${notification.repositoryFullName}` +
+      `${icon}${lead} ${label}${after} · ${notification.repositoryFullName}` +
       (diff ? ` (${diff})` : '') +
       (footer && !settled ? ` · ${footer.plain}` : ''),
     blocks: [
@@ -262,7 +280,7 @@ function leadIcon(
 ): string {
   // The verdict wins where there is one: an approval that came with notes on it is an approval
   // first, and ✅ says more than 💬 about whether to open it now.
-  const marker = review?.icon ?? LEAD_ICON[notification.type];
+  const marker = readinessOf(notification)?.icon ?? review?.icon ?? LEAD_ICON[notification.type];
 
   return marker ? `${marker} ` : '';
 }
@@ -716,11 +734,22 @@ function subject(notification: GithubNotificationNormalized): string {
 function verdict(
   notification: GithubNotificationNormalized,
 ): (Clause & { icon: string }) | undefined {
-  if (notification.type !== NotificationType.ReviewSubmitted) {
+  if (
+    notification.type !== NotificationType.ReviewSubmitted &&
+    notification.type !== NotificationType.ReadyToMerge
+  ) {
     return undefined;
   }
 
   return isReviewVerdict(notification.reviewState) ? REVIEW[notification.reviewState] : undefined;
+}
+
+function readinessOf(
+  notification: GithubNotificationNormalized,
+): (typeof READINESS)[MergeReadiness] | undefined {
+  return notification.type === NotificationType.ReadyToMerge && notification.readiness
+    ? READINESS[notification.readiness]
+    : undefined;
 }
 
 /**

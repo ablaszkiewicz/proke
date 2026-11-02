@@ -24,6 +24,15 @@ export enum NotificationType {
    * but not yet acted on, and the window to object to it closes with the last check.
    */
   AutoMergeEnabled = 'auto_merge_enabled',
+  /**
+   * The last approval is in and the next move is the author's: merge it, or fix what stops it -
+   * conflicts, or checks that failed. Never sent while checks are still running or while other
+   * reviewers are still asked, because then nobody is waiting on the author yet.
+   *
+   * Only ever arrives in place of the approval that caused it, carrying that review, so the
+   * author gets one poke and not "approved" followed by "ready" a second later.
+   */
+  ReadyToMerge = 'ready_to_merge',
   PullRequestComment = 'pull_request_comment',
   /**
    * Somebody commented on an issue you opened. The counterpart to the pull request one, and
@@ -62,6 +71,9 @@ const PRIORITY: NotificationType[] = [
   // practice - one payload carries one action - so this is ordering for whoever reads the list
   // rather than a collapse that happens.
   NotificationType.AutoMergeEnabled,
+  // Above the review it stands in for, and above the reply: an approval that came with an
+  // inline answer in your thread still leads as "ready to merge" when it is the last one in.
+  NotificationType.ReadyToMerge,
   NotificationType.ReviewSubmitted,
   // Above both the comment and the mention: being answered in your own thread is a more specific
   // reason to be poked than somebody having commented on your pull request, and more useful to

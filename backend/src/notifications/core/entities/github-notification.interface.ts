@@ -30,6 +30,12 @@ export function isReviewVerdict(state: string | undefined): state is GithubRevie
   return REVIEW_VERDICTS.includes(state as GithubReviewVerdict);
 }
 
+/**
+ * What the author has to do next, on a ready-to-merge poke only. All three are the author's
+ * move; the states where it is nobody's move yet - checks still running - never become a poke.
+ */
+export type MergeReadiness = 'ready' | 'conflicts' | 'failing';
+
 export interface GithubNotificationComments {
   count: number;
   /**
@@ -54,6 +60,8 @@ export interface GithubNotificationNormalized {
    * a review happened; this says whether it was good news.
    */
   reviewState?: string;
+  /** On a ready-to-merge poke: merge it, or what is in the way. */
+  readiness?: MergeReadiness;
   /**
    * What the person actually wrote - the comment, the review, the description they mentioned
    * you in. Absent where no words were involved: a review request and a merge are events, not

@@ -204,7 +204,9 @@ export type GithubEndpoint =
   | 'user_teams'
   | 'team_membership'
   /* The inbox, which is one GraphQL request rather than one per pull request. */
-  | 'graphql_inbox';
+  | 'graphql_inbox'
+  /* Whether an approved pull request is now waiting on its author. */
+  | 'graphql_merge_readiness';
 
 /** The Slack Web API methods proke calls, plus the OAuth exchange that is not one of them. */
 export const SLACK_METHODS = [

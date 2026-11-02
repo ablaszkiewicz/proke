@@ -1677,6 +1677,240 @@ describe('Webhooks (github)', () => {
   });
 
   /**
+   * The last approval, told as what the author has to do next. Asked of GitHub only after the
+   * approval has cleared every gate, and told as the plain review whenever it is not yet the
+   * author's move or GitHub would not say.
+   */
+  describe('ready to merge', () => {
+    const PULL_REQUEST = {
+      number: 9,
+      title: 'Wire up webhooks',
+      html_url: 'https://github.com/ablaszkiewicz/proke/pull/9',
+      user: { id: 4242, login: 'author' },
+    };
+
+    const approval = (state = 'approved') => ({
+      action: 'submitted',
+      installation: { id: Number(INSTALLATION_ID) },
+      repository: REPOSITORY,
+      sender: { id: 999, login: 'reviewer' },
+      review: {
+        id: 77001,
+        state,
+        html_url: 'https://github.com/ablaszkiewicz/proke/pull/9#pullrequestreview-77001',
+      },
+      pull_request: PULL_REQUEST,
+    });
+
+    const setupAuthor = async (mutedTypes: NotificationType[] = []) => {
+      const { user } = await bootstrap.utils.authUtils.setupUser({
+        githubId: '4242',
+        githubLogin: 'author',
+      });
+      await subscribe(user.id);
+      await bootstrap.models.userModel.updateOne(
+        { _id: user.id },
+        { $set: { pokeSettings: { mutedTypes } } },
+      );
+    };
+
+    const pullRequestState = (overrides: object = {}, checks: string | null = 'SUCCESS') => ({
+      state: 'OPEN',
+      isDraft: false,
+      reviewDecision: 'APPROVED',
+      mergeable: 'MERGEABLE',
+      reviewRequests: { totalCount: 0 },
+      commits: { nodes: [{ commit: { statusCheckRollup: checks ? { state: checks } : null } }] },
+      ...overrides,
+    });
+
+    /** The token, the size of the change, and what GitHub says about the merge. */
+    const mockGithub = (body: object) => {
+      mockInstallationToken();
+      nock('https://api.github.com')
+        .get('/repos/ablaszkiewicz/proke/pulls/9')
+        .reply(200, { additions: 5, deletions: 1 });
+
+      return nock('https://api.github.com').post('/graphql').reply(200, body);
+    };
+
+    const mockState = (overrides: object = {}, checks: string | null = 'SUCCESS') =>
+      mockGithub({ data: { repository: { pullRequest: pullRequestState(overrides, checks) } } });
+
+    const onlyNotification = async () => {
+      await waitFor(() => deliverSpy.mock.calls.length > 0);
+      await bootstrap.services.reviewBatchService.flushAll();
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+
+      return deliverSpy.mock.calls[0][1];
+    };
+
+    it('tells the author their pull request is ready to merge', async () => {
+      // given
+      await setupAuthor();
+      const graphql = mockState();
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then - one poke, carrying the approval that made it ready
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReadyToMerge,
+        readiness: 'ready',
+        reviewState: 'approved',
+        actorLogin: 'reviewer',
+      });
+      expect(graphql.isDone()).toEqual(true);
+    });
+
+    it('counts a pull request with no checks at all as ready', async () => {
+      // given
+      await setupAuthor();
+      mockState({}, null);
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ readiness: 'ready' });
+    });
+
+    it('says when conflicts stand in the way', async () => {
+      // given
+      await setupAuthor();
+      mockState({ mergeable: 'CONFLICTING' });
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReadyToMerge,
+        readiness: 'conflicts',
+      });
+    });
+
+    it('says when checks have failed', async () => {
+      // given
+      await setupAuthor();
+      mockState({}, 'FAILURE');
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReadyToMerge,
+        readiness: 'failing',
+      });
+    });
+
+    it.each([
+      ['checks are still running', {}, 'PENDING'],
+      ['another reviewer is still asked', { reviewRequests: { totalCount: 1 } }, 'SUCCESS'],
+      ['a required review is still missing', { reviewDecision: 'REVIEW_REQUIRED' }, 'SUCCESS'],
+      ['it is a draft', { isDraft: true }, 'SUCCESS'],
+    ])('sends the plain review while %s', async (_, overrides, checks) => {
+      // given - nobody is waiting on the author yet
+      await setupAuthor();
+      mockState(overrides, checks);
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReviewSubmitted,
+        reviewState: 'approved',
+      });
+    });
+
+    it('sends the plain review when GitHub will not say', async () => {
+      // given - what a missing permission to read checks looks like
+      await setupAuthor();
+      mockGithub({
+        data: { repository: { pullRequest: pullRequestState({}, null) } },
+        errors: [{ type: 'FORBIDDEN', message: 'Resource not accessible by integration' }],
+      });
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then - a blanked-out check state must not read as "no checks, so ready"
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.ReviewSubmitted });
+    });
+
+    it('does not ask GitHub about a review that is not an approval', async () => {
+      // given
+      await setupAuthor();
+      const graphql = mockState();
+
+      // when
+      await send('pull_request_review', approval('changes_requested'));
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.ReviewSubmitted });
+      expect(graphql.isDone()).toEqual(false);
+      nock.cleanAll();
+    });
+
+    it('does not ask GitHub for somebody who switched it off', async () => {
+      // given
+      await setupAuthor([NotificationType.ReadyToMerge]);
+      const graphql = mockState();
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      expect(await onlyNotification()).toMatchObject({ type: NotificationType.ReviewSubmitted });
+      expect(graphql.isDone()).toEqual(false);
+      nock.cleanAll();
+    });
+
+    it('stays quiet for somebody who only wants to hear when it is ready, and it is not', async () => {
+      // given - reviews switched off, readiness left on
+      await setupAuthor([NotificationType.ReviewSubmitted]);
+      mockState({}, 'PENDING');
+
+      // when
+      await send('pull_request_review', approval());
+
+      // then
+      await expectNoPoke();
+    });
+
+    it('leads a review that came with comments', async () => {
+      // given
+      await setupAuthor();
+      mockState();
+
+      // when - the approval and one inline note, which arrive as two webhooks
+      await send('pull_request_review', approval());
+      await send('pull_request_review_comment', {
+        action: 'created',
+        installation: { id: Number(INSTALLATION_ID) },
+        repository: REPOSITORY,
+        sender: { id: 999, login: 'reviewer' },
+        comment: {
+          id: 10,
+          pull_request_review_id: 77001,
+          html_url: 'https://github.com/ablaszkiewicz/proke/pull/9#discussion_r10',
+          body: 'nit: rename this',
+        },
+        pull_request: PULL_REQUEST,
+      });
+
+      // then
+      expect(await onlyNotification()).toMatchObject({
+        type: NotificationType.ReadyToMerge,
+        readiness: 'ready',
+        comments: { count: 1 },
+      });
+    });
+  });
+
+  /**
    * The one poke whose recipient is not in the payload. A reply names the comment it answers by
    * id, and who wrote that comment has to come from somewhere else - the webhook for the comment
    * itself, if we saw it, and GitHub if we did not.
@@ -2577,7 +2811,10 @@ describe('Webhooks (github)', () => {
    */
   describe('account-wide poke settings', () => {
     const muteFor = async (userId: string, mutedTypes: NotificationType[]) => {
-      await bootstrap.models.userModel.updateOne({ _id: userId }, { $set: { pokeSettings: { mutedTypes } } });
+      await bootstrap.models.userModel.updateOne(
+        { _id: userId },
+        { $set: { pokeSettings: { mutedTypes } } },
+      );
     };
 
     const setupSubscriber = async () => {

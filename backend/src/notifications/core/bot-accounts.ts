@@ -130,6 +130,7 @@ const BOT_RULES: Record<NotificationType, BotRule> = {
   // that is precisely the sort of thing most authors want to hear about, however routine it is.
   [NotificationType.PullRequestMerged]: 'acting',
   [NotificationType.AutoMergeEnabled]: 'acting',
+  [NotificationType.ReadyToMerge]: 'acting',
   // The coverage report, every push, forever.
   [NotificationType.PullRequestComment]: 'talking',
   // A bot on an issue is if anything worse than one on a pull request: stale-bots, triage

@@ -22,6 +22,8 @@ export interface PokePreview {
   /** The lead, minus the actor - "merged", "commented on", "requested your review on". */
   lead: string;
   subject: string;
+  /** Said after the link - "ready to merge", on the poke about the last approval. */
+  after?: string;
   repository: string;
   /**
    * What has happened since, where the message was edited rather than sent again: the first
@@ -72,6 +74,7 @@ export function PokeCard({ preview }: { preview: PokePreview }) {
             {preview.marker ? `${preview.marker} ` : null}
             <span className="text-foreground">@{preview.actor}</span>{" "}
             {preview.lead} <span className="text-blue-400">{preview.subject}</span>
+            {preview.after ? ` · ${preview.after}` : null}
           </span>
         </p>
 
