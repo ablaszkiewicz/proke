@@ -166,6 +166,28 @@ describe('Slack delivery', () => {
       expect(posts[0].text).toContain('✅');
     });
 
+    it('says after the link what the author has to do next', async () => {
+      // given - the approval that left the pull request waiting on its author
+      const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });
+      const posts = capturePost();
+      const approved = (readiness: string) =>
+        notification({ type: NotificationType.ReadyToMerge, reviewState: 'approved', readiness });
+
+      // when
+      await delivery().deliver(user, approved('ready'));
+      await delivery().deliver(user, approved('conflicts'));
+      await delivery().deliver(user, approved('failing'));
+
+      // then - still the approval, with the next move on the end; the marker changes where
+      // something is in the way, because the line no longer asks the reader to go and merge
+      expect(lead(posts)).toMatch(
+        /^✅ <https:\/\/github\.com\/ada\|@ada> approved \*<.*>\* · ready to merge$/,
+      );
+      expect(posts[0].text).toContain('· ready to merge ·');
+      expect(posts[1].blocks[0].text.text).toMatch(/^⚠️ .* approved .* · has merge conflicts$/);
+      expect(posts[2].blocks[0].text.text).toMatch(/^🔴 .* approved .* · checks are failing$/);
+    });
+
     it('falls back to plain wording for a review that is neither', async () => {
       // given - a review submitted as comments only approves nothing and blocks nothing
       const { user } = await setupConnected({ dmChannelId: 'D0CACHED' });

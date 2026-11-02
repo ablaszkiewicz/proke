@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PokeDropReason } from '../../analytics/metrics-catalog';
 import { MetricsService } from '../../analytics/metrics.service';
 import { GithubCommentAuthorDataService } from '../../github-app/github-comment-author-data.service';
+import { GithubMergeReadinessDataService } from '../../github-app/github-merge-readiness-data.service';
 import { GithubPullRequestDataService } from '../../github-app/github-pull-request-data.service';
 import {
   GithubTeamMember,
@@ -126,6 +127,7 @@ export class GithubWebhookRouterService {
     private readonly teamMembersDataService: GithubTeamMembersDataService,
     private readonly repositoryAccessDataService: GithubRepositoryAccessDataService,
     private readonly pullRequestDataService: GithubPullRequestDataService,
+    private readonly mergeReadinessDataService: GithubMergeReadinessDataService,
     private readonly commentAuthorDataService: GithubCommentAuthorDataService,
     private readonly threadParticipantsDataService: GithubThreadParticipantsDataService,
     private readonly pokeResolutionService: PokeResolutionService,
@@ -451,11 +453,56 @@ export class GithubWebhookRouterService {
         continue;
       }
 
-      await this.deliveryService.submit(user, await this.withDiff(wanted[0], installationId));
+      const chosen = await this.settleReadiness(wanted, installationId);
+
+      // Only "ready to merge" was wanted, and the pull request is not waiting on its author yet.
+      // Not counted as dropped: nothing happened that this person asked to hear about.
+      if (!chosen) {
+        continue;
+      }
+
+      await this.deliveryService.submit(user, await this.withDiff(chosen, installationId));
       // After the poke rather than before it: the count is for a dialog, and never worth a
       // moment's delay to the thing it counts.
-      await this.senderStore.record(user.id, pokedBy(origin, wanted[0]), 'reached', wanted[0]);
+      await this.senderStore.record(user.id, pokedBy(origin, chosen), 'reached', chosen);
     }
+  }
+
+  /**
+   * Decides whether an approval goes out as "ready to merge" or as the plain review.
+   *
+   * Every approval is offered as both, so that each one meets the gates on its own switch. Only
+   * here, past every gate, is GitHub asked whether the pull request is now waiting on its author
+   * - it is a call, and not worth paying for somebody who switched the kind off. Where it is not
+   * the author's move yet, or GitHub would not say, the review poke goes instead, if wanted.
+   */
+  private async settleReadiness(
+    wanted: GithubNotificationNormalized[],
+    installationId: string,
+  ): Promise<GithubNotificationNormalized | undefined> {
+    const [lead] = wanted;
+    const fallback = wanted.find(
+      (notification) => notification.type !== NotificationType.ReadyToMerge,
+    );
+
+    if (lead.type !== NotificationType.ReadyToMerge) {
+      return lead;
+    }
+
+    const [owner, name, ...rest] = lead.repositoryFullName.split('/');
+
+    if (!owner || !name || rest.length > 0 || !lead.number) {
+      return fallback;
+    }
+
+    const readiness = await this.mergeReadinessDataService.read(
+      installationId,
+      owner,
+      name,
+      lead.number,
+    );
+
+    return readiness ? { ...lead, readiness } : fallback;
   }
 
   /**
@@ -890,6 +937,15 @@ export class GithubWebhookRouterService {
         recipient: { githubId: String(pullRequest.user.id) },
         notification: this.build(NotificationType.ReviewSubmitted, subject, context),
       });
+
+      // A candidate, not a promise: whether this approval leaves the pull request waiting on
+      // its author is only asked once the author is known to want it - see settleReadiness.
+      if (String(payload.review?.state ?? '').toLowerCase() === 'approved') {
+        pokes.push({
+          recipient: { githubId: String(pullRequest.user.id) },
+          notification: this.build(NotificationType.ReadyToMerge, subject, context),
+        });
+      }
     }
 
     pokes.push(...this.mentionPokes(NotificationType.PullRequestMention, subject, context));

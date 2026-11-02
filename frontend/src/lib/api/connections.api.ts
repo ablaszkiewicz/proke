@@ -16,6 +16,7 @@ export type NotificationType =
   | "review_submitted"
   | "pull_request_merged"
   | "auto_merge_enabled"
+  | "ready_to_merge"
   | "pull_request_comment"
   | "issue_comment"
   | "comment_reply"

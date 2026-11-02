@@ -218,6 +218,39 @@ export const NOTIFICATION_TYPES: NotificationTypeDescriptor[] = [
     },
   },
   {
+    type: "ready_to_merge",
+    group: "pull_requests",
+    title: "Your pull request is ready to merge",
+    short: "Ready to merge",
+    icon: ICON.merge,
+    // GitHub's own merge box, green, which is what the author is used to reading this off. Sent
+    // with the last approval only, and only once checks are done - see ReadyToMerge.
+    preview: () => (
+      <Preview
+        icon={<Octicon path={ICON.check} className="text-emerald-500" />}
+        header={
+          <>
+            <Who>octocat</Who> approved these changes
+          </>
+        }
+        badge={
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-500/15 px-1.5 py-px text-[10px] leading-none text-emerald-600 dark:text-emerald-400">
+            Ready to merge
+          </span>
+        }
+        body="All checks have passed · No conflicts with main"
+      />
+    ),
+    poke: {
+      marker: "✅",
+      actor: "ada",
+      lead: "approved",
+      subject: "Retry uploads with backoff #489",
+      after: "ready to merge",
+      repository: "acme/api",
+    },
+  },
+  {
     type: "pull_request_merged",
     group: "pull_requests",
     title: "Your pull request is merged",

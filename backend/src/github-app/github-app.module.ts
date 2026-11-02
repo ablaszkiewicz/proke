@@ -4,6 +4,7 @@ import { GithubAppInstallationsService } from './github-app-installations.servic
 import { GithubAppJwtService } from './github-app-jwt.service';
 import { GithubAppTokenService } from './github-app-token.service';
 import { GithubCommentAuthorDataService } from './github-comment-author-data.service';
+import { GithubMergeReadinessDataService } from './github-merge-readiness-data.service';
 import { GithubPullRequestDataService } from './github-pull-request-data.service';
 import { GithubTeamMembersDataService } from './github-team-members-data.service';
 import { GithubThreadParticipantsDataService } from './github-thread-participants-data.service';
@@ -16,6 +17,7 @@ import { GithubThreadParticipantsDataService } from './github-thread-participant
     GithubAppTokenService,
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
+    GithubMergeReadinessDataService,
     GithubCommentAuthorDataService,
     GithubThreadParticipantsDataService,
   ],
@@ -25,6 +27,7 @@ import { GithubThreadParticipantsDataService } from './github-thread-participant
     GithubAppTokenService,
     GithubTeamMembersDataService,
     GithubPullRequestDataService,
+    GithubMergeReadinessDataService,
     GithubCommentAuthorDataService,
     GithubThreadParticipantsDataService,
   ],
